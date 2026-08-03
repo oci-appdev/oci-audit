@@ -137,11 +137,33 @@ if (( INTERACTIVE )); then CLR="${ESC}[K"; else CLR=""; fi
 
 if (( ASCII )); then
   FULL='#'; EMPTY='.'; RULE='-'; DOT='*'; MID='|'; GAP='.'
-  # eighths 1..8 rendered with plain ASCII
-  EIGHTH=(' ' '.' '.' '-' '-' '=' '=' '#' '#')
 else
   FULL='█'; EMPTY='░'; RULE='─'; DOT='⬤'; MID='·'; GAP='·'
-  EIGHTH=(' ' '▁' '▂' '▃' '▄' '▅' '▆' '▇' '█')
+fi
+
+# Chart glyphs. A braille cell carries a 2-wide by 4-tall dot grid, so one
+# text row is worth four plot rows and the line can actually slope. BITS is
+# indexed (column * SUBH) + row; the odd numbering is the braille standard.
+declare -a BITS CHART_CHARS
+if (( ASCII )); then
+  SUBW=1; SUBH=1; BITS=(1); CHART_CHARS=(' ' '#')
+else
+  SUBW=2; SUBH=4; BITS=(1 2 4 64 8 16 32 128)
+  # U+2800+n encoded by hand: \u depends on the locale charmap, \x does not.
+  for (( bn = 0; bn < 256; bn++ )); do
+    printf -v bfmt '\\x%02x\\x%02x\\x%02x' 226 $(( 0xA0 | bn >> 6 )) $(( 0x80 | bn & 63 ))
+    printf -v "CHART_CHARS[$bn]" "$bfmt"
+  done
+fi
+
+# Fixed hues for the two network series so they stay distinguishable where the
+# value gradient would render them identically.
+if (( WANT_COLOR && NCOLORS >= 256 )); then
+  RX_COLOR="${ESC}[38;5;45m"; TX_COLOR="${ESC}[38;5;208m"
+elif (( WANT_COLOR && NCOLORS >= 8 )); then
+  RX_COLOR="${ESC}[36m"; TX_COLOR="${ESC}[33m"
+else
+  RX_COLOR=""; TX_COLOR=""
 fi
 
 # Draw a gradient bar. $1 = percent 0..100, $2 = width. Emits a colour code
@@ -456,81 +478,129 @@ sec_end() {   # $1 = buffer variable, $2 = line-count variable
 }
 
 HIST_SHOWN=0
-hist_chart() {  # $1 label  $2 metric  $3 kind (pct|rate)  $4 rows
-  local label=$1 m=$2 kind=$3 h=$4
-  local t=$WINDOW w n start shown i r v e idx maxv=1 cur=0 peak=0
-  local out pre ann a0 a1 last
+declare -a G=() GC=() CTAB=() SER=()
 
-  hist_series "$m" "$t"
-  n=${#HSER[@]}
+# Plot one series into the dot grid. Consecutive samples are joined by filling
+# the rows between them, so the result is a connected line rather than columns.
+# $1 = fixed colour index, or -1 to colour each cell by its own value.
+chart_draw() {
+  local fixed=$1 kind=$2 h=$3 start=$4 shown=$5 maxv=$6
+  local dw=$(( shown * SUBW )) dh=$(( h * SUBH ))
+  local x i a b v y ylo yhi row cell bit idx yprev=-1
+  for (( x = 0; x < dw; x++ )); do
+    i=$(( start + x / SUBW ))
+    if (( SUBW > 1 && x % SUBW )); then
+      a=${SER[i]}; b=${SER[i+1]:-$a}; v=$(( (a + b) / 2 ))   # midpoint of the step
+    else
+      v=${SER[i]}
+    fi
+    y=$(( dh - 1 - v * (dh - 1) / maxv ))
+    (( y < 0 )) && y=0
+    (( y >= dh )) && y=$(( dh - 1 ))
+    if   (( yprev < 0 ));    then ylo=$y;     yhi=$y
+    elif (( yprev < y ));    then ylo=$yprev; yhi=$y
+    else                          ylo=$y;     yhi=$yprev
+    fi
+    if (( fixed >= 0 )); then
+      idx=$fixed
+    else
+      if [[ $kind == pct ]]; then (( idx = PAL_N ? v * PAL_N / 100 : 0 ))
+      else                        (( idx = PAL_N ? v * PAL_N / maxv : 0 )); fi
+      (( PAL_N && idx >= PAL_N )) && idx=$(( PAL_N - 1 ))
+    fi
+    for (( row = ylo; row <= yhi; row++ )); do
+      cell=$(( (row / SUBH) * shown + x / SUBW ))
+      bit=${BITS[(x % SUBW) * SUBH + row % SUBH]}
+      G[cell]=$(( ${G[cell]:-0} | bit ))
+      GC[cell]=$idx
+    done
+    yprev=$y
+  done
+}
+
+# $1 label, $2 kind (pct|rate), $3 rows, $4.. metric ids (one or two)
+hist_chart() {
+  local label=$1 kind=$2 h=$3; shift 3
+  local t=$WINDOW w n start shown i v maxv peak=0 cur=0 cur2=0
+  local -a SA=() SB=() ANN=()
+  local r c cell bits idx last out pre
+
+  hist_series "$1" "$t"
+  (( ${#HSER[@]} )) && SA=("${HSER[@]}")
+  if (( $# > 1 )); then
+    hist_series "$2" "$t"
+    (( ${#HSER[@]} )) && SB=("${HSER[@]}")
+  fi
+
   w=$(( COLS - 9 - 16 ))
   # NBUCK sealed buckets exactly span the window; the extra in-progress bucket
   # would otherwise make the chart claim more time than it covers.
   (( w > NBUCK )) && w=$NBUCK
   (( w < 16 )) && w=16
+  n=${#SA[@]}
   start=0
   (( n > w )) && start=$(( n - w ))
   shown=$(( n - start ))
   HIST_SHOWN=$shown
 
-  for (( i = start; i < n; i++ )); do v=${HSER[i]}; (( v > peak )) && peak=$v; done
-  (( n > 0 )) && cur=${HSER[n-1]}
+  for (( i = start; i < n; i++ )); do
+    v=${SA[i]};              (( v > peak )) && peak=$v
+    v=${SB[i]:-0};           (( v > peak )) && peak=$v
+  done
+  (( n > 0 )) && cur=${SA[n-1]}
+  (( ${#SB[@]} )) && cur2=${SB[${#SB[@]}-1]}
   # Autoscaled y-axis, floored so an idle machine does not look saturated.
   maxv=$peak
   if [[ $kind == pct ]]; then (( maxv < 10 )) && maxv=10
-  else (( maxv < 1 )) && maxv=1; fi
+  else                        (( maxv < 1 )) && maxv=1; fi
 
-  if [[ $kind == pct ]]; then
-    printf -v a1 'max %3d%%' "$maxv"; printf -v a0 'now %3d%%' "$cur"
+  G=(); GC=(); CTAB=()
+  if (( $# > 1 )); then
+    CTAB=("$RX_COLOR" "$TX_COLOR")
+    SER=("${SB[@]}"); chart_draw 1 "$kind" "$h" "$start" "$shown" "$maxv"
+    SER=("${SA[@]}"); chart_draw 0 "$kind" "$h" "$start" "$shown" "$maxv"
+    ANN=("${DIM}max $(human "$maxv")/s${RESET}"
+         "${RX_COLOR}rx${RESET} ${DIM}$(human "$cur")/s${RESET}"
+         "${TX_COLOR}tx${RESET} ${DIM}$(human "$cur2")/s${RESET}")
   else
-    printf -v a1 'max %s/s' "$(human "$maxv")"; printf -v a0 'now %s/s' "$(human "$cur")"
+    (( PAL_N )) && CTAB=("${PAL_CODE[@]}")
+    SER=("${SA[@]}"); chart_draw -1 "$kind" "$h" "$start" "$shown" "$maxv"
+    printf -v v '%s' "$(printf 'max %3d%%' "$maxv")"
+    ANN=("${DIM}${v}${RESET}" "${DIM}$(printf 'now %3d%%' "$cur")${RESET}")
   fi
 
-  for (( r = h - 1; r >= 0; r-- )); do
+  for (( r = 0; r < h; r++ )); do          # row 0 is the top of the chart
     out=""; last=-1
-    if (( shown < w )); then           # columns not yet collected
+    if (( shown < w )); then               # time not yet collected
       out+="${MUTED}"
       for (( i = shown; i < w; i++ )); do
-        if (( r == 0 )); then out+="$GAP"; else out+=" "; fi
+        if (( r == h - 1 )); then out+="$GAP"; else out+=" "; fi
       done
       last=-2
     fi
-    for (( i = start; i < n; i++ )); do
-      v=${HSER[i]}
-      e=$(( v * 8 * h / maxv - r * 8 ))
-      (( e < 0 )) && e=0
-      (( e > 8 )) && e=8
-      if (( e == 0 )); then
-        out+=" "                        # blank ink needs no colour change
+    for (( c = 0; c < shown; c++ )); do
+      cell=$(( r * shown + c ))
+      bits=${G[cell]:-0}
+      if (( bits == 0 )); then
+        out+=" "                            # blank ink needs no colour change
       else
-        if [[ $kind == pct ]]; then (( idx = PAL_N ? v * PAL_N / 100 : 0 ))
-        else                            (( idx = PAL_N ? v * PAL_N / maxv : 0 )); fi
-        (( PAL_N && idx >= PAL_N )) && idx=$(( PAL_N - 1 ))
-        if (( idx != last )); then out+="${PAL_CODE[idx]:-}"; last=$idx; fi
-        out+="${EIGHTH[e]}"
+        idx=${GC[cell]}
+        if (( idx != last )); then out+="${CTAB[idx]:-}"; last=$idx; fi
+        out+="${CHART_CHARS[bits]}"
       fi
     done
-    if (( r == h - 1 )); then printf -v pre '%s%-9s%s' "$LABEL" "$label" "$RESET"
-    else printf -v pre '%9s' ""; fi
-    ann=""
-    if   (( h == 1 ));      then ann=$a0
-    elif (( r == h - 1 )); then ann=$a1
-    elif (( r == h - 2 )); then ann=$a0
-    fi
-    line "${pre}${out}${RESET}  ${DIM}${ann}${RESET}"
+    if (( r == 0 )); then printf -v pre '%s%-9s%s' "$LABEL" "$label" "$RESET"
+    else                  printf -v pre '%9s' ""; fi
+    line "${pre}${out}${RESET}  ${ANN[r]:-}"
   done
 }
 
-hist_panel() {
-  local netrows=$(( CHART_ROWS - 1 )) span keys="" i
-  (( netrows < 2 )) && netrows=2
-  (( CHART_ROWS == 1 )) && netrows=1
-  line ""
+hist_panel() {   # $1 rows, $2 charts: costs 2 + $1 * $2 lines
+  local h=$1 n=$2 span keys="" i
   rule "HISTORY"
-  hist_chart "cpu"    "$M_CPU" pct  "$CHART_ROWS"
-  hist_chart "mem"    "$M_MEM" pct  "$CHART_ROWS"
-  hist_chart "net rx" "$M_RX"  rate "$netrows"
-  hist_chart "net tx" "$M_TX"  rate "$netrows"
+                 hist_chart "cpu" pct  "$h" "$M_CPU"
+  (( n >= 2 )) && hist_chart "mem" pct  "$h" "$M_MEM"
+  (( n >= 3 )) && hist_chart "net" rate "$h" "$M_RX" "$M_TX"
   span=$(( TIER_SECS[WINDOW] / NBUCK ))
   (( span < 1 )) && span=1
   for (( i = 0; i < NTIER; i++ )); do
@@ -538,6 +608,16 @@ hist_panel() {
     else keys+="${MUTED}$(( i + 1 )):${TIER_NAME[i]}${RESET} "; fi
   done
   line "  ${keys}${DIM} ${MID} $(fmt_dur "$span")/col ${MID} $(fmt_dur $(( HIST_SHOWN * span ))) shown ${MID} ${TIER_FILL[WINDOW]}/${NBUCK} buckets${RESET}"
+}
+
+proc_panel() {   # costs 2 + $1 lines
+  local rows=$1 pid pcpu pmem comm
+  rule "TOP PROCESSES"
+  line "$(printf '%s  %-7s %-24s %8s %8s%s' "$MUTED" "PID" "COMMAND" "CPU%" "MEM%" "$RESET")"
+  while read -r pid pcpu pmem comm; do
+    [[ -n "${comm:-}" ]] || continue
+    line "$(printf '  %s%-7s%s %-24s %s%8s%s %8s' "$VALUE" "$pid" "$RESET" "${comm:0:24}" "$ACCENT" "$pcpu" "$RESET" "$pmem")"
+  done < <(ps -eo pid=,pcpu=,pmem=,comm= --sort=-pcpu 2>/dev/null | head -n "$rows")
 }
 
 render() {
@@ -560,7 +640,6 @@ render() {
   # ---- CPU
   local cores=$(( NCPU - 1 ))
   sec_begin
-  line ""
   rule "CPU"
   meter "total" "${CPU_PCT[0]:-0}" "$cores core$( (( cores == 1 )) || printf s )"
   sec_end S_CPU N_CPU
@@ -584,14 +663,8 @@ render() {
   fi
   sec_end S_CORE N_CORE
 
-  # ---- history
-  sec_begin
-  hist_panel
-  sec_end S_HIST N_HIST
-
   # ---- memory
   sec_begin
-  line ""
   rule "MEMORY"
   meter "ram" "$(pct_of "$MEM_USED" "$MEM_TOTAL")" "$(human "$MEM_USED") / $(human "$MEM_TOTAL")"
   if (( SWAP_TOTAL > 0 )); then
@@ -604,7 +677,6 @@ render() {
 
   # ---- disks
   sec_begin
-  line ""
   rule "DISK"
   local shown=0 fs size used avail cap mnt
   while read -r fs size used avail cap mnt; do
@@ -619,7 +691,6 @@ render() {
 
   # ---- network
   sec_begin
-  line ""
   rule "NETWORK"
   if (( NET_IFACES == 0 )); then
     line "${DIM}  no physical interfaces found (loopback and virtual devices are excluded)${RESET}"
@@ -632,42 +703,50 @@ render() {
   fi
   sec_end S_NET N_NET
 
-  # ---- processes
-  sec_begin
-  line ""
-  rule "TOP PROCESSES"
-  line "$(printf '%s  %-7s %-24s %8s %8s%s' "$MUTED" "PID" "COMMAND" "CPU%" "MEM%" "$RESET")"
-  local pid pcpu pmem comm
-  while read -r pid pcpu pmem comm; do
-    [[ -n "${comm:-}" ]] || continue
-    line "$(printf '  %s%-7s%s %-24s %s%8s%s %8s' "$VALUE" "$pid" "$RESET" "${comm:0:24}" "$ACCENT" "$pcpu" "$RESET" "$pmem")"
-  done < <(ps -eo pid=,pcpu=,pmem=,comm= --sort=-pcpu 2>/dev/null | head -n 6)
-  sec_end S_PROC N_PROC
-
   # ---- footer
   sec_begin
-  line ""
   line "${MUTED}  q quit${RESET}${DIM} ${MID} 1-5 or , . change history window ${MID} refresh ${INTERVAL}s${RESET}"
   sec_end S_FOOT N_FOOT
 
-  # ---- fit to the terminal: drop the least important panels first
+  # ---- fit to the terminal. The history charts and the process table are the
+  # point of the panel, so both keep a reserved minimum and the surplus is
+  # spent widening them. Blank separators are the first thing sacrificed.
   local budget=$(( ROWS - 1 ))
-  (( INTERACTIVE )) || budget=9999   # redirected output is not height-limited
-  local total=$(( N_HEAD + N_CPU + N_CORE + N_HIST + N_MEM + N_DISK + N_NET + N_PROC + N_FOOT ))
-  local show_core=1 show_proc=1 show_disk=1 show_net=1
-  if (( total > budget )); then show_core=0; total=$(( total - N_CORE )); fi
-  if (( total > budget )); then show_proc=0; total=$(( total - N_PROC )); fi
-  if (( total > budget )); then show_disk=0; total=$(( total - N_DISK )); fi
-  if (( total > budget )); then show_net=0;  total=$(( total - N_NET  )); fi
+  (( INTERACTIVE )) || budget=9999        # redirected output is not height-limited
+  local avail=$(( budget - N_HEAD - N_CPU - N_CORE - N_MEM - N_FOOT ))
+  local hrows=0 hcharts=0 prows=0 show_net=0 show_disk=0 show_core=1
+  if (( avail < 8 )); then                # no room for per-core bars
+    show_core=0; avail=$(( avail + N_CORE ))
+  fi
+  (( avail >= 3 )) && { hrows=1; hcharts=1; avail=$(( avail - 3 )); }   # rule+keys+cpu
+  (( avail >= 5 )) && { prows=3;            avail=$(( avail - 5 )); }   # rule+header+3
+  while (( hcharts && hcharts < 3 && avail >= hrows )); do (( hcharts++ )); avail=$(( avail - hrows )); done
+  (( hrows == 1 && CHART_ROWS >= 2 && avail >= hcharts )) && { hrows=2; avail=$(( avail - hcharts )); }
+  while (( prows > 0 && prows < 6 && avail >= 1 )); do (( prows++, avail-- )); done
+  (( avail >= N_NET  )) && { show_net=1;  avail=$(( avail - N_NET  )); }
+  (( avail >= N_DISK )) && { show_disk=1; avail=$(( avail - N_DISK )); }
+  while (( hrows > 0 && hrows < CHART_ROWS && avail >= hcharts )); do (( hrows++ )); avail=$(( avail - hcharts )); done
 
-  FRAME="$S_HEAD$S_CPU"
-  (( show_core )) && FRAME+="$S_CORE"
-  FRAME+="$S_HIST$S_MEM"
-  (( show_disk )) && FRAME+="$S_DISK"
-  (( show_net ))  && FRAME+="$S_NET"
-  (( show_proc )) && FRAME+="$S_PROC"
-  FRAME+="$S_FOOT"
-  (( total > budget )) && trim_frame "$budget"
+  sec_begin; (( hcharts )) && hist_panel "$hrows" "$hcharts"; sec_end S_HIST N_HIST
+  sec_begin; (( prows ))   && proc_panel "$prows";            sec_end S_PROC N_PROC
+
+  # NB: never assemble panels through $(...) -- it strips the trailing newline
+  # and welds the next panel onto the last line.
+  local cpu_part="$S_CPU"
+  (( show_core )) && cpu_part+="$S_CORE"
+  local -a parts=("$S_HEAD" "$cpu_part")
+  (( hcharts ))   && parts+=("$S_HIST")
+  parts+=("$S_MEM")
+  (( show_disk )) && parts+=("$S_DISK")
+  (( show_net ))  && parts+=("$S_NET")
+  (( prows ))     && parts+=("$S_PROC")
+  parts+=("$S_FOOT")
+
+  local sep="" i
+  (( avail >= ${#parts[@]} - 1 )) && sep="${CLR}"$'\n'
+  FRAME="${parts[0]}"
+  for (( i = 1; i < ${#parts[@]}; i++ )); do FRAME+="${sep}${parts[i]}"; done
+  trim_frame "$budget"
 }
 
 trim_frame() {   # last resort on a very short terminal
