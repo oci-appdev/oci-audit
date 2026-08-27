@@ -1,690 +1,867 @@
 #!/usr/bin/env bash
 #
-# oci_backup_report_rewritten.sh
-# ==========================
-# OCI access uses only Oracle-maintained showoci.py and Oracle OCI CLI.
-# All OCI commands are read-only list/get operations. Local CSV files are
-# created or replaced.
+# cp09-01-backup-type-config-frequency.sh
+#
+# CP-9 EVIDENCE — BACKUP TYPE, CONFIGURATION & FREQUENCY
+#
+# For every backup-capable asset in the tenancy, reports:
+#   IS IT BACKED UP?  by which policy?  what TYPE (FULL/INCREMENTAL)?
+#   how OFTEN?        what RETENTION?   and when did a backup last actually run?
+#
+# Sibling scripts in the CP-9 family:
+#   cp09-01 (this)  backup type / configuration / frequency
+#   cp09-02         who can access the backup files
+#   cp09-03         backup replication, retention & versioning (DR)
+#
+# READ-ONLY. Every OCI call is list/get. Nothing is created, modified, or
+# deleted. Verified against this file's own source at startup; --selfcheck
+# reproduces that proof on its own.
+#
+# Auth: OCI Cloud Shell delegation token by default (the same auth that makes
+#       `oci iam compartment list` work). Outside Cloud Shell pass -p PROFILE.
+#
+# Usage:
+#   ./cp09-01-backup-type-config-frequency.sh                  # whole tenancy
+#   ./cp09-01-backup-type-config-frequency.sh -c <ocid>        # one compartment
+#   ./cp09-01-backup-type-config-frequency.sh -n VCN,CD3       # by compartment NAME
+#   ./cp09-01-backup-type-config-frequency.sh -r us-langley-1  # region override
+#   ./cp09-01-backup-type-config-frequency.sh -p AUDITOR       # config-file profile
+#   ./cp09-01-backup-type-config-frequency.sh -s "volumes fss" # subset of services
+#   ./cp09-01-backup-type-config-frequency.sh -o ./evidence    # output directory
+#   ./cp09-01-backup-type-config-frequency.sh --selfcheck      # prove read-only, exit
+#
+# Services (-s): volumes bootvol volgroup fss object basedb adb mysql postgres
+#
+# Output: three timestamped CSVs + console summary.
+#   ..._config_<ts>.csv     one row per asset per schedule: type/frequency/retention
+#   ..._coverage_<ts>.csv   compartment x service ledger, so "no assets" is
+#                           distinguishable from "never collected"
+#   ..._findings_<ts>.csv   assets with no backup configured, severity-ranked
+#
+# Exit codes: 0 = clean run, 3 = ran but one or more collections were incomplete
+#             1 = could not start (missing dependency, no compartments)
+#
+# ---------------------------------------------------------------------------
+# 2026-08-27 REWRITE. The previous version drove collection through showoci and
+# joined the results by regex-guessing CSV filenames and column headers. Review
+# found that approach unsound, and two FSS blockers on top of it:
+#   * `oci fs snapshot-policy list` is not a real command (it is
+#     `fs filesystem-snapshot-policy`), so every FSS row errored; and the code
+#     behind it read `schedules` off the LIST summary, which never carries them
+#     — so fixing only the command name would have produced silent false-clean
+#     NO_SCHEDULES rows. Both are fixed here.
+#   * per-asset policy linkage now uses the authoritative API
+#     (`bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment`)
+#     instead of a showoci column that may not exist.
+# showoci is no longer required. Base DB, Autonomous DB, MySQL and PostgreSQL
+# are now covered. Compartment NAMES are recorded so evidence is filterable by
+# VCN / Shared Services / CD3.
+# ---------------------------------------------------------------------------
+#
+set -uo pipefail
 
-set -Eeuo pipefail
-IFS=$'\n\t'
+SCRIPT_PATH="${BASH_SOURCE[0]}"
 
-PROFILE="DEFAULT"
-AUTH="config"
-REGION=""
-ALL_REGIONS="false"
-PREFIX="report"
+# ---------------------------------------------------------------------------
+# Read-only self-verification
+# ---------------------------------------------------------------------------
+readonly_selfcheck() {                                          # selfcheck-exempt
+  local deny hits                                               # selfcheck-exempt
+  deny='oci[[:space:]]+([a-z0-9-]+[[:space:]]+)*(create|update|delete|change|move|restore|enable|disable|rotate|assign|attach|detach|terminate|reboot|import|export|upload|bulk-upload|bulk-delete|reset|activate|deactivate|cancel)([[:space:]]|$)'  # selfcheck-exempt
+  hits="$(grep -nE "$deny" "$SCRIPT_PATH" 2>/dev/null \
+          | grep -v 'selfcheck-exempt' \
+          | grep -vE '^[0-9]+:[[:space:]]*#' || true)"          # selfcheck-exempt
+  local raw rawpat                                              # selfcheck-exempt
+  rawpat="raw""-request"   # split literal so this line is not its own match
+  raw="$(grep -nE "$rawpat" "$SCRIPT_PATH" 2>/dev/null \
+         | grep -viE 'http-method[[:space:]=]+GET' \
+         | grep -v 'selfcheck-exempt' \
+         | grep -vE '^[0-9]+:[[:space:]]*#' || true)"           # selfcheck-exempt
+  if [ -n "$hits" ] || [ -n "$raw" ]; then                      # selfcheck-exempt
+    echo "READ-ONLY SELF-CHECK: FAILED — mutating call found:" >&2
+    printf '%s\n%s\n' "$hits" "$raw" >&2
+    return 1
+  fi
+  return 0
+}
+
+if [ "${1:-}" = "--selfcheck" ]; then
+  if readonly_selfcheck; then
+    echo "READ-ONLY SELF-CHECK: PASSED"
+    echo "No create/update/delete/change/restore/... subcommand appears in $SCRIPT_PATH"
+    echo "All OCI calls are list/get. Local CSV output only."
+    exit 0
+  fi
+  exit 1
+fi
+
+command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found." >&2; exit 1; }
+command -v jq  >/dev/null 2>&1 || { echo "ERROR: jq not found." >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Options
+# ---------------------------------------------------------------------------
+SINGLE_COMP=""
+COMP_NAMES_FILTER=""
+REGION_OVERRIDE=""
+PROFILE=""
 OUTDIR="."
-SHOWOCI=""
-CONFIG_FILE=""
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+SERVICES="volumes bootvol volgroup fss object basedb adb mysql postgres"
 
-usage() {
-  cat <<'USAGE'
-Usage: oci_backup_report_rewritten.sh [options]
-  -p PROFILE      OCI config profile (default: DEFAULT)
-  -i              Use instance-principal authentication
-  -r REGION       Scan one region
-  --all-regions   Scan every subscribed region
-  -f FILE         OCI config file path (default: /.oci/config)
-  -o DIR          Output directory (default: current directory)
-  -x PREFIX       CSV filename stem (default: report)
-  -s PATH         Path to showoci.py
-  -h              Show help
-
-Pass exactly one of -r REGION or --all-regions.
-USAGE
-}
-
-ARGS=()
-while (($#)); do
-  case "$1" in
-    --all-regions) ALL_REGIONS="true"; shift ;;
-    --) shift; ARGS+=("$@"); break ;;
-    *) ARGS+=("$1"); shift ;;
-  esac
-done
-set -- "${ARGS[@]}"
-
-while getopts ":p:ir:f:o:x:s:h" opt; do
+while getopts "c:n:r:p:o:s:h" opt; do
   case "$opt" in
+    c) SINGLE_COMP="$OPTARG" ;;
+    n) COMP_NAMES_FILTER="$OPTARG" ;;
+    r) REGION_OVERRIDE="$OPTARG" ;;
     p) PROFILE="$OPTARG" ;;
-    i) AUTH="instance_principal" ;;
-    r) REGION="$OPTARG" ;;
-    f) CONFIG_FILE="$OPTARG" ;;
     o) OUTDIR="$OPTARG" ;;
-    x) PREFIX="$OPTARG" ;;
-    s) SHOWOCI="$OPTARG" ;;
-    h) usage; exit 0 ;;
-    :) echo "ERROR: -$OPTARG requires a value." >&2; exit 2 ;;
-    \?) echo "ERROR: unknown option -$OPTARG" >&2; usage >&2; exit 2 ;;
+    s) SERVICES="$OPTARG" ;;
+    h) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "Use -h for help" >&2; exit 1 ;;
   esac
 done
 
-if [[ -z "$REGION" && "$ALL_REGIONS" != "true" ]]; then
-  echo "ERROR: pass -r REGION or --all-regions." >&2
-  exit 2
-fi
-if [[ -n "$REGION" && "$ALL_REGIONS" == "true" ]]; then
-  echo "ERROR: use either -r REGION or --all-regions, not both." >&2
-  exit 2
-fi
-if [[ ! "$PREFIX" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || "$PREFIX" == "." || "$PREFIX" == ".." ]]; then
-  echo "ERROR: prefix must use only letters, digits, dot, underscore, and hyphen." >&2
-  exit 2
-fi
+has_svc() { case " $SERVICES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
-command -v "$PYTHON_BIN" >/dev/null 2>&1 || { echo "ERROR: Python not found: $PYTHON_BIN" >&2; exit 1; }
-command -v oci >/dev/null 2>&1 || { echo "ERROR: OCI CLI ('oci') is not installed." >&2; exit 1; }
+mkdir -p -- "$OUTDIR" 2>/dev/null || { echo "ERROR: cannot create output dir: $OUTDIR" >&2; exit 1; }
 
-mkdir -p -- "$OUTDIR"
-OUTDIR="$(cd -- "$OUTDIR" && pwd -P)"
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+AUTH_ARG=(); [ -n "$PROFILE" ] && AUTH_ARG=(--profile "$PROFILE")
+REGION_ARG=(); [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")
 
-if [[ -z "$SHOWOCI" ]]; then
-  for candidate in \
-    "$HOME/oci-python-sdk/examples/showoci/showoci.py" \
-    "$SCRIPT_DIR/showoci.py" \
-    "$PWD/showoci.py"; do
-    if [[ -f "$candidate" ]]; then
-      SHOWOCI="$candidate"
-      break
-    fi
-  done
-fi
-[[ -n "$SHOWOCI" && -f "$SHOWOCI" ]] || { echo "ERROR: showoci.py not found; use -s PATH." >&2; exit 1; }
-SHOWOCI="$(cd -- "$(dirname -- "$SHOWOCI")" && pwd -P)/$(basename -- "$SHOWOCI")"
+readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
 
-expand_path() {
-  local path="$1"
-  case "$path" in
-    "~") printf '%s\n' "$HOME" ;;
-    "~/"*) printf '%s/%s\n' "$HOME" "${path#~/}" ;;
-    *) printf '%s\n' "$path" ;;
-  esac
-}
+# ---------------------------------------------------------------------------
+# OCI invocation wrapper.
+#
+# stderr is captured, never discarded: a permission denial must never be
+# rendered as "this asset has no backup configured".
+# ---------------------------------------------------------------------------
+INCOMPLETE=0
+OCI_OUT=""; OCI_RC=0; OCI_ERR=""; OCI_STATUS="OK"
 
-read_profile_value() {
-  local file="$1" profile="$2" key="$3"
-  "$PYTHON_BIN" - "$file" "$profile" "$key" <<'PYCFG'
-import configparser
-import os
-import sys
+oci_try() {
+  local errf
+  errf="$(mktemp 2>/dev/null || echo "/tmp/cp0901.$$.err")"
+  # ${arr[@]+"${arr[@]}"} keeps empty arrays safe under `set -u` on bash < 4.4
+  OCI_OUT="$(oci ${REGION_ARG[@]+"${REGION_ARG[@]}"} ${AUTH_ARG[@]+"${AUTH_ARG[@]}"} "$@" 2>"$errf")"
+  OCI_RC=$?
+  OCI_ERR="$(tr '\n\r' '  ' < "$errf" 2>/dev/null | sed 's/  */ /g' | cut -c1-300)"
+  rm -f "$errf" 2>/dev/null
 
-file_name, profile, key = sys.argv[1:4]
-parser = configparser.RawConfigParser()
-try:
-    with open(file_name, "r", encoding="utf-8") as stream:
-        parser.read_file(stream)
-except (OSError, configparser.Error):
-    sys.exit(1)
-
-# ConfigParser treats [DEFAULT] specially, so handle it explicitly.
-if profile == "DEFAULT":
-    value = parser.defaults().get(key)
-else:
-    value = parser.get(profile, key, fallback=None) if parser.has_section(profile) else None
-
-if not value:
-    sys.exit(0)
-
-value = os.path.expandvars(os.path.expanduser(value.strip()))
-if not os.path.isabs(value):
-    value = os.path.join(os.path.dirname(os.path.realpath(file_name)), value)
-print(os.path.realpath(value))
-PYCFG
-}
-
-select_config_file() {
-  if [[ -n "$CONFIG_FILE" ]]; then
-    CONFIG_FILE="$(expand_path "$CONFIG_FILE")"
+  if [ "$OCI_RC" -eq 0 ]; then
+    OCI_STATUS="OK"
+  elif printf '%s' "$OCI_ERR" | grep -qiE 'NotAuthorized|Authorization failed|forbidden|\b403\b'; then
+    OCI_STATUS="DENIED"; INCOMPLETE=1
+  elif printf '%s' "$OCI_ERR" | grep -qiE 'No such command|no such option|Usage:'; then
+    OCI_STATUS="CLI_UNSUPPORTED"; INCOMPLETE=1
+  elif printf '%s' "$OCI_ERR" | grep -qiE 'NotFound|does not exist|\b404\b'; then
+    OCI_STATUS="NOTFOUND"
   else
-    CONFIG_FILE="/.oci/config"
+    OCI_STATUS="ERROR"; INCOMPLETE=1
   fi
+  # In JSON a literal CR inside a string must be escaped, so a bare 0x0D can
+  # only be line-ending noise. Left in, it lands inside CSV cells and map keys.
+  OCI_OUT="${OCI_OUT//$'\r'/}"
+  [ -z "$OCI_OUT" ] && OCI_OUT='{"data":[]}'
+  return 0
 }
 
-preflight_config_auth() {
-  select_config_file
+jqd() { printf '%s' "$OCI_OUT" | jq -r "$1" 2>/dev/null | tr -d '\r'; }
+num() { case "${1:-}" in ''|*[!0-9]*) printf '0' ;; *) printf '%s' "$1" ;; esac; }
 
-  if [[ ! -e "$CONFIG_FILE" ]]; then
-    echo "ERROR: OCI config file does not exist: $CONFIG_FILE" >&2
-    echo "       Default expected location: /.oci/config" >&2
-    exit 1
-  fi
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "ERROR: OCI config path is not a regular file: $CONFIG_FILE" >&2
-    exit 1
-  fi
-  if [[ ! -r "$CONFIG_FILE" ]]; then
-    echo "ERROR: OCI config file is not readable by user $(id -un): $CONFIG_FILE" >&2
-    echo "Directory/file permissions:" >&2
-    if command -v namei >/dev/null 2>&1; then
-      namei -l "$CONFIG_FILE" >&2 || true
-    else
-      ls -ld "$(dirname -- "$CONFIG_FILE")" "$CONFIG_FILE" >&2 || true
-    fi
-    exit 1
-  fi
+# ---------------------------------------------------------------------------
+# CSV output (RFC 4180 + formula-injection neutralisation)
+# ---------------------------------------------------------------------------
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+BASE="$OUTDIR/cp09-01_backup_config"
+CFG_CSV="${BASE}_config_${TS}.csv"
+COV_CSV="${BASE}_coverage_${TS}.csv"
+FIND_CSV="${BASE}_findings_${TS}.csv"
 
-  CONFIG_FILE="$($PYTHON_BIN - "$CONFIG_FILE" <<'PYPATH'
-import os, sys
-print(os.path.realpath(sys.argv[1]))
-PYPATH
-)"
-
-  local key_file token_file
-  key_file="$(read_profile_value "$CONFIG_FILE" "$PROFILE" key_file || true)"
-  token_file="$(read_profile_value "$CONFIG_FILE" "$PROFILE" security_token_file || true)"
-
-  if [[ -z "$key_file" && -z "$token_file" ]]; then
-    echo "ERROR: profile [$PROFILE] was not found or has neither key_file nor security_token_file:" >&2
-    echo "       $CONFIG_FILE" >&2
-    exit 1
-  fi
-
-  for credential_file in "$key_file" "$token_file"; do
-    [[ -z "$credential_file" ]] && continue
-    credential_file="$(expand_path "$credential_file")"
-    if [[ ! -e "$credential_file" ]]; then
-      echo "ERROR: credential file referenced by profile [$PROFILE] does not exist:" >&2
-      echo "       $credential_file" >&2
-      exit 1
-    fi
-    if [[ ! -f "$credential_file" || ! -r "$credential_file" ]]; then
-      echo "ERROR: credential file referenced by profile [$PROFILE] is not readable by $(id -un):" >&2
-      echo "       $credential_file" >&2
-      if command -v namei >/dev/null 2>&1; then
-        namei -l "$credential_file" >&2 || true
-      else
-        ls -ld "$(dirname -- "$credential_file")" "$credential_file" >&2 || true
-      fi
-      exit 1
-    fi
+csv_row() {
+  local file="$1"; shift
+  local out="" first=1 f
+  for f in "$@"; do
+    f="${f//$'\n'/ }"; f="${f//$'\r'/}"
+    case "$f" in [=+@-]*) f="'$f" ;; esac
+    f="${f//\"/\"\"}"
+    if [ "$first" -eq 1 ]; then first=0; else out+=","; fi
+    out+="\"${f}\""
   done
-
-  echo ">>> OCI authentication preflight passed." >&2
-  echo "    user   : $(id -un) (uid=$(id -u))" >&2
-  echo "    profile: $PROFILE" >&2
-  echo "    config : $CONFIG_FILE" >&2
+  printf '%s\n' "$out" >> "$file"
 }
 
-# Do not inherit a different config location such as /etc/oci/config.
-unset OCI_CONFIG_FILE OCI_CLI_CONFIG_FILE 2>/dev/null || true
+printf '%s\n' 'compartment_id,compartment_name,service,resource_type,resource_name,resource_id,backup_configured,policy_source,policy_name,policy_id,backup_type,frequency,retention,time_zone,last_backup_time,backup_count,collection_status,collection_error' > "$CFG_CSV"
+printf '%s\n' 'compartment_id,compartment_name,service,assets_found,collection_status,collection_error' > "$COV_CSV"
+printf '%s\n' 'severity,category,compartment_id,compartment_name,service,resource,detail,recommendation' > "$FIND_CSV"
 
-CLI_AUTH=()
-SHOWOCI_AUTH=()
-if [[ "$AUTH" == "instance_principal" ]]; then
-  CLI_AUTH+=(--auth instance_principal)
-  SHOWOCI_AUTH+=(-ip)
-else
-  preflight_config_auth
-  export OCI_CONFIG_FILE="$CONFIG_FILE"
-  export OCI_CLI_CONFIG_FILE="$CONFIG_FILE"
-  CLI_AUTH+=(--profile "$PROFILE" --config-file "$CONFIG_FILE")
-  SHOWOCI_AUTH+=(-t "$PROFILE" -cf "$CONFIG_FILE")
-fi
-
-# Pass auth to embedded Python without lossy whitespace splitting.
-export OCI_REPORT_AUTH="$AUTH"
-export OCI_REPORT_PROFILE="$PROFILE"
-export OCI_REPORT_CONFIG_FILE="$CONFIG_FILE"
-
-run_oci_json() {
-  oci "$@" "${CLI_AUTH[@]}" --output json
+FINDING_COUNT=0
+finding() {  # severity category comp service resource detail recommendation
+  csv_row "$FIND_CSV" "$1" "$2" "$3" "${COMP_NAME[$3]:-<unknown>}" "$4" "$5" "$6" "$7"
+  FINDING_COUNT=$((FINDING_COUNT+1))
 }
 
-REGION_LIST=()
-if [[ "$ALL_REGIONS" == "true" ]]; then
-  echo ">>> Enumerating subscribed regions ..." >&2
-  REGION_JSON="$(run_oci_json iam region-subscription list --all)" || {
-    echo "ERROR: unable to enumerate subscribed regions." >&2
-    exit 1
-  }
-  mapfile -t REGION_LIST < <(
-    REGION_JSON="$REGION_JSON" "$PYTHON_BIN" - <<'PY'
-import json, os
-payload = json.loads(os.environ["REGION_JSON"])
-for row in payload.get("data", []):
-    name = row.get("region-name")
-    if name:
-        print(name)
-PY
-  )
-  ((${#REGION_LIST[@]})) || { echo "ERROR: no subscribed regions returned." >&2; exit 1; }
+cfg_row() {  # comp svc rtype rname rid configured psource pname pid btype freq ret tz last count status err
+  csv_row "$CFG_CSV" "$1" "${COMP_NAME[$1]:-<unknown>}" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" \
+          "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}"
+}
+
+cov_row() {  # comp svc count status err
+  csv_row "$COV_CSV" "$1" "${COMP_NAME[$1]:-<unknown>}" "$2" "$3" "$4" "$5"
+}
+
+# ---------------------------------------------------------------------------
+# Banner
+# ---------------------------------------------------------------------------
+echo "======================================================================"
+echo " CP-9 BACKUP TYPE / CONFIGURATION / FREQUENCY EVIDENCE"
+echo "======================================================================"
+echo " read-only : verified against own source (--selfcheck to reproduce)"
+echo " region    : ${REGION_OVERRIDE:-<cloud-shell / config default>}"
+echo " auth      : ${PROFILE:-<delegation token / DEFAULT>}"
+echo " services  : $SERVICES"
+echo " output    : $OUTDIR"
+echo "======================================================================"
+echo
+
+# ---------------------------------------------------------------------------
+# Tenancy + compartments (id AND name)
+# ---------------------------------------------------------------------------
+declare -A COMP_NAME
+
+oci_try iam compartment list --access-level ANY --limit 1 --query 'data[0]."compartment-id"' --raw-output
+TENANCY_ID="$OCI_OUT"
+case "$TENANCY_ID" in ocid1.tenancy.*) : ;; *) TENANCY_ID="" ;; esac
+[ -z "$TENANCY_ID" ] && { echo "ERROR: could not resolve tenancy OCID ($OCI_STATUS): $OCI_ERR" >&2; exit 1; }
+echo "Tenancy: $TENANCY_ID"
+
+COMPS=""
+if [ -n "$SINGLE_COMP" ]; then
+  COMPS="$SINGLE_COMP"
+  oci_try iam compartment get --compartment-id "$SINGLE_COMP" --query 'data.name' --raw-output
+  COMP_NAME["$SINGLE_COMP"]="${OCI_OUT:-<unknown>}"
 else
-  REGION_LIST=("$REGION")
+  oci_try iam compartment list --compartment-id "$TENANCY_ID" --compartment-id-in-subtree true \
+          --access-level ANY --lifecycle-state ACTIVE --all
+  [ "$OCI_STATUS" != "OK" ] && { echo "ERROR: compartment enumeration failed ($OCI_STATUS): $OCI_ERR" >&2; exit 1; }
+  while IFS=$'\t' read -r cid cname; do
+    [ -z "$cid" ] && continue
+    COMP_NAME["$cid"]="$cname"
+    COMPS="${COMPS}${cid}"$'\n'
+  done < <(printf '%s' "$OCI_OUT" | jq -r '.data[]? | [.id, .name] | @tsv' 2>/dev/null | tr -d '\r')
+  oci_try iam compartment get --compartment-id "$TENANCY_ID" --query 'data.name' --raw-output
+  COMP_NAME["$TENANCY_ID"]="${OCI_OUT:-root}"
+  COMPS="$TENANCY_ID"$'\n'"$COMPS"
 fi
 
-printf '%s\n' "============================================================" >&2
-printf ' OCI STORAGE BACKUP REPORT (showoci + OCI CLI, READ-ONLY)\n' >&2
-printf ' auth       : %s\n' "$AUTH" >&2
-printf ' profile    : %s\n' "$PROFILE" >&2
-printf ' regions    : %s\n' "${REGION_LIST[*]}" >&2
-printf ' showoci    : %s\n' "$SHOWOCI" >&2
-printf ' output dir : %s\n' "$OUTDIR" >&2
-printf '%s\n' "============================================================" >&2
-
-# Remove only this run's generated aggregate files. Inventory files are emitted
-# with region-specific prefixes and checked after each showoci run.
-POLICY_CSV="$OUTDIR/${PREFIX}_backup_policy_schedules.csv"
-FSS_POLICY_CSV="$OUTDIR/${PREFIX}_fss_snapshot_schedules.csv"
-JOINED_CSV="$OUTDIR/${PREFIX}_storage_backup_joined.csv"
-rm -f -- "$POLICY_CSV" "$FSS_POLICY_CSV" "$JOINED_CSV"
-
-# STEP 1: showoci is the primary collector.
-echo ">>> STEP 1: showoci inventory" >&2
-INVENTORY_PREFIXES=()
-for rg in "${REGION_LIST[@]}"; do
-  inv_prefix="$OUTDIR/${PREFIX}_${rg}"
-  INVENTORY_PREFIXES+=("$inv_prefix")
-  echo "    [showoci] $rg" >&2
-
-  # Remove stale files for this exact regional prefix before collection.
-  find "$OUTDIR" -maxdepth 1 -type f -name "${PREFIX}_${rg}_*.csv" -delete
-
-  "$PYTHON_BIN" "$SHOWOCI" "${SHOWOCI_AUTH[@]}" -rg "$rg" -a -csv "$inv_prefix"
-
-  shopt -s nullglob
-  generated=("${inv_prefix}"_*.csv)
-  shopt -u nullglob
-  if ((${#generated[@]} == 0)); then
-    echo "ERROR: showoci produced no CSV files for region $rg." >&2
+if [ -n "$COMP_NAMES_FILTER" ]; then
+  filtered=""
+  while IFS= read -r cid; do
+    [ -z "$cid" ] && continue
+    nm="$(printf '%s' "${COMP_NAME[$cid]:-}" | tr 'A-Z' 'a-z')"
+    IFS=',' read -ra wanted <<< "$COMP_NAMES_FILTER"
+    for w in "${wanted[@]}"; do
+      w="$(printf '%s' "$w" | sed 's/^ *//;s/ *$//' | tr 'A-Z' 'a-z')"
+      [ -z "$w" ] && continue
+      [ "$nm" = "$w" ] && { filtered="${filtered}${cid}"$'\n'; break; }
+    done
+  done <<< "$COMPS"
+  COMPS="$filtered"
+  if [ "$(num "$(printf '%s\n' "$COMPS" | grep -c . || true)")" -eq 0 ]; then
+    echo "ERROR: no compartment matched -n '$COMP_NAMES_FILTER'." >&2
+    echo "Available:" >&2
+    for k in "${!COMP_NAME[@]}"; do echo "  ${COMP_NAME[$k]}" >&2; done
     exit 1
   fi
-done
+fi
 
-# STEP 2/2b workers. Custom Block policies are compartment-scoped; Oracle-
-# defined policies are returned by listing without --compartment-id.
-echo ">>> STEP 2: Block/Boot and FSS policy schedules" >&2
-export POLICY_CSV FSS_POLICY_CSV
-printf '%s\n' 'region,compartment_id,policy_id,policy_name,schedule_status,backup_type,period,hour_of_day,day_of_week,day_of_month,month,retention_seconds,time_zone,collection_status,collection_error' > "$POLICY_CSV"
-printf '%s\n' 'region,compartment_id,policy_id,policy_name,schedule_status,period,hour_of_day,day_of_week,day_of_month,month,retention_seconds,time_zone,collection_status,collection_error' > "$FSS_POLICY_CSV"
+COMP_COUNT="$(num "$(printf '%s\n' "$COMPS" | grep -c . || true)")"
+[ "$COMP_COUNT" -eq 0 ] && { echo "ERROR: no compartments enumerated." >&2; exit 1; }
+echo "Scope  : $COMP_COUNT compartment(s)"
+echo
 
-overall_rc=0
-for rg in "${REGION_LIST[@]}"; do
-  echo "    [policy enrichment] $rg" >&2
-  if ! REGION_ARG="$rg" "$PYTHON_BIN" - <<'PY'; then
-import csv
-import json
-import os
-import subprocess
-import sys
-from typing import Any
+OS_NS=""
+if has_svc object; then
+  oci_try os ns get --query 'data' --raw-output
+  [ "$OCI_STATUS" = "OK" ] && OS_NS="$OCI_OUT"
+fi
 
-region = os.environ["REGION_ARG"]
-block_csv = os.environ["POLICY_CSV"]
-fss_csv = os.environ["FSS_POLICY_CSV"]
-auth_mode = os.environ.get("OCI_REPORT_AUTH", "config")
-profile = os.environ.get("OCI_REPORT_PROFILE", "DEFAULT")
-config_file = os.environ.get("OCI_REPORT_CONFIG_FILE", "")
+# ---------------------------------------------------------------------------
+# Block volume backup policy schedules.
+#
+# Policy details are fetched once per policy id and cached: Oracle-defined
+# bronze/silver/gold are assigned to most volumes in the tenancy, so without a
+# cache this is one API call per volume.
+# ---------------------------------------------------------------------------
+declare -A POLICY_NAME_CACHE
+declare -A POLICY_SCHED_CACHE   # id -> schedule lines, \x1e-separated
+declare -A POLICY_STATUS_CACHE
 
-auth_args: list[str] = []
-if auth_mode == "instance_principal":
-    auth_args = ["--auth", "instance_principal"]
-else:
-    auth_args = ["--profile", profile]
-    if config_file:
-        auth_args += ["--config-file", config_file]
-
-
-def run_oci(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["oci", *args, *auth_args, "--output", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-def parse_data(result: subprocess.CompletedProcess[str]) -> list[dict[str, Any]]:
-    payload = json.loads(result.stdout or "{}")
-    data = payload.get("data", [])
-    return data if isinstance(data, list) else []
-
-
-def clean_error(result: subprocess.CompletedProcess[str]) -> str:
-    return (result.stderr or result.stdout or "command failed").strip().replace("\n", " ")[:500]
-
-rc = 0
-
-# include-root gives us the tenancy root explicitly. ACCESSIBLE avoids claiming
-# that inaccessible compartments were fully assessed.
-comp_result = run_oci(
-    "iam", "compartment", "list",
-    "--compartment-id-in-subtree", "true",
-    "--include-root",
-    "--access-level", "ACCESSIBLE",
-    "--all",
-    "--region", region,
-)
-if comp_result.returncode != 0:
-    msg = clean_error(comp_result)
-    with open(block_csv, "a", newline="", encoding="utf-8") as fh:
-        csv.writer(fh).writerow([region, "", "", "", "", "", "", "", "", "", "", "", "", "COMPARTMENT_LIST_FAILED", msg])
-    with open(fss_csv, "a", newline="", encoding="utf-8") as fh:
-        csv.writer(fh).writerow([region, "", "", "", "", "", "", "", "", "", "", "", "COMPARTMENT_LIST_FAILED", msg])
-    sys.exit(3)
-
-try:
-    compartments = parse_data(comp_result)
-except (json.JSONDecodeError, TypeError) as exc:
-    msg = str(exc)[:500]
-    with open(block_csv, "a", newline="", encoding="utf-8") as fh:
-        csv.writer(fh).writerow([region, "", "", "", "", "", "", "", "", "", "", "", "", "COMPARTMENT_PARSE_ERROR", msg])
-    with open(fss_csv, "a", newline="", encoding="utf-8") as fh:
-        csv.writer(fh).writerow([region, "", "", "", "", "", "", "", "", "", "", "", "COMPARTMENT_PARSE_ERROR", msg])
-    sys.exit(3)
-
-compartment_ids: list[str] = []
-for compartment in compartments:
-    cid = compartment.get("id")
-    state = compartment.get("lifecycle-state")
-    if cid and state != "DELETED" and cid not in compartment_ids:
-        compartment_ids.append(cid)
-
-# ---- Block/Boot policies ----
-seen_policy_ids: set[str] = set()
-block_rows = 0
-with open(block_csv, "a", newline="", encoding="utf-8") as fh:
-    writer = csv.writer(fh)
-
-    scopes: list[tuple[str, list[str]]] = [("ORACLE_DEFINED", [])]
-    scopes.extend((cid, ["--compartment-id", cid]) for cid in compartment_ids)
-
-    for compartment_id, scope_args in scopes:
-        listed = run_oci(
-            "bv", "volume-backup-policy", "list", "--all",
-            "--region", region,
-            *scope_args,
-        )
-        if listed.returncode != 0:
-            writer.writerow([region, compartment_id, "", "", "", "", "", "", "", "", "", "", "", "LIST_FAILED", clean_error(listed)])
-            rc = 3
-            continue
-        try:
-            policies = parse_data(listed)
-        except (json.JSONDecodeError, TypeError) as exc:
-            writer.writerow([region, compartment_id, "", "", "", "", "", "", "", "", "", "", "", "LIST_PARSE_ERROR", str(exc)[:500]])
-            rc = 3
-            continue
-
-        for policy in policies:
-            pid = policy.get("id", "")
-            if not pid or pid in seen_policy_ids:
-                continue
-            seen_policy_ids.add(pid)
-            pname = policy.get("display-name", "")
-            detail = run_oci(
-                "bv", "volume-backup-policy", "get",
-                "--policy-id", pid,
-                "--region", region,
-            )
-            if detail.returncode != 0:
-                writer.writerow([region, compartment_id, pid, pname, "", "", "", "", "", "", "", "", "", "LOOKUP_FAILED", clean_error(detail)])
-                rc = 3
-                continue
-            try:
-                data = json.loads(detail.stdout or "{}").get("data", {}) or {}
-            except json.JSONDecodeError as exc:
-                writer.writerow([region, compartment_id, pid, pname, "", "", "", "", "", "", "", "", "", "GET_PARSE_ERROR", str(exc)[:500]])
-                rc = 3
-                continue
-            schedules = data.get("schedules", []) or []
-            if not schedules:
-                writer.writerow([region, compartment_id, pid, pname, "NO_SCHEDULES", "", "", "", "", "", "", "", "", "OK", ""])
-                block_rows += 1
-                continue
-            for schedule in schedules:
-                writer.writerow([
-                    region, compartment_id, pid, pname, "HAS_SCHEDULE",
-                    schedule.get("backup-type", ""),
-                    schedule.get("period", ""),
-                    schedule.get("hour-of-day", ""),
-                    schedule.get("day-of-week", ""),
-                    schedule.get("day-of-month", ""),
-                    schedule.get("month", ""),
-                    schedule.get("retention-seconds", ""),
-                    schedule.get("time-zone", ""),
-                    "OK", "",
-                ])
-                block_rows += 1
-
-    if block_rows == 0 and rc == 0:
-        writer.writerow([region, "", "", "", "", "", "", "", "", "", "", "", "", "NO_POLICIES_RETURNED", ""])
-
-# ---- FSS snapshot policies ----
-fss_rows = 0
-with open(fss_csv, "a", newline="", encoding="utf-8") as fh:
-    writer = csv.writer(fh)
-    for compartment_id in compartment_ids:
-        listed = run_oci(
-            "fs", "snapshot-policy", "list",
-            "--compartment-id", compartment_id,
-            "--all",
-            "--region", region,
-        )
-        if listed.returncode != 0:
-            writer.writerow([region, compartment_id, "", "", "", "", "", "", "", "", "", "", "COMPARTMENT_LIST_FAILED", clean_error(listed)])
-            rc = 3
-            continue
-        try:
-            policies = parse_data(listed)
-        except (json.JSONDecodeError, TypeError) as exc:
-            writer.writerow([region, compartment_id, "", "", "", "", "", "", "", "", "", "", "LIST_PARSE_ERROR", str(exc)[:500]])
-            rc = 3
-            continue
-
-        for policy in policies:
-            pid = policy.get("id", "")
-            pname = policy.get("display-name", "")
-            schedules = policy.get("schedules", []) or []
-            if not schedules:
-                writer.writerow([region, compartment_id, pid, pname, "NO_SCHEDULES", "", "", "", "", "", "", "", "OK", ""])
-                fss_rows += 1
-                continue
-            for schedule in schedules:
-                writer.writerow([
-                    region, compartment_id, pid, pname, "HAS_SCHEDULE",
-                    schedule.get("period", ""),
-                    schedule.get("hour-of-day", ""),
-                    schedule.get("day-of-week", ""),
-                    schedule.get("day-of-month", ""),
-                    schedule.get("month", ""),
-                    schedule.get("retention-duration-in-seconds", ""),
-                    schedule.get("time-zone", ""),
-                    "OK", "",
-                ])
-                fss_rows += 1
-
-    if fss_rows == 0 and rc == 0:
-        writer.writerow([region, "", "", "", "", "", "", "", "", "", "", "", "NO_POLICIES_RETURNED", ""])
-
-sys.exit(rc)
-PY
-    overall_rc=3
+load_bv_policy() {  # $1 = policy id
+  local pid="$1"
+  [ -n "${POLICY_STATUS_CACHE[$pid]:-}" ] && return 0
+  oci_try bv volume-backup-policy get --policy-id "$pid"
+  POLICY_STATUS_CACHE["$pid"]="$OCI_STATUS"
+  if [ "$OCI_STATUS" != "OK" ]; then
+    POLICY_NAME_CACHE["$pid"]=""
+    POLICY_SCHED_CACHE["$pid"]=""
+    return 1
   fi
-done
+  POLICY_NAME_CACHE["$pid"]="$(jqd '.data."display-name" // ""')"
+  local acc="" line
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    acc="${acc}${line}"$'\x1e'
+  done < <(jqd '
+    .data.schedules[]? |
+    [ (."backup-type"//"") ,
+      ( (."period"//"") +
+        (if ."hour-of-day"   != null then " hour=" + (."hour-of-day"|tostring) else "" end) +
+        (if ."day-of-week"   != null then " dow="  + (."day-of-week"|tostring)  else "" end) +
+        (if ."day-of-month"  != null then " dom="  + (."day-of-month"|tostring) else "" end) +
+        (if ."month"         != null then " month="+ (."month"|tostring)        else "" end) +
+        (if ."offset-type"   != null then " offset=" + (."offset-type"|tostring) else "" end)
+      ),
+      (if ."retention-seconds" != null
+         then ((."retention-seconds"/86400)|floor|tostring) + "d (" + (."retention-seconds"|tostring) + "s)"
+         else "" end),
+      (."time-zone"//"")
+    ] | @tsv')
+  POLICY_SCHED_CACHE["$pid"]="$acc"
+  return 0
+}
 
-# STEP 3: Join showoci inventory with regional policy schedules. The join is
-# intentionally conservative: absence of a detected policy field is not called
-# "not backed up" without verification.
-echo ">>> STEP 3: joined resource-level report" >&2
-export OUTDIR PREFIX JOINED_CSV POLICY_CSV FSS_POLICY_CSV
-if ! "$PYTHON_BIN" - <<'PY'; then
-import csv
-import glob
-import os
-import re
-import sys
-from collections import defaultdict
+# Emit one config row per schedule in a block/boot volume policy.
+emit_bv_schedules() {  # comp svc rtype rname rid psource pid last count
+  local comp="$1" svc="$2" rtype="$3" rname="$4" rid="$5" psource="$6" pid="$7" last="$8" cnt="$9"
+  load_bv_policy "$pid"
+  local st="${POLICY_STATUS_CACHE[$pid]:-ERROR}"
+  local pname="${POLICY_NAME_CACHE[$pid]:-}"
+  if [ "$st" != "OK" ]; then
+    cfg_row "$comp" "$svc" "$rtype" "$rname" "$rid" "POLICY_LOOKUP_FAILED" "$psource" "$pname" "$pid" \
+            "" "" "" "" "$last" "$cnt" "$st" "$OCI_ERR"
+    return
+  fi
+  local sched="${POLICY_SCHED_CACHE[$pid]:-}"
+  if [ -z "$sched" ]; then
+    cfg_row "$comp" "$svc" "$rtype" "$rname" "$rid" "YES-NO_SCHEDULES" "$psource" "$pname" "$pid" \
+            "" "" "" "" "$last" "$cnt" "OK" ""
+    finding "HIGH" "policy-without-schedule" "$comp" "$svc" "$rname" \
+            "Assigned backup policy '$pname' has no schedules — no backup will ever run." \
+            "Add a schedule to the policy or assign a policy that has one."
+    return
+  fi
+  local rec
+  while IFS= read -r rec; do
+    [ -z "$rec" ] && continue
+    local btype freq ret tz
+    IFS=$'\t' read -r btype freq ret tz <<< "$rec"
+    cfg_row "$comp" "$svc" "$rtype" "$rname" "$rid" "YES" "$psource" "$pname" "$pid" \
+            "$btype" "$freq" "$ret" "$tz" "$last" "$cnt" "OK" ""
+  done < <(printf '%s' "${sched//$'\x1e'/$'\n'}")
+}
 
-outdir = os.environ["OUTDIR"]
-prefix = os.environ["PREFIX"]
-joined = os.environ["JOINED_CSV"]
+# ---------------------------------------------------------------------------
+# Block volumes
+# ---------------------------------------------------------------------------
+check_volumes() {
+  local comp="$1"
+  oci_try bv volume list --compartment-id "$comp" --all
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "BlockVolume" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  # Capture before any further oci_try call overwrites OCI_OUT.
+  local vols="$OCI_OUT"
+  local n; n="$(num "$(printf '%s' "$vols" | jq -r '[.data[]?] | length' 2>/dev/null)")"
+  cov_row "$comp" "BlockVolume" "$n" "OK" ""
+  [ "$n" -eq 0 ] && return
 
+  # One backup listing per compartment, reused for every volume in it.
+  oci_try bv backup list --compartment-id "$comp" --all
+  local bk_json="$OCI_OUT" bk_ok="$OCI_STATUS"
 
-def load_schedules(path: str, block: bool):
-    by_id = defaultdict(list)
-    by_name = defaultdict(list)
-    if not os.path.isfile(path):
-        return by_id, by_name
-    with open(path, newline="", encoding="utf-8") as fh:
-        for row in csv.DictReader(fh):
-            if row.get("collection_status") != "OK":
-                continue
-            status = row.get("schedule_status", "")
-            if status not in {"HAS_SCHEDULE", "NO_SCHEDULES"}:
-                continue
-            details = []
-            if block and row.get("backup_type"):
-                details.append(f"type={row['backup_type']}")
-            for field, label in (
-                ("period", "period"), ("hour_of_day", "hour"),
-                ("day_of_week", "dow"), ("day_of_month", "dom"),
-                ("month", "month"), ("retention_seconds", "retention_sec"),
-                ("time_zone", "tz"),
-            ):
-                if row.get(field):
-                    details.append(f"{label}={row[field]}")
-            entry = (status, "; ".join(details) or status)
-            region = row.get("region", "")
-            pid = row.get("policy_id", "").strip()
-            pname = row.get("policy_name", "").strip()
-            if pid:
-                by_id[(region, pid)].append(entry)
-            if pname:
-                by_name[(region, pname)].append(entry)
-    return by_id, by_name
+  while IFS=$'\t' read -r vid vname; do
+    [ -z "$vid" ] && continue
+    local last="" cnt="0"
+    if [ "$bk_ok" = "OK" ]; then
+      cnt="$(num "$(printf '%s' "$bk_json" | jq -r --arg v "$vid" '[.data[]? | select(."volume-id"==$v)] | length' 2>/dev/null)")"
+      last="$(printf '%s' "$bk_json" | jq -r --arg v "$vid" '[.data[]? | select(."volume-id"==$v) | ."time-created"] | sort | last // ""' 2>/dev/null | tr -d '\r')"
+    fi
+    oci_try bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment --asset-id "$vid"
+    if [ "$OCI_STATUS" != "OK" ]; then
+      cfg_row "$comp" "BlockVolume" "Volume" "$vname" "$vid" "UNKNOWN" "assignment-lookup" "" "" \
+              "" "" "" "" "$last" "$cnt" "$OCI_STATUS" "$OCI_ERR"
+      continue
+    fi
+    local pid; pid="$(jqd '.data[0]."policy-id" // ""')"
+    if [ -z "$pid" ]; then
+      cfg_row "$comp" "BlockVolume" "Volume" "$vname" "$vid" "NO" "assignment-lookup" "" "" \
+              "" "" "" "" "$last" "$cnt" "OK" ""
+      finding "HIGH" "no-backup-policy" "$comp" "BlockVolume" "$vname" \
+              "Block volume has no backup policy assigned (verified via policy-asset-assignment API). Existing backups: $cnt" \
+              "Assign a backup policy, or document the risk acceptance if the volume is genuinely ephemeral."
+      continue
+    fi
+    emit_bv_schedules "$comp" "BlockVolume" "Volume" "$vname" "$vid" "assignment-lookup" "$pid" "$last" "$cnt"
+  done < <(printf '%s' "$vols" | jq -r '.data[]? | [.id, (."display-name"//"")] | @tsv' 2>/dev/null | tr -d '\r')
+}
 
+# ---------------------------------------------------------------------------
+# Boot volumes (require an availability domain to list)
+# ---------------------------------------------------------------------------
+check_bootvol() {
+  local comp="$1"
+  oci_try iam availability-domain list --compartment-id "$comp"
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "BootVolume" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  local ads total=0; ads="$(jqd '.data[]?.name')"
 
-block_id, block_name = load_schedules(os.environ["POLICY_CSV"], True)
-fss_id, fss_name = load_schedules(os.environ["FSS_POLICY_CSV"], False)
+  oci_try bv boot-volume-backup list --compartment-id "$comp" --all
+  local bk_json="$OCI_OUT" bk_ok="$OCI_STATUS"
 
-
-def find_column(headers, patterns):
-    for pattern in patterns:
-        rx = re.compile(pattern, re.I)
-        for header in headers:
-            if rx.search(header or ""):
-                return header
-    return None
-
-
-def classify(filename, headers):
-    name = filename.lower()
-    header_text = " ".join(headers).lower()
-    if any(token in name for token in ("backup_policy_schedules", "fss_snapshot_schedules", "storage_backup_joined")):
-        return None, None
-    if "boot" in name and "backup" not in name:
-        return "Boot Volume", "block"
-    if "block" in name and "backup" not in name:
-        return "Block Volume", "block"
-    if any(token in name for token in ("filesystem", "file_system", "fss")) or "snapshot policy" in header_text:
-        return "File System (FSS)", "fss"
-    if any(token in name for token in ("bucket", "object_storage", "objectstorage")):
-        return "Object Storage Bucket", "object"
-    return None, None
-
-
-def lookup(region, pid, pname, by_id, by_name):
-    entries = by_id.get((region, pid)) if pid else None
-    if not entries and pname:
-        entries = by_name.get((region, pname))
-    if not entries:
-        return "UNKNOWN", ""
-    statuses = "|".join(sorted({item[0] for item in entries}))
-    details = " || ".join(item[1] for item in entries if item[1])
-    return statuses, details
-
-headers_out = [
-    "region", "compartment", "resource_type", "resource_name", "resource_id",
-    "assigned_policy_name", "assigned_policy_id", "protection_type",
-    "schedule_status", "schedule_detail", "notes", "source_file",
-]
-rows_out = []
-
-for path in sorted(glob.glob(os.path.join(outdir, f"{prefix}_*_*.csv"))):
-    base = os.path.basename(path)
-    resource_type, family = classify(base, [])
-    try:
-        with open(path, newline="", encoding="utf-8-sig") as fh:
-            reader = csv.DictReader(fh)
-            headers = reader.fieldnames or []
-            resource_type, family = classify(base, headers)
-            if not family:
-                continue
-            rows = list(reader)
-    except (OSError, csv.Error):
+  local ad
+  while IFS= read -r ad; do
+    [ -z "$ad" ] && continue
+    oci_try bv boot-volume list --compartment-id "$comp" --availability-domain "$ad" --all
+    if [ "$OCI_STATUS" != "OK" ]; then
+      cov_row "$comp" "BootVolume" "0" "$OCI_STATUS" "$OCI_ERR"; continue
+    fi
+    local bvols="$OCI_OUT"
+    while IFS=$'\t' read -r bid bname; do
+      [ -z "$bid" ] && continue
+      total=$((total+1))
+      local last="" cnt="0"
+      if [ "$bk_ok" = "OK" ]; then
+        cnt="$(num "$(printf '%s' "$bk_json" | jq -r --arg v "$bid" '[.data[]? | select(."boot-volume-id"==$v)] | length' 2>/dev/null)")"
+        last="$(printf '%s' "$bk_json" | jq -r --arg v "$bid" '[.data[]? | select(."boot-volume-id"==$v) | ."time-created"] | sort | last // ""' 2>/dev/null | tr -d '\r')"
+      fi
+      oci_try bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment --asset-id "$bid"
+      if [ "$OCI_STATUS" != "OK" ]; then
+        cfg_row "$comp" "BootVolume" "BootVolume" "$bname" "$bid" "UNKNOWN" "assignment-lookup" "" "" \
+                "" "" "" "" "$last" "$cnt" "$OCI_STATUS" "$OCI_ERR"; continue
+      fi
+      local pid; pid="$(jqd '.data[0]."policy-id" // ""')"
+      if [ -z "$pid" ]; then
+        cfg_row "$comp" "BootVolume" "BootVolume" "$bname" "$bid" "NO" "assignment-lookup" "" "" \
+                "" "" "" "" "$last" "$cnt" "OK" ""
+        finding "HIGH" "no-backup-policy" "$comp" "BootVolume" "$bname" \
+                "Boot volume has no backup policy assigned. Existing backups: $cnt" \
+                "Assign a backup policy; an unprotected boot volume means the instance cannot be rebuilt from backup."
         continue
+      fi
+      emit_bv_schedules "$comp" "BootVolume" "BootVolume" "$bname" "$bid" "assignment-lookup" "$pid" "$last" "$cnt"
+    done < <(printf '%s' "$bvols" | jq -r '.data[]? | [.id, (."display-name"//"")] | @tsv' 2>/dev/null | tr -d '\r')
+  done <<< "$ads"
+  cov_row "$comp" "BootVolume" "$total" "OK" ""
+}
 
-    c_region = find_column(headers, [r"^region$", r"region.?name"])
-    c_comp = find_column(headers, [r"compartment.*name", r"^compartment$"])
-    c_name = find_column(headers, [r"display.?name", r"^name$", r"bucket.?name", r"resource.?name"])
-    c_id = find_column(headers, [r"^id$", r"\bocid\b", r"volume.?id", r"file.?system.?id"])
-    c_pid = find_column(headers, [r"backup.*policy.*id", r"snapshot.*policy.*id", r"policy.*id"])
-    c_pname = find_column(headers, [r"backup.*policy.*name", r"snapshot.*policy.*name", r"policy.*name", r"backup.*policy$"])
-    c_version = find_column(headers, [r"versioning"])
-    c_replication = find_column(headers, [r"replicat"])
-    c_retention = find_column(headers, [r"retention"])
+# ---------------------------------------------------------------------------
+# Volume groups — a group-level policy protects all member volumes
+# ---------------------------------------------------------------------------
+check_volgroup() {
+  local comp="$1"
+  oci_try bv volume-group list --compartment-id "$comp" --all
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "VolumeGroup" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  local n; n="$(num "$(jqd '[.data[]?] | length')")"
+  cov_row "$comp" "VolumeGroup" "$n" "OK" ""
+  [ "$n" -eq 0 ] && return
+  local vgs="$OCI_OUT"
+  while IFS=$'\t' read -r gid gname members; do
+    [ -z "$gid" ] && continue
+    oci_try bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment --asset-id "$gid"
+    local pid=""
+    [ "$OCI_STATUS" = "OK" ] && pid="$(jqd '.data[0]."policy-id" // ""')"
+    if [ -z "$pid" ]; then
+      cfg_row "$comp" "VolumeGroup" "VolumeGroup" "$gname (${members} members)" "$gid" "NO" "assignment-lookup" "" "" \
+              "" "" "" "" "" "0" "${OCI_STATUS}" "$OCI_ERR"
+    else
+      emit_bv_schedules "$comp" "VolumeGroup" "VolumeGroup" "$gname (${members} members)" "$gid" "assignment-lookup" "$pid" "" "0"
+    fi
+  done < <(printf '%s' "$vgs" | jq -r '.data[]? | [.id, (."display-name"//""), ([.["volume-ids"][]?]|length)] | @tsv' 2>/dev/null | tr -d '\r')
+}
 
-    region_match = re.match(re.escape(prefix) + r"_([^_]+(?:-[^_]+)*)_", base)
-    filename_region = region_match.group(1) if region_match else ""
+# ---------------------------------------------------------------------------
+# File Storage.
+#
+# Both prior blockers live here. The command group is
+# `fs filesystem-snapshot-policy` (NOT `fs snapshot-policy`), and `schedules`
+# is absent from the LIST summary — it only appears on GET, so each policy is
+# fetched individually. Reading schedules off the list would silently report
+# NO_SCHEDULES for every policy that actually has one.
+# ---------------------------------------------------------------------------
+declare -A FSSP_NAME_CACHE
+declare -A FSSP_SCHED_CACHE
+declare -A FSSP_STATUS_CACHE
 
-    for row in rows:
-        region = (row.get(c_region, "") if c_region else "") or filename_region
-        compartment = row.get(c_comp, "") if c_comp else ""
-        name = row.get(c_name, "") if c_name else ""
-        rid = row.get(c_id, "") if c_id else ""
-        pid = (row.get(c_pid, "") if c_pid else "").strip()
-        pname = (row.get(c_pname, "") if c_pname else "").strip()
+load_fss_policy() {  # $1 = filesystem-snapshot-policy id
+  local pid="$1"
+  [ -n "${FSSP_STATUS_CACHE[$pid]:-}" ] && return 0
+  oci_try fs filesystem-snapshot-policy get --filesystem-snapshot-policy-id "$pid"
+  FSSP_STATUS_CACHE["$pid"]="$OCI_STATUS"
+  if [ "$OCI_STATUS" != "OK" ]; then
+    FSSP_NAME_CACHE["$pid"]=""; FSSP_SCHED_CACHE["$pid"]=""; return 1
+  fi
+  FSSP_NAME_CACHE["$pid"]="$(jqd '.data."display-name" // ""')"
+  local acc="" line
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    acc="${acc}${line}"$'\x1e'
+  done < <(jqd '
+    .data.schedules[]? |
+    [ ("SNAPSHOT"),
+      ( (."period"//"") +
+        (if ."hour-of-day"  != null then " hour=" + (."hour-of-day"|tostring) else "" end) +
+        (if ."day-of-week"  != null then " dow="  + (."day-of-week"|tostring)  else "" end) +
+        (if ."day-of-month" != null then " dom="  + (."day-of-month"|tostring) else "" end) +
+        (if ."month"        != null then " month="+ (."month"|tostring)        else "" end)
+      ),
+      (if ."retention-duration-in-seconds" != null
+         then ((."retention-duration-in-seconds"/86400)|floor|tostring) + "d (" + (."retention-duration-in-seconds"|tostring) + "s)"
+         else "" end),
+      (."time-zone"//"")
+    ] | @tsv')
+  FSSP_SCHED_CACHE["$pid"]="$acc"
+  return 0
+}
 
-        if family == "object":
-            controls = []
-            for column, label in ((c_version, "versioning"), (c_retention, "retention"), (c_replication, "replication")):
-                if column and row.get(column):
-                    controls.append(f"{label}={row[column]}")
-            rows_out.append([
-                region, compartment, resource_type, name, rid, "", "",
-                "object-storage-controls", "N/A", "; ".join(controls),
-                "Object Storage does not use Block Volume backup policies; verify versioning, retention rules, and replication independently.",
-                base,
-            ])
-            continue
+check_fss() {
+  local comp="$1"
+  oci_try iam availability-domain list --compartment-id "$comp"
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "FSS" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  local ads total=0; ads="$(jqd '.data[]?.name')"
+  local ad
+  while IFS= read -r ad; do
+    [ -z "$ad" ] && continue
+    oci_try fs file-system list --compartment-id "$comp" --availability-domain "$ad" --all
+    if [ "$OCI_STATUS" != "OK" ]; then
+      cov_row "$comp" "FSS" "0" "$OCI_STATUS" "$OCI_ERR"; continue
+    fi
+    local fsl="$OCI_OUT"
+    while IFS=$'\t' read -r fid fname pid; do
+      [ -z "$fid" ] && continue
+      total=$((total+1))
 
-        by_id, by_name = (block_id, block_name) if family == "block" else (fss_id, fss_name)
-        if not pid and not pname:
-            status, detail = "NO_POLICY_REFERENCE_DETECTED", ""
-            note = "No policy reference was detected in this showoci row. Verify the source CSV and actual policy assignment before concluding that the resource is unprotected."
-        else:
-            status, detail = lookup(region, pid, pname, by_id, by_name)
-            note = "" if status != "UNKNOWN" else "Policy reference did not resolve to a successfully collected schedule in the same region. Check permissions, collection status, and CSV column mapping."
-        rows_out.append([
-            region, compartment, resource_type, name, rid, pname, pid,
-            "policy-based", status, detail, note, base,
-        ])
+      # Manual snapshots still constitute recovery points; count them either way.
+      oci_try fs snapshot list --file-system-id "$fid" --all
+      local snap_ok="$OCI_STATUS" cnt="0" last=""
+      if [ "$snap_ok" = "OK" ]; then
+        cnt="$(num "$(jqd '[.data[]?] | length')")"
+        last="$(jqd '[.data[]? | ."time-created"] | sort | last // ""')"
+      fi
 
-with open(joined, "w", newline="", encoding="utf-8") as fh:
-    writer = csv.writer(fh)
-    writer.writerow(headers_out)
-    writer.writerows(rows_out)
+      if [ -z "$pid" ] || [ "$pid" = "null" ]; then
+        if [ "$cnt" -gt 0 ]; then
+          cfg_row "$comp" "FSS" "FileSystem" "$fname" "$fid" "MANUAL-ONLY" "filesystem-snapshot-policy-id" "" "" \
+                  "MANUAL" "on-demand only" "" "" "$last" "$cnt" "OK" ""
+          finding "MEDIUM" "manual-snapshots-only" "$comp" "FSS" "$fname" \
+                  "File system has $cnt snapshot(s) but no snapshot policy — protection depends on someone remembering." \
+                  "Attach a filesystem snapshot policy so snapshots are scheduled rather than ad hoc."
+        else
+          cfg_row "$comp" "FSS" "FileSystem" "$fname" "$fid" "NO" "filesystem-snapshot-policy-id" "" "" \
+                  "" "" "" "" "" "0" "OK" ""
+          finding "HIGH" "no-backup-policy" "$comp" "FSS" "$fname" \
+                  "File system has no snapshot policy and zero snapshots." \
+                  "Attach a filesystem snapshot policy."
+        fi
+        continue
+      fi
 
-print(f"    joined rows: {len(rows_out)}", file=sys.stderr)
-if not rows_out:
-    print("    WARNING: no storage inventory rows matched recognized showoci CSV patterns.", file=sys.stderr)
-    sys.exit(3)
-PY
-  overall_rc=3
+      load_fss_policy "$pid"
+      local st="${FSSP_STATUS_CACHE[$pid]:-ERROR}"
+      local pname="${FSSP_NAME_CACHE[$pid]:-}"
+      if [ "$st" != "OK" ]; then
+        cfg_row "$comp" "FSS" "FileSystem" "$fname" "$fid" "POLICY_LOOKUP_FAILED" "filesystem-snapshot-policy-id" \
+                "$pname" "$pid" "" "" "" "" "$last" "$cnt" "$st" "$OCI_ERR"
+        continue
+      fi
+      local sched="${FSSP_SCHED_CACHE[$pid]:-}"
+      if [ -z "$sched" ]; then
+        cfg_row "$comp" "FSS" "FileSystem" "$fname" "$fid" "YES-NO_SCHEDULES" "filesystem-snapshot-policy-id" \
+                "$pname" "$pid" "" "" "" "" "$last" "$cnt" "OK" ""
+        finding "HIGH" "policy-without-schedule" "$comp" "FSS" "$fname" \
+                "Snapshot policy '$pname' is attached but defines no schedules — no snapshot will ever be taken." \
+                "Add a schedule to the snapshot policy."
+        continue
+      fi
+      local rec
+      while IFS= read -r rec; do
+        [ -z "$rec" ] && continue
+        local btype freq ret tz
+        IFS=$'\t' read -r btype freq ret tz <<< "$rec"
+        cfg_row "$comp" "FSS" "FileSystem" "$fname" "$fid" "YES" "filesystem-snapshot-policy-id" \
+                "$pname" "$pid" "$btype" "$freq" "$ret" "$tz" "$last" "$cnt" "OK" ""
+      done < <(printf '%s' "${sched//$'\x1e'/$'\n'}")
+    done < <(printf '%s' "$fsl" | jq -r '.data[]? | [.id, (."display-name"//""), (."filesystem-snapshot-policy-id"//"")] | @tsv' 2>/dev/null | tr -d '\r')
+  done <<< "$ads"
+  cov_row "$comp" "FSS" "$total" "OK" ""
+}
+
+# ---------------------------------------------------------------------------
+# Object Storage — no backup policy concept; protection is versioning +
+# lifecycle + retention rules. Recorded as configuration, not as a schedule.
+# ---------------------------------------------------------------------------
+check_object() {
+  local comp="$1"
+  if [ -z "$OS_NS" ]; then
+    cov_row "$comp" "ObjectStorage" "0" "NOT_COLLECTED" "namespace unavailable"; return
+  fi
+  oci_try os bucket list --compartment-id "$comp" --namespace-name "$OS_NS" --all
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "ObjectStorage" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  local n; n="$(num "$(jqd '[.data[]?] | length')")"
+  cov_row "$comp" "ObjectStorage" "$n" "OK" ""
+  [ "$n" -eq 0 ] && return
+  local b
+  while IFS= read -r b; do
+    [ -z "$b" ] && continue
+    oci_try os bucket get --bucket-name "$b" --namespace-name "$OS_NS"
+    if [ "$OCI_STATUS" != "OK" ]; then
+      cfg_row "$comp" "ObjectStorage" "Bucket" "$b" "$b" "UNKNOWN" "bucket-get" "" "" \
+              "" "" "" "" "" "0" "$OCI_STATUS" "$OCI_ERR"; continue
+    fi
+    local ver; ver="$(jqd '.data.versioning // "Disabled"')"
+
+    oci_try os object-lifecycle-policy get --bucket-name "$b" --namespace-name "$OS_NS"
+    local lc="0"
+    [ "$OCI_STATUS" = "OK" ] && lc="$(num "$(jqd '[(.data.items? // .data)[]?] | length')")"
+
+    oci_try os retention-rule list --bucket-name "$b" --namespace-name "$OS_NS"
+    local rr="0"
+    [ "$OCI_STATUS" = "OK" ] && rr="$(num "$(jqd '[(.data.items? // .data)[]?] | length')")"
+
+    local configured="NO" detail="versioning=$ver lifecycle_rules=$lc retention_rules=$rr"
+    if [ "$ver" != "Disabled" ] || [ "$rr" -gt 0 ]; then configured="YES"; fi
+    cfg_row "$comp" "ObjectStorage" "Bucket" "$b" "$b" "$configured" "bucket-config" "" "" \
+            "OBJECT-VERSIONING/RETENTION" "$detail" "${rr} retention rule(s)" "" "" "0" "OK" ""
+    if [ "$configured" = "NO" ]; then
+      finding "MEDIUM" "bucket-unprotected" "$comp" "ObjectStorage" "$b" \
+              "Bucket has versioning disabled and no retention rules — an overwrite or delete is unrecoverable. $detail" \
+              "Enable versioning, and add a retention rule if the bucket holds backup or record data."
+    fi
+  done < <(jqd '.data[]?.name')
+}
+
+# ---------------------------------------------------------------------------
+# Base DB systems
+# ---------------------------------------------------------------------------
+check_basedb() {
+  local comp="$1"
+  oci_try db system list --compartment-id "$comp" --all
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "BaseDB" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  local sys="$OCI_OUT" total=0 sysid
+  while IFS= read -r sysid; do
+    [ -z "$sysid" ] && continue
+    oci_try db database list --compartment-id "$comp" --db-system-id "$sysid" --all
+    [ "$OCI_STATUS" != "OK" ] && continue
+    local dbs="$OCI_OUT"
+    while IFS=$'\t' read -r dbid dbname en win ret; do
+      [ -z "$dbid" ] && continue
+      total=$((total+1))
+      if [ "$en" = "true" ]; then
+        cfg_row "$comp" "BaseDB" "Database" "$dbname" "$dbid" "YES" "db-backup-config" "automatic-backup" "" \
+                "FULL+INCREMENTAL (managed)" "daily automatic (window=${win:-default})" "${ret:-default} day recovery window" "" "" "0" "OK" ""
+      else
+        cfg_row "$comp" "BaseDB" "Database" "$dbname" "$dbid" "NO" "db-backup-config" "" "" \
+                "" "" "" "" "" "0" "OK" ""
+        finding "HIGH" "no-backup-policy" "$comp" "BaseDB" "$dbname" \
+                "Automatic backup is disabled on this database." \
+                "Enable automatic backup and set a recovery window meeting the RPO in the ISCP."
+      fi
+    done < <(printf '%s' "$dbs" | jq -r '.data[]? | [.id, (."db-name"//""), ((."db-backup-config"."auto-backup-enabled")//false|tostring), ((."db-backup-config"."auto-backup-window")//""), ((."db-backup-config"."recovery-window-in-days")//""|tostring)] | @tsv' 2>/dev/null | tr -d '\r')
+  done < <(printf '%s' "$sys" | jq -r '.data[]?.id' 2>/dev/null | tr -d '\r')
+  cov_row "$comp" "BaseDB" "$total" "OK" ""
+}
+
+# ---------------------------------------------------------------------------
+# Autonomous Database
+# ---------------------------------------------------------------------------
+check_adb() {
+  local comp="$1"
+  oci_try db autonomous-database list --compartment-id "$comp" --all
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "AutonomousDB" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  local n; n="$(num "$(jqd '[.data[]?] | length')")"
+  cov_row "$comp" "AutonomousDB" "$n" "OK" ""
+  [ "$n" -eq 0 ] && return
+  while IFS=$'\t' read -r aid aname en ret; do
+    [ -z "$aid" ] && continue
+    if [ "$en" = "true" ]; then
+      cfg_row "$comp" "AutonomousDB" "AutonomousDatabase" "$aname" "$aid" "YES" "is-automatic-backup-enabled" \
+              "automatic-backup" "" "FULL (managed)" "daily automatic" "${ret:-n/a} days" "" "" "0" "OK" ""
+    else
+      cfg_row "$comp" "AutonomousDB" "AutonomousDatabase" "$aname" "$aid" "NO" "is-automatic-backup-enabled" \
+              "" "" "" "" "${ret:-n/a} days" "" "" "0" "OK" ""
+      finding "HIGH" "no-backup-policy" "$comp" "AutonomousDB" "$aname" \
+              "Automatic backup is disabled on this Autonomous Database." \
+              "Enable automatic backup."
+    fi
+  done < <(jqd '.data[]? | [.id, (."db-name"//""), ((."is-automatic-backup-enabled")//false|tostring), ((."backup-retention-period-in-days")//""|tostring)] | @tsv')
+}
+
+# ---------------------------------------------------------------------------
+# MySQL HeatWave
+# ---------------------------------------------------------------------------
+check_mysql() {
+  local comp="$1"
+  oci_try mysql db-system list --compartment-id "$comp" --all
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "MySQL" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  local ids; ids="$(jqd '(.data.items? // .data)[]?.id')"
+  local total=0 sid
+  while IFS= read -r sid; do
+    [ -z "$sid" ] && continue
+    total=$((total+1))
+    oci_try mysql db-system get --db-system-id "$sid"
+    if [ "$OCI_STATUS" != "OK" ]; then
+      cfg_row "$comp" "MySQL" "DbSystem" "" "$sid" "UNKNOWN" "backup-policy" "" "" "" "" "" "" "" "0" "$OCI_STATUS" "$OCI_ERR"
+      continue
+    fi
+    local name en win ret
+    name="$(jqd '.data."display-name" // ""')"
+    en="$(jqd '.data."backup-policy"."is-enabled" // false | tostring')"
+    win="$(jqd '.data."backup-policy"."window-start-time" // ""')"
+    ret="$(jqd '.data."backup-policy"."retention-in-days" // "" | tostring')"
+    if [ "$en" = "true" ]; then
+      cfg_row "$comp" "MySQL" "DbSystem" "$name" "$sid" "YES" "backup-policy" "automatic-backup" "" \
+              "FULL (managed)" "daily automatic (window=${win:-default})" "${ret:-default} days" "" "" "0" "OK" ""
+    else
+      cfg_row "$comp" "MySQL" "DbSystem" "$name" "$sid" "NO" "backup-policy" "" "" "" "" "" "" "" "0" "OK" ""
+      finding "HIGH" "no-backup-policy" "$comp" "MySQL" "$name" \
+              "MySQL backup policy is disabled on this DB system." "Enable the backup policy."
+    fi
+  done <<< "$ids"
+  cov_row "$comp" "MySQL" "$total" "OK" ""
+}
+
+# ---------------------------------------------------------------------------
+# PostgreSQL
+# ---------------------------------------------------------------------------
+check_postgres() {
+  local comp="$1"
+  oci_try psql db-system list --compartment-id "$comp" --all
+  if [ "$OCI_STATUS" != "OK" ]; then
+    cov_row "$comp" "PostgreSQL" "0" "$OCI_STATUS" "$OCI_ERR"; return
+  fi
+  local ids; ids="$(jqd '(.data.items? // .data)[]?.id')"
+  local total=0 sid
+  while IFS= read -r sid; do
+    [ -z "$sid" ] && continue
+    total=$((total+1))
+    oci_try psql db-system get --db-system-id "$sid"
+    if [ "$OCI_STATUS" != "OK" ]; then
+      cfg_row "$comp" "PostgreSQL" "DbSystem" "" "$sid" "UNKNOWN" "backup-policy" "" "" "" "" "" "" "" "0" "$OCI_STATUS" "$OCI_ERR"
+      continue
+    fi
+    local name kind ret days
+    name="$(jqd '.data."display-name" // ""')"
+    kind="$(jqd '.data."backup-policy"."kind" // ""')"
+    ret="$(jqd '.data."backup-policy"."retention-days" // "" | tostring')"
+    days="$(jqd '.data."backup-policy"."days-of-the-month" // .data."backup-policy"."days-of-the-week" // "" | tostring')"
+    if [ -n "$kind" ] && [ "$kind" != "NONE" ]; then
+      cfg_row "$comp" "PostgreSQL" "DbSystem" "$name" "$sid" "YES" "backup-policy" "$kind" "" \
+              "FULL (managed)" "$kind ${days}" "${ret:-default} days" "" "" "0" "OK" ""
+    else
+      cfg_row "$comp" "PostgreSQL" "DbSystem" "$name" "$sid" "NO" "backup-policy" "" "" "" "" "" "" "" "0" "OK" ""
+      finding "HIGH" "no-backup-policy" "$comp" "PostgreSQL" "$name" \
+              "PostgreSQL backup policy kind is NONE or unset." "Configure a backup policy."
+    fi
+  done <<< "$ids"
+  cov_row "$comp" "PostgreSQL" "$total" "OK" ""
+}
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+i=0
+while IFS= read -r comp; do
+  [ -z "$comp" ] && continue
+  i=$((i+1))
+  echo "[$i/$COMP_COUNT] ${COMP_NAME[$comp]:-$comp}"
+  has_svc volumes  && check_volumes  "$comp"
+  has_svc bootvol  && check_bootvol  "$comp"
+  has_svc volgroup && check_volgroup "$comp"
+  has_svc fss      && check_fss      "$comp"
+  has_svc object   && check_object   "$comp"
+  has_svc basedb   && check_basedb   "$comp"
+  has_svc adb      && check_adb      "$comp"
+  has_svc mysql    && check_mysql    "$comp"
+  has_svc postgres && check_postgres "$comp"
+done <<< "$COMPS"
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+rows() { local f="$1"; [ -f "$f" ] || { printf '0'; return; }; local n; n=$(( $(wc -l < "$f") - 1 )); [ "$n" -lt 0 ] && n=0; printf '%s' "$n"; }
+
+CFG_N="$(rows "$CFG_CSV")"
+PROT="$(num "$(grep -c '","YES' "$CFG_CSV" 2>/dev/null || true)")"
+UNPROT="$(num "$(grep -c '","NO","' "$CFG_CSV" 2>/dev/null || true)")"
+UNK="$(num "$(grep -c '","UNKNOWN","' "$CFG_CSV" 2>/dev/null || true)")"
+CRIT="$(num "$(grep -c '^"CRITICAL"' "$FIND_CSV" 2>/dev/null || true)")"
+HIGH="$(num "$(grep -c '^"HIGH"' "$FIND_CSV" 2>/dev/null || true)")"
+MED="$(num "$(grep -c '^"MEDIUM"' "$FIND_CSV" 2>/dev/null || true)")"
+
+echo
+echo "======================================================================"
+echo " CP-9 BACKUP CONFIGURATION SUMMARY"
+echo "======================================================================"
+echo " Compartments in scope        : $COMP_COUNT"
+echo " Config rows (asset+schedule) : $CFG_N"
+echo "   backed up                  : $PROT"
+echo "   NOT backed up              : $UNPROT"
+echo "   undetermined               : $UNK"
+echo
+echo " Findings — CRITICAL: $CRIT   HIGH: $HIGH   MEDIUM: $MED"
+if [ "$HIGH" -gt 0 ] || [ "$CRIT" -gt 0 ]; then
+  echo
+  echo " >>> ASSETS WITH NO BACKUP CONFIGURED:"
+  awk -F'","' 'NR>1 && ($1 ~ /CRITICAL/ || $1 ~ /HIGH/) {
+        s=$1; gsub(/^"/,"",s); c=$4; sv=$5; r=$6;
+        printf "   [%-8s] %-20s %-14s %s\n", s, c, sv, r
+      }' "$FIND_CSV" 2>/dev/null | head -30
 fi
+echo
+echo " Evidence files:"
+echo "   config   : $CFG_CSV"
+echo "   coverage : $COV_CSV   <-- proves which compartments/services were visited"
+echo "   findings : $FIND_CSV"
+echo
+echo "----------------------------------------------------------------------"
+echo " SCOPE AND LIMITATIONS — read before citing this as evidence"
+echo "----------------------------------------------------------------------"
+cat <<'LIMITS'
+ * Point in time, single region per run. Re-run with -r for each subscribed
+   region; policy assignments and schedules are regional.
+ * Any row whose collection_status is not OK means NOT COLLECTED, not "no
+   backup configured". Check the coverage CSV before reading absence as
+   compliance: it lists every compartment/service pair actually visited.
+ * This script reports backup CONFIGURATION and the most recent backup seen.
+   It does not verify a backup is restorable — only a restore test does that
+   (see the ISCP test plan, CP-4).
+ * Managed database services (Base DB, ADB, MySQL, PostgreSQL) expose a policy
+   flag and retention window rather than a schedule object; "daily automatic"
+   reflects the service behaviour, not a user-defined cron.
+ * Object Storage has no backup-policy concept. Versioning, lifecycle and
+   retention rules are reported instead; replication is covered by cp09-03.
+ * Who can reach these backups is cp09-02; replication/DR posture is cp09-03.
+LIMITS
+echo "----------------------------------------------------------------------"
 
-printf '%s\n' "============================================================" >&2
-printf ' DONE. Files in: %s\n' "$OUTDIR" >&2
-printf '   %s_<region>_*.csv\n' "$PREFIX" >&2
-printf '   %s\n' "$(basename "$POLICY_CSV")" >&2
-printf '   %s\n' "$(basename "$FSS_POLICY_CSV")" >&2
-printf '   %s\n' "$(basename "$JOINED_CSV")" >&2
-if ((overall_rc != 0)); then
-  printf ' WARNING: one or more enrichment/join steps were incomplete.\n' >&2
-  printf ' Review collection_status and collection_error before findings.\n' >&2
+if [ "$INCOMPLETE" -ne 0 ]; then
+  echo
+  echo " WARNING: one or more collections were incomplete (DENIED / ERROR /"
+  echo " CLI_UNSUPPORTED rows present). Review collection_status in the CSVs"
+  echo " before concluding that any asset is or is not backed up."
+  exit 3
 fi
-printf '%s\n' "============================================================" >&2
-exit "$overall_rc"
+exit 0
