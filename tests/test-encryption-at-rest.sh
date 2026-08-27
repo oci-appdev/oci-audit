@@ -59,8 +59,11 @@ assert key["key_management"] == "HSM"
 assert key["key_lifecycle"] == "ENABLED"
 assert key["finding"] == "OK-HSM-AUTO-ROTATION"
 assert "interval-days=90" in key["key_rotation"]
+assert "schedule-start=2026-03-01T00:00:00Z" in key["key_rotation"]
 assert "versions=2" in key["key_rotation"]
 assert "auto-rotated-versions=1" in key["key_rotation"]
+assert "latest-version-state=ENABLED" in key["key_rotation"]
+assert "latest-version-created=2026-06-01T00:00:00Z" in key["key_rotation"]
 
 expected = {"BlockVolume", "BootVolume", "ObjectStorage", "FSS", "AutonomousDB", "BaseDB", "MySQL", "PostgreSQL", "Vault", "KMS-Key"}
 actual = {row["service"] for row in coverage}

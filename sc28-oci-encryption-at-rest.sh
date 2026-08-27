@@ -538,10 +538,6 @@ check_postgres() {
   local comp="$1" list_json status error count=0 system_id full name storage_type
   oci_capture "list PostgreSQL DB systems" psql db-system-collection list-db-systems --compartment-id "$comp" --all
   list_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
-  if [ "$status" = "CLI_UNSUPPORTED" ]; then
-    oci_capture "list PostgreSQL DB systems" psql db-system list --compartment-id "$comp" --all
-    list_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
-  fi
   if [ "$status" != "OK" ]; then
     collection_failure_row "$comp" "PostgreSQL" "<collection>" "$status" "$error" "SC-28/SC-12"
     coverage_row "$comp" "PostgreSQL" 0 "$status" "$error"
@@ -569,8 +565,8 @@ check_postgres() {
 check_vault() {
   local comp="$1" vault_json vault_status vault_error vault_count=0 key_count=0
   local overall_key_status="OK" overall_key_error="" vault_item vault_id vault_name vault_type vault_state endpoint deletion vault_finding
-  local key_json key_item key_id key_name full versions protection key_state algorithm length auto_enabled interval next_rotation last_rotation last_status
-  local version_count latest_version auto_version_count rotation_detail finding row_status row_error
+  local key_json key_item key_id key_name full versions protection key_state algorithm length auto_enabled interval schedule_start next_rotation last_rotation last_status last_message
+  local version_count latest_version latest_version_state latest_version_created auto_version_count pending_version_deletions rotation_detail finding row_status row_error
 
   oci_capture "list Vaults" kms vault list --compartment-id "$comp" --all
   vault_json="$COLLECT_OUT"; vault_status="$COLLECT_STATUS"; vault_error="$COLLECT_ERROR"
@@ -640,9 +636,11 @@ check_vault() {
       deletion="$(jq -r '.data."time-of-deletion" // empty' <<< "$full")"
       auto_enabled="$(jq -r '.data."is-auto-rotation-enabled" // false' <<< "$full")"
       interval="$(jq -r '.data."auto-key-rotation-details"."rotation-interval-in-days" // empty' <<< "$full")"
+      schedule_start="$(jq -r '.data."auto-key-rotation-details"."time-of-schedule-start" // empty' <<< "$full")"
       next_rotation="$(jq -r '.data."auto-key-rotation-details"."time-of-next-rotation" // empty' <<< "$full")"
       last_rotation="$(jq -r '.data."auto-key-rotation-details"."time-of-last-rotation" // empty' <<< "$full")"
       last_status="$(jq -r '.data."auto-key-rotation-details"."last-rotation-status" // empty' <<< "$full")"
+      last_message="$(jq -r '.data."auto-key-rotation-details"."last-rotation-message" // empty' <<< "$full" | tr '\n\r' '  ' | cut -c1-120)"
 
       oci_capture "list KMS key versions for $key_name" kms management key-version list \
         --endpoint "$endpoint" --key-id "$key_id" --all
@@ -650,13 +648,17 @@ check_vault() {
       merge_status overall_key_status overall_key_error "$COLLECT_STATUS" "$COLLECT_ERROR"
       if [ "$COLLECT_STATUS" != "OK" ]; then
         row_status="$COLLECT_STATUS"; row_error="$COLLECT_ERROR"
-        version_count="UNKNOWN"; latest_version="UNKNOWN"; auto_version_count="UNKNOWN"
+        version_count="UNKNOWN"; latest_version="UNKNOWN"; latest_version_state="UNKNOWN"
+        latest_version_created="UNKNOWN"; auto_version_count="UNKNOWN"; pending_version_deletions="UNKNOWN"
         finding="COLLECTION-FAILED"
         INCOMPLETE=1
       else
         version_count="$(jq '[.data[]?] | length' <<< "$versions" 2>/dev/null)"
         latest_version="$(jq -r '[.data[]?] | sort_by(."time-created") | last | .id // "none"' <<< "$versions" 2>/dev/null)"
+        latest_version_state="$(jq -r '[.data[]?] | sort_by(."time-created") | last | ."lifecycle-state" // "none"' <<< "$versions" 2>/dev/null)"
+        latest_version_created="$(jq -r '[.data[]?] | sort_by(."time-created") | last | ."time-created" // "none"' <<< "$versions" 2>/dev/null)"
         auto_version_count="$(jq '[.data[]? | select(."is-auto-rotated" == true)] | length' <<< "$versions" 2>/dev/null)"
+        pending_version_deletions="$(jq '[.data[]? | select(."time-of-deletion" != null)] | length' <<< "$versions" 2>/dev/null)"
         row_status="OK"; row_error=""
 
         if [ "$key_state" != "ENABLED" ]; then
@@ -678,7 +680,7 @@ check_vault() {
         fi
       fi
 
-      rotation_detail="auto-enabled=$auto_enabled;interval-days=${interval:-not-exposed};last=${last_rotation:-not-exposed};last-status=${last_status:-not-exposed};next=${next_rotation:-not-exposed};versions=$version_count;auto-rotated-versions=$auto_version_count;latest-version=$latest_version"
+      rotation_detail="auto-enabled=$auto_enabled;interval-days=${interval:-not-exposed};schedule-start=${schedule_start:-not-exposed};last=${last_rotation:-not-exposed};last-status=${last_status:-not-exposed};last-message=${last_message:-none};next=${next_rotation:-not-exposed};versions=$version_count;auto-rotated-versions=$auto_version_count;pending-version-deletions=$pending_version_deletions;latest-version=$latest_version;latest-version-state=$latest_version_state;latest-version-created=$latest_version_created"
       row "$comp" "KMS-Key" "$key_name" "YES" "$protection" \
         "key-id=$key_id;vault-id=$vault_id;algorithm=$algorithm;length-bytes=$length;deletion=${deletion:-none}" \
         "$key_state" "$rotation_detail" "$finding" "SC-28(1)/SC-12" "$row_status" "$row_error"

@@ -72,7 +72,7 @@ case "$cmd" in
     else
       rotation_status='SUCCESS'
     fi
-    printf '%s\n' "{\"data\":{\"id\":\"ocid1.key.oc1..data\",\"display-name\":\"ocs-data-key\",\"protection-mode\":\"HSM\",\"lifecycle-state\":\"ENABLED\",\"key-shape\":{\"algorithm\":\"AES\",\"length\":32},\"is-auto-rotation-enabled\":true,\"auto-key-rotation-details\":{\"rotation-interval-in-days\":90,\"time-of-last-rotation\":\"2026-06-01T00:00:00Z\",\"time-of-next-rotation\":\"2026-08-30T00:00:00Z\",\"last-rotation-status\":\"$rotation_status\"}}}"
+    printf '%s\n' "{\"data\":{\"id\":\"ocid1.key.oc1..data\",\"display-name\":\"ocs-data-key\",\"protection-mode\":\"HSM\",\"lifecycle-state\":\"ENABLED\",\"key-shape\":{\"algorithm\":\"AES\",\"length\":32},\"is-auto-rotation-enabled\":true,\"auto-key-rotation-details\":{\"rotation-interval-in-days\":90,\"time-of-schedule-start\":\"2026-03-01T00:00:00Z\",\"time-of-last-rotation\":\"2026-06-01T00:00:00Z\",\"time-of-next-rotation\":\"2026-08-30T00:00:00Z\",\"last-rotation-status\":\"$rotation_status\",\"last-rotation-message\":\"rotation completed\"}}}"
     ;;
   "kms management key-version list --endpoint https://vault-1-management.kms.us-langley-1.oraclecloud.com --key-id ocid1.key.oc1..data --all")
     printf '%s\n' '{"data":[{"id":"ocid1.keyversion.oc1..v1","time-created":"2026-03-01T00:00:00Z","lifecycle-state":"ENABLED","is-auto-rotated":false},{"id":"ocid1.keyversion.oc1..v2","time-created":"2026-06-01T00:00:00Z","lifecycle-state":"ENABLED","is-auto-rotated":true}]}'
