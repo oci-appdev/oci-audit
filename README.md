@@ -7,9 +7,9 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1 and 2: implementation milestones complete on
+- Tasks 1, 2 and 3: implementation milestones complete on
   `codex/task1-audit-hardening`; live OCI evidence is still pending.
-- Tasks 3, 6, 8 and 9: partial collectors exist.
+- Tasks 6, 8 and 9: partial collectors exist.
 - Tasks 5, 7, 10–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
@@ -48,7 +48,8 @@ bash cp09-03-backup-replication-check.sh --selfcheck
 
 Scripts 01, 02 and 03 can discover the authenticated tenancy and active
 compartments, then require the selected OCID twice before service collection
-starts:
+starts. The same mandatory interface is implemented by the Task 2 and Task 3
+collectors:
 
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
@@ -156,6 +157,48 @@ Complete the API evidence with
 including IPSec tunnel screenshots, Base DB `sqlnet.ora`, encrypted FSS mounts
 and backend TLS hidden by NLB passthrough.
 
+## Canonical Task 3 workflow
+
+`sc28-oci-encryption-at-rest.sh` is the SC-28/SC-28(1)/SC-12 collector. It
+covers Block and Boot Volumes, Object Storage, FSS, Autonomous and Base
+databases, MySQL, OCI Database with PostgreSQL, Vaults, KMS key protection,
+lifecycle, automatic-rotation metadata and key-version history.
+
+The collector uses only list/get operations and never retrieves key material
+or secrets. Run the source check first, then select and confirm the exact OCI
+scope:
+
+```bash
+bash sc28-oci-encryption-at-rest.sh --selfcheck
+
+bash sc28-oci-encryption-at-rest.sh \
+  --select-scope -r us-langley-1 -o ./evidence
+```
+
+For approved automation, use explicit `-c` or `-n` scope flags. Example:
+
+```bash
+bash sc28-oci-encryption-at-rest.sh \
+  -r us-langley-1 -n 'VCN,Shared Services,CD3' -o ./evidence
+```
+
+The evidence distinguishes customer-managed and Oracle-managed data stores.
+MySQL key custody is read from the current `encrypt-data` model. The current
+PostgreSQL DB-system model does not expose an equivalent customer-key field, so
+the row records platform encryption and requires manual custody verification
+instead of inventing a key OCID.
+
+KMS key rows include HSM/software protection, algorithm/length, lifecycle and
+deletion posture, automatic-rotation schedule/status and key-version history.
+A failed API call yields an attributed `COLLECTION-FAILED` row, non-OK coverage,
+a retained error ledger and exit code `3`; it is never reported as an empty
+service or absent key.
+
+Complete the API evidence with
+[TASK3-MANUAL-EVIDENCE-CHECKLIST.md](TASK3-MANUAL-EVIDENCE-CHECKLIST.md),
+including key-administrator approval, AES-256/HSM validation, rotation Audit
+logs, manual rotation procedure where applicable and reviewer sign-off.
+
 ## Tests
 
 Run the repository regression suite with:
@@ -164,11 +207,13 @@ Run the repository regression suite with:
 bash tests/run.sh
 ```
 
-The suite performs Bash syntax and read-only checks for CP-9 and SC-8. It
+The suite performs Bash syntax and read-only checks for CP-9, SC-8 and SC-28. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
-against mock OCI CLIs. Task 2 requires both IPSec tunnels and separately proves
-the incomplete-pair finding. Denied-call regressions prove that unavailable
-replica or IPSec tunnel data becomes an incomplete row and exit code `3`, never
+against mock OCI CLIs. Task 3 exercises all data-store/KMS paths, the current
+MySQL and PostgreSQL schemas, rotation success/failure and a denied key-list
+call. Task 2 requires both IPSec tunnels and separately proves the
+incomplete-pair finding. Denied-call regressions prove that unavailable replica,
+IPSec tunnel or KMS key data becomes an incomplete row and exit code `3`, never
 a fabricated negative finding. Scope-selection regressions prove confirmed
 compartment and tenancy scans plus fail-closed behavior on a mismatched OCID.
 

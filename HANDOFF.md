@@ -6,18 +6,19 @@
 
 **Base commit:** `b196f45f43d95add1480da2cc50aa852762ecba7`
 
-**Current milestone:** Tasks 1 and 2 collector implementations complete; live/manual evidence pending
+**Current milestone:** Tasks 1–3 collector implementations complete; live/manual evidence pending
 
 **Draft PR:** <https://github.com/oci-appdev/oci-audit/pull/1>
 
 ## Mandatory scope-selection standard
 
-Scripts `cp09-01`, `cp09-02`, `cp09-03` and `in-transit-encryption.sh` now
-support `-i` / `--select-scope`. They discover the tenancy and active
-compartments, display full OCIDs, require an exact discovered OCID and require
-the same OCID again before starting service collection. A tenancy selection
-means root plus every active child compartment. A mismatch exits before the
-collector loop; script 03 and SC-8 have dedicated fail-closed regressions.
+Scripts `cp09-01`, `cp09-02`, `cp09-03`, `in-transit-encryption.sh` and
+`sc28-oci-encryption-at-rest.sh` now support `-i` / `--select-scope`. They
+discover the tenancy and active compartments, display full OCIDs, require an
+exact discovered OCID and require the same OCID again before starting service
+collection. A tenancy selection means root plus every active child
+compartment. A mismatch exits before the collector loop; script 03, SC-8 and
+SC-28 have dedicated fail-closed regressions.
 
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
@@ -26,7 +27,44 @@ Every new or materially redesigned collector must follow
 `SCRIPT-DESIGN-STANDARD.md`. Preserve `-c`/`-n` for approved non-interactive
 automation, but do not create a different interactive selection workflow.
 
-## Latest milestone — Task 2
+## Latest milestone — Task 3
+
+### `sc28-oci-encryption-at-rest.sh`
+
+- Replaced discarded stderr with current-shell captured calls.
+- Added row-level `collection_status`/`collection_error`, a
+  compartment-by-service coverage CSV and a failed-call CSV.
+- Added exit code `3` for any incomplete collection.
+- Added read-only `--selfcheck`, `-n`, `-o` and confirmed double-OCID scope
+  selection.
+- Covers Block/Boot Volumes, Object Storage, FSS, Autonomous DB, Base DB,
+  MySQL, PostgreSQL, Vaults and KMS keys.
+- Corrected MySQL to the current `encrypt-data.key-generation-type/key-id`
+  model.
+- Does not fabricate a PostgreSQL CMK field; records platform encryption and a
+  manual key-custody boundary.
+- Added Vault type/lifecycle/deletion and KMS key `get` plus key-version `list`
+  evidence.
+- KMS rows include HSM/software protection, AES key shape, lifecycle/deletion,
+  auto-rotation interval/last/next/status and version counts.
+- Never retrieves key material or secrets.
+
+### Task 3 manual evidence
+
+`TASK3-MANUAL-EVIDENCE-CHECKLIST.md` covers run integrity, CMK-to-key
+reconciliation, HSM/AES-256, key administrators, pending deletion, OCI Audit
+rotation proof, manual rotation procedures, evidence handling and sign-off.
+
+### Task 3 regression gate
+
+Added `tests/mock-oci-task3` and `tests/test-encryption-at-rest.sh`. The success
+path exercises every service and requires HSM AES-256 automatic-rotation plus
+version history. A rotation-failure fixture must emit
+`AUTO-ROTATION-FAILED`. A denied KMS key-list fixture must exit `3`, retain an
+error ledger and produce attributed `DENIED/COLLECTION-FAILED` evidence and
+coverage; it cannot produce a fake no-keys result.
+
+## Prior milestone — Task 2
 
 ### `in-transit-encryption.sh`
 
@@ -99,10 +137,12 @@ READ-ONLY SELF-CHECK: PASSED (cp09-01)
 READ-ONLY SELF-CHECK: PASSED (cp09-02)
 READ-ONLY SELF-CHECK: PASSED (cp09-03)
 READ-ONLY SELF-CHECK: PASSED (in-transit-encryption)
+READ-ONLY SELF-CHECK: PASSED (sc28-oci-encryption-at-rest)
 PASS: cp09-03 success and denied-collection regressions
 PASS: Task 2 two-tunnel, incomplete-pair and denied-IPSec regressions
-PASS: CP-9 and SC-8 interactive scope discovery and OCID confirmation
-PASS: CP-9 and SC-8 static, read-only and mock test suite
+PASS: SC-28 data-store, KMS rotation and failure-ledger evidence
+PASS: CP-9, SC-8 and SC-28 interactive scope discovery and OCID confirmation
+PASS: CP-9, SC-8 and SC-28 static, read-only and mock test suite
 ```
 
 Run with:
@@ -143,22 +183,34 @@ Do not commit live OCI CSVs or screenshots to this public repository.
 
 Do not commit live OCI CSVs or screenshots to this public repository.
 
+## Task 3 is not audit-complete
+
+1. Run the collector in every in-scope region and exact worksheet compartment.
+2. Require exit `0` and reconcile every coverage row, CMK OCID and finding.
+3. Complete `TASK3-MANUAL-EVIDENCE-CHECKLIST.md`.
+4. Confirm key administrators, HSM/AES-256 posture, rotation schedule/history
+   and OCI Audit proof; document any approved manual rotation process.
+5. Store and approve the package in the restricted evidence location.
+
+Do not commit live OCI CSVs, key-administrator identities or screenshots to
+this public repository.
+
 ## Next implementation task for Claude
 
-Continue with worksheet Task 3. Do not skip ahead to Task 6.
+Skip worksheet Task 4 because it is N/A, then continue with Task 5. Do not skip
+ahead to Task 6.
 
-Target `sc28-oci-encryption-at-rest.sh`:
+Task 5 target — Continuous Monitoring Form review/feedback:
 
-1. Adopt `lib/oci-scope-selector.sh` and the mandatory `-i` /
-   `--select-scope` confirmation workflow.
-2. Inventory its OCI calls and eliminate discarded errors.
-3. Add row-level collection status/error and compartment-by-service coverage.
-4. Add exit code `3` and an error ledger for incomplete collection.
-5. Verify KMS key, vault/HSM, rotation and lifecycle evidence without exposing
-   key material.
-6. Add mock success and denied-call regressions.
-7. Add the Task 3 manual evidence/reviewer checklist.
-8. Update `MASTER-TASK-LIST.md`, `AUDIT.md` and this handoff when the milestone is done.
+1. Locate or obtain the current form; do not invent form fields that are not in
+   the source artifact.
+2. Review required monitoring sources, cadence, thresholds, owners,
+   escalation, evidence retention and approval fields.
+3. Add a feedback/disposition log with finding, recommendation, owner, due
+   date, status and approver.
+4. Retain the reviewed form version, reviewer/date and final approval evidence.
+5. Update `MASTER-TASK-LIST.md`, `AUDIT.md` and this handoff when the milestone
+   is done.
 
 ## Known later blocker
 

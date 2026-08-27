@@ -21,7 +21,7 @@
 |---:|---|---|---|---|
 | 1 | Backup type/frequency, access and replication for VCN, Shared Services and CD3 | Implementation complete | Canonical `cp09-01`, `cp09-02`, `cp09-03` family; read-only self-checks; failure-aware CSVs; interactive discovery/OCID confirmation on all three scripts; CP-9 mock suite | Run in every in-scope region and compartment; review exit codes, coverage, findings, unresolved identities and exceptions; store signed evidence package |
 | 2 | Encryption in transit, including IPSec screenshots and overall proof | Implementation complete | Failure-aware `in-transit-encryption.sh`; confirmed tenancy/compartment selector; LB frontend/backend, NLB, databases, Object Storage, volume attachments, FSS, API Gateway, OKE, CPE/IPSec tunnels and DRG route context; two-tunnel pair and denied-call gates; manual evidence checklist | Run in every in-scope region/compartment; reconcile coverage and findings; require both IPSec tunnels or disposition `IPSEC-TUNNEL-PAIR-INCOMPLETE`; complete screenshots, Base DB `sqlnet.ora`, FSS mounts and NLB backend proof; review and store signed evidence package |
-| 3 | Encryption at rest | Partial | `sc28-oci-encryption-at-rest.sh` covers storage, databases and KMS posture | Add failure-aware ledger and tests; execute collector; review CMK/HSM/rotation exceptions; package evidence |
+| 3 | Encryption at rest | Implementation complete | Failure-aware `sc28-oci-encryption-at-rest.sh`; confirmed tenancy/compartment selector; storage/database key custody; current MySQL/PostgreSQL handling; Vault type/lifecycle/deletion; KMS HSM, AES key shape, automatic rotation and key-version evidence; denied-call/rotation regressions; manual evidence checklist | Run in every in-scope region/compartment; reconcile CMK data stores to keys; resolve non-OK rows and CMK/HSM/rotation findings; complete key-admin, Audit-log, procedure and reviewer evidence; store signed package |
 | 4 | N/A | N/A | None required | None |
 | 5 | Continuous Monitoring Form review/feedback | Not started | None | Add reviewed form, feedback log, owner, disposition and approval |
 | 6 | Ports/protocols/services list, approval proof and restricted list | Partial | Three CM-7/PPSM collectors exist | Fix approval-baseline ingestion and reconciliation identity; add failure ledger; use authoritative PPSM CAL; obtain CCB/PPSM approval and reconciliation evidence |
@@ -40,8 +40,8 @@
 
 ## Completion snapshot
 
-Excluding the two N/A items, two of sixteen actionable worksheet tasks have
-implementation-complete collector workflows. Four have partial foundations and
+Excluding the two N/A items, three of sixteen actionable worksheet tasks have
+implementation-complete collector workflows. Three have partial foundations and
 ten are not started. No actionable task should be represented as audit-complete
 until its operational evidence and approval records are produced and reviewed.
 
@@ -51,7 +51,7 @@ Continue in worksheet order:
 
 1. Execute and close Task 1 operational evidence.
 2. Execute and close Task 2 operational/manual evidence.
-3. Harden and execute Task 3.
-4. Skip Task 4 as N/A and complete Task 5.
+3. Execute and close Task 3 operational/manual evidence.
+4. Skip Task 4 as N/A and complete Task 5 form review/feedback.
 5. Repair and operationalize Task 6.
 6. Continue Tasks 7–14, skip Task 15, then complete Tasks 16–18.

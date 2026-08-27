@@ -60,4 +60,5 @@ The current implementation and regression examples are:
 - `cp09-02-backup-access-files-check.sh`
 - `cp09-03-backup-replication-check.sh`
 - `in-transit-encryption.sh`
+- `sc28-oci-encryption-at-rest.sh`
 - `tests/test-scope-selection.sh`

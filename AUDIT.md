@@ -10,14 +10,55 @@
 
 ## Current audit position
 
-Tasks 1 and 2 now have implementation-complete collector workflows and
-reproducible mock gates ready for controlled OCI runs. Neither task is
-audit-complete: live CSVs, Task 2 manual/screenshotted proof, reviewer
+Tasks 1, 2 and 3 now have implementation-complete collector workflows and
+reproducible mock gates ready for controlled OCI runs. None is
+audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
+custody/rotation proof, reviewer
 disposition, evidence-location references and approval records have not been
 produced in this repository.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
-in worksheet order. Task 3 is next after Tasks 1 and 2 operational evidence.
+in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
+Task 5 is the next implementation target.
+
+---
+
+## 2026-08-27 — Task 3 SC-28 encryption-at-rest integrity and KMS evidence
+
+The original `sc28-oci-encryption-at-rest.sh` discarded stderr for every OCI
+call. A permission denial therefore looked like an empty service or absent key.
+It also used obsolete/nonexistent MySQL and PostgreSQL key paths and listed KMS
+keys without collecting the full key or version metadata needed to prove
+protection and rotation posture.
+
+The collector now:
+
+- performs a source-level read-only self-check and uses only list/get calls;
+- implements the mandatory tenancy/compartment discovery and double-OCID
+  confirmation boundary;
+- records row-level collection status/error, compartment/service coverage and
+  a retained failed-call ledger, exiting `3` when collection is incomplete;
+- covers Block/Boot Volumes, Object Storage, FSS, Autonomous DB, Base DB,
+  MySQL, OCI Database with PostgreSQL, Vaults and KMS keys;
+- reads MySQL custody from `encrypt-data.key-generation-type/key-id`;
+- records PostgreSQL platform encryption and a manual custody boundary because
+  the current DB-system API does not expose an equivalent customer-key field;
+- records Vault type, lifecycle, deletion schedule and management endpoint;
+- calls KMS key `get` plus key-version `list` and records HSM/software
+  protection, algorithm/length, lifecycle/deletion, automatic rotation
+  interval/last/next/status and version history;
+- treats pending deletion, disabled/unexpected key state, software keys,
+  non-AES-256 shape and failed/unconfirmed rotation as explicit findings;
+- never retrieves key material, secrets or protected configuration values.
+
+`TASK3-MANUAL-EVIDENCE-CHECKLIST.md` defines the required CMK reconciliation,
+key administrator approval, HSM/AES-256 review, OCI Audit rotation proof,
+manual rotation procedure, evidence integrity and sign-off package.
+
+The Task 3 mock suite exercises every service path, automatic rotation success
+and failure, and a 403 on KMS key listing. The denied case must exit `3`, retain
+the error ledger and produce `DENIED/COLLECTION-FAILED` evidence and coverage;
+it is forbidden from reporting the result as no keys.
 
 ---
 
