@@ -53,6 +53,25 @@ coverage and a retained error ledger. It is forbidden from producing
 
 ---
 
+## 2026-08-27 — interactive OCI scope confirmation standard
+
+`cp09-01` and `cp09-02` now support `-i` / `--select-scope`. The scripts first
+discover the authenticated tenancy and active subtree compartments, show the
+full name/OCID catalog, then require an exact discovered OCID twice. Selecting
+the tenancy explicitly means root plus all active child compartments.
+
+The selector rejects unknown OCIDs, mismatched confirmation and combinations
+with `-c` or `-n`. Regression coverage proves a mismatch exits before the
+collector loop begins. Existing explicit scope flags remain available for
+approved automation.
+
+`SCRIPT-DESIGN-STANDARD.md` makes this interface mandatory for every new or
+materially redesigned collector. The shared behavior lives in
+`lib/oci-scope-selector.sh` so future scripts do not invent a different prompt
+or confirmation boundary.
+
+---
+
 ## Original SDK collector review
 
 **Script:** `oci_backup_audit.py`

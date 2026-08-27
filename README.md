@@ -14,7 +14,8 @@ monthly reviews, training records, or contingency exercises.
 - Tasks 4 and 15: worksheet N/A.
 
 See [MASTER-TASK-LIST.md](MASTER-TASK-LIST.md) for the control-by-control status
-and [HANDOFF.md](HANDOFF.md) for the latest implementation handoff.
+and [HANDOFF.md](HANDOFF.md) for the latest implementation handoff. All future
+collector work must follow [SCRIPT-DESIGN-STANDARD.md](SCRIPT-DESIGN-STANDARD.md).
 
 ## Canonical Task 1 workflow
 
@@ -42,6 +43,28 @@ bash cp09-01-backup-type-config-frequency.sh --selfcheck
 bash cp09-02-backup-access-files-check.sh --selfcheck
 bash cp09-03-backup-replication-check.sh --selfcheck
 ```
+
+### Interactive scope discovery and confirmation
+
+Scripts 01 and 02 can discover the authenticated tenancy and active
+compartments, then require the selected OCID twice before service collection
+starts:
+
+```bash
+bash cp09-01-backup-type-config-frequency.sh \
+  --select-scope -r us-langley-1 -o ./evidence
+
+bash cp09-02-backup-access-files-check.sh \
+  --select-scope -r us-langley-1 -o ./evidence
+```
+
+The short option is `-i`. Selecting the tenancy scans root plus every active
+discovered child compartment. Selecting a compartment scans only that exact
+OCID. A missing, unknown or mismatched confirmation exits before the collector
+loop. Do not combine interactive selection with `-c` or `-n`.
+
+The existing `-c` and `-n` modes remain available for approved non-interactive
+automation.
 
 Example GovCloud collection for the three audit scopes:
 
@@ -130,7 +153,8 @@ The suite performs Bash syntax and read-only checks for CP-9 and SC-8. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. Denied-call regressions prove that unavailable replica
 or IPSec tunnel data becomes an incomplete row and exit code `3`, never a
-fabricated negative finding.
+fabricated negative finding. Scope-selection regressions prove confirmed
+compartment and tenancy scans plus fail-closed behavior on a mismatched OCID.
 
 ## Evidence handling
 

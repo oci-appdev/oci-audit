@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+args=("$@")
+while [ "${#args[@]}" -ge 2 ]; do
+  case "${args[0]}" in
+    --region|--profile) args=("${args[@]:2}") ;;
+    *) break ;;
+  esac
+done
+cmd="${args[*]}"
+
+if [ -n "${MOCK_SCOPE_LOG:-}" ]; then
+  printf '%s\n' "$cmd" >> "$MOCK_SCOPE_LOG"
+fi
+
+case "$cmd" in
+  "iam compartment list --access-level ANY --limit 1 --query "*)
+    printf '%s\n' 'ocid1.tenancy.oc1..scope'
+    ;;
+  "iam compartment list --compartment-id ocid1.tenancy.oc1..scope --compartment-id-in-subtree true --access-level ANY --lifecycle-state ACTIVE --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.compartment.oc1..vcn","name":"VCN"},{"id":"ocid1.compartment.oc1..cd3","name":"CD3"}]}'
+    ;;
+  "iam compartment get --compartment-id ocid1.tenancy.oc1..scope --query data.name --raw-output")
+    printf '%s\n' 'OCS-Tenancy'
+    ;;
+  *)
+    echo "mock-oci-scope: unsupported command: $cmd" >&2
+    exit 64
+    ;;
+esac
+

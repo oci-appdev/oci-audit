@@ -10,6 +10,21 @@
 
 **Draft PR:** <https://github.com/oci-appdev/oci-audit/pull/1>
 
+## Mandatory scope-selection standard
+
+Scripts `cp09-01` and `cp09-02` now support `-i` / `--select-scope`. They
+discover the tenancy and active compartments, display full OCIDs, require an
+exact discovered OCID and require the same OCID again before starting service
+collection. A tenancy selection means root plus every active child
+compartment. A mismatch exits before the collector loop.
+
+The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
+is in `tests/test-scope-selection.sh`.
+
+Every new or materially redesigned collector must follow
+`SCRIPT-DESIGN-STANDARD.md`. Preserve `-c`/`-n` for approved non-interactive
+automation, but do not create a different interactive selection workflow.
+
 ## Latest milestone — Task 2
 
 ### `in-transit-encryption.sh`
@@ -81,6 +96,7 @@ READ-ONLY SELF-CHECK: PASSED (cp09-03)
 READ-ONLY SELF-CHECK: PASSED (in-transit-encryption)
 PASS: cp09-03 success and denied-collection regressions
 PASS: Task 2 success and denied-IPSec regressions
+PASS: CP-9 interactive scope discovery and OCID confirmation
 PASS: CP-9 and SC-8 static, read-only and mock test suite
 ```
 
@@ -128,14 +144,16 @@ Continue with worksheet Task 3. Do not skip ahead to Task 6.
 
 Target `sc28-oci-encryption-at-rest.sh`:
 
-1. Inventory its OCI calls and eliminate discarded errors.
-2. Add row-level collection status/error and compartment-by-service coverage.
-3. Add exit code `3` and an error ledger for incomplete collection.
-4. Verify KMS key, vault/HSM, rotation and lifecycle evidence without exposing
+1. Adopt `lib/oci-scope-selector.sh` and the mandatory `-i` /
+   `--select-scope` confirmation workflow.
+2. Inventory its OCI calls and eliminate discarded errors.
+3. Add row-level collection status/error and compartment-by-service coverage.
+4. Add exit code `3` and an error ledger for incomplete collection.
+5. Verify KMS key, vault/HSM, rotation and lifecycle evidence without exposing
    key material.
-5. Add mock success and denied-call regressions.
-6. Add the Task 3 manual evidence/reviewer checklist.
-7. Update `MASTER-TASK-LIST.md`, `AUDIT.md` and this handoff when the milestone is done.
+6. Add mock success and denied-call regressions.
+7. Add the Task 3 manual evidence/reviewer checklist.
+8. Update `MASTER-TASK-LIST.md`, `AUDIT.md` and this handoff when the milestone is done.
 
 ## Known later blocker
 
