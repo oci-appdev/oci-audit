@@ -20,7 +20,7 @@
 | # | Worksheet task | Status | Repository coverage | Required next evidence/action |
 |---:|---|---|---|---|
 | 1 | Backup type/frequency, access and replication for VCN, Shared Services and CD3 | Implementation complete | Canonical `cp09-01`, `cp09-02`, `cp09-03` family; read-only self-checks; failure-aware CSVs; CP-9 mock suite | Run in every in-scope region and compartment; review exit codes, coverage, findings, unresolved identities and exceptions; store signed evidence package |
-| 2 | Encryption in transit, including IPSec screenshots and overall proof | Partial | `in-transit-encryption.sh` covers LB/NLB, databases, Object Storage, volume attachments, FSS, API Gateway and OKE | Add failure-aware collection ledger; add CPE/IPSec/DRG/tunnel collector; capture tunnel and manual Base DB/FSS evidence |
+| 2 | Encryption in transit, including IPSec screenshots and overall proof | Implementation complete | Failure-aware `in-transit-encryption.sh`; LB frontend/backend, NLB, databases, Object Storage, volume attachments, FSS, API Gateway, OKE, CPE/IPSec tunnels and DRG route context; mock denied-call gate; manual evidence checklist | Run in every in-scope region/compartment; reconcile coverage and findings; complete IPSec screenshots, Base DB `sqlnet.ora`, FSS mounts and NLB backend proof; review and store signed evidence package |
 | 3 | Encryption at rest | Partial | `sc28-oci-encryption-at-rest.sh` covers storage, databases and KMS posture | Add failure-aware ledger and tests; execute collector; review CMK/HSM/rotation exceptions; package evidence |
 | 4 | N/A | N/A | None required | None |
 | 5 | Continuous Monitoring Form review/feedback | Not started | None | Add reviewed form, feedback log, owner, disposition and approval |
@@ -40,8 +40,8 @@
 
 ## Completion snapshot
 
-Excluding the two N/A items, one of sixteen actionable worksheet tasks has an
-implementation-complete collector workflow. Five have partial foundations and
+Excluding the two N/A items, two of sixteen actionable worksheet tasks have
+implementation-complete collector workflows. Four have partial foundations and
 ten are not started. No actionable task should be represented as audit-complete
 until its operational evidence and approval records are produced and reviewed.
 
@@ -50,7 +50,7 @@ until its operational evidence and approval records are produced and reviewed.
 Continue in worksheet order:
 
 1. Execute and close Task 1 operational evidence.
-2. Harden and complete Task 2, including IPSec.
+2. Execute and close Task 2 operational/manual evidence.
 3. Harden and execute Task 3.
 4. Skip Task 4 as N/A and complete Task 5.
 5. Repair and operationalize Task 6.

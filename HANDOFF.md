@@ -6,7 +6,38 @@
 
 **Base commit:** `b196f45f43d95add1480da2cc50aa852762ecba7`
 
-**Current milestone:** Task 1 collector implementation complete; live OCI evidence pending
+**Current milestone:** Tasks 1 and 2 collector implementations complete; live/manual evidence pending
+
+**Draft PR:** <https://github.com/oci-appdev/oci-audit/pull/1>
+
+## Latest milestone — Task 2
+
+### `in-transit-encryption.sh`
+
+- Replaced discarded stderr with current-shell captured calls.
+- Added `collection_status` and `collection_error` to evidence rows.
+- Added compartment-by-service coverage and failed-call CSVs.
+- Added exit code `3` for any incomplete collection.
+- Added `--selfcheck`, compartment-name filtering and output routing.
+- Added Load Balancer backend-set SSL collection.
+- Added CPE, IPSec connection, tunnel and DRG attachment/route context.
+- Tunnel rows include lifecycle/status, IKE version, routing/BGP state,
+  negotiated phase-one/phase-two algorithms and PFS.
+- The collector never retrieves an IPSec pre-shared key.
+
+### Task 2 manual evidence
+
+`TASK2-MANUAL-EVIDENCE-CHECKLIST.md` covers IPSec screenshots, Base DB
+`sqlnet.ora`, encrypted FSS client mounts, NLB backend TLS, reconciliation,
+evidence handling and reviewer sign-off.
+
+### Task 2 regression gate
+
+Added `tests/mock-oci-task2` and `tests/test-in-transit-encryption.sh`. The
+success path exercises every Task 2 service. The denied path injects a 403 on
+the IPSec tunnel list and requires exit `3`, an attributed
+`DENIED/COLLECTION-FAILED` row, denied coverage and an error ledger. It also
+proves the failure cannot become `TUNNEL-DOWN`, `NO-IPSEC` or `NO-VPN`.
 
 ## What changed
 
@@ -47,8 +78,10 @@ Latest local result:
 READ-ONLY SELF-CHECK: PASSED (cp09-01)
 READ-ONLY SELF-CHECK: PASSED (cp09-02)
 READ-ONLY SELF-CHECK: PASSED (cp09-03)
+READ-ONLY SELF-CHECK: PASSED (in-transit-encryption)
 PASS: cp09-03 success and denied-collection regressions
-PASS: CP-9 static, read-only and mock test suite
+PASS: Task 2 success and denied-IPSec regressions
+PASS: CP-9 and SC-8 static, read-only and mock test suite
 ```
 
 Run with:
@@ -78,20 +111,30 @@ The following operational work remains:
 
 Do not commit live OCI CSVs or screenshots to this public repository.
 
+## Task 2 is not audit-complete
+
+1. Run the collector in every in-scope region and exact worksheet compartment.
+2. Require exit `0` and reconcile every coverage row and finding.
+3. Complete `TASK2-MANUAL-EVIDENCE-CHECKLIST.md`.
+4. Capture both IPSec tunnels, Base DB `sqlnet.ora`, FSS encrypted mounts and
+   NLB backend TLS without capturing PSKs or other secrets.
+5. Store and approve the package in the restricted evidence location.
+
+Do not commit live OCI CSVs or screenshots to this public repository.
+
 ## Next implementation task for Claude
 
-Continue with worksheet Task 2. Do not skip ahead to Task 6.
+Continue with worksheet Task 3. Do not skip ahead to Task 6.
 
-Target `in-transit-encryption.sh`:
+Target `sc28-oci-encryption-at-rest.sh`:
 
-1. Replace discarded stderr with the CP-9-style captured-call wrapper.
-2. Add per-row `collection_status` and `collection_error`.
-3. Add a compartment-by-service coverage ledger and exit code `3`.
-4. Add Site-to-Site VPN evidence for CPEs, IPSec connections, tunnels, tunnel
-   status, IKE/IPSec parameters, DRG attachment and relevant route context.
-5. Add a manual screenshot/evidence checklist for tunnel console state,
-   Base DB `sqlnet.ora`, FSS encrypted mounts and any backend TLS hidden by an NLB.
-6. Add mock tests proving a denied IPSec/tunnel call cannot look like “no VPN”.
+1. Inventory its OCI calls and eliminate discarded errors.
+2. Add row-level collection status/error and compartment-by-service coverage.
+3. Add exit code `3` and an error ledger for incomplete collection.
+4. Verify KMS key, vault/HSM, rotation and lifecycle evidence without exposing
+   key material.
+5. Add mock success and denied-call regressions.
+6. Add the Task 3 manual evidence/reviewer checklist.
 7. Update `MASTER-TASK-LIST.md`, `AUDIT.md` and this handoff when the milestone is done.
 
 ## Known later blocker

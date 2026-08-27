@@ -10,14 +10,46 @@
 
 ## Current audit position
 
-Task 1 now has an implementation-complete three-script CP-9 collector family.
-This means the code and reproducible mock gate are ready for a controlled OCI
-run. It does not mean Task 1 is audit-complete: live CSVs, reviewer disposition,
-evidence-location references and approval records have not been produced in
-this repository.
+Tasks 1 and 2 now have implementation-complete collector workflows and
+reproducible mock gates ready for controlled OCI runs. Neither task is
+audit-complete: live CSVs, Task 2 manual/screenshotted proof, reviewer
+disposition, evidence-location references and approval records have not been
+produced in this repository.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
-in worksheet order. Task 2 is next.
+in worksheet order. Task 3 is next after Tasks 1 and 2 operational evidence.
+
+---
+
+## 2026-08-27 — Task 2 SC-8 collection integrity and IPSec coverage
+
+The original `in-transit-encryption.sh` discarded stderr for every OCI call.
+A permission denial therefore looked exactly like an empty service. It also
+claimed Load Balancer backend coverage without collecting backend sets and had
+no Site-to-Site VPN evidence.
+
+The collector now:
+
+- performs a source-level read-only self-check and uses only list/get calls;
+- records `collection_status` and `collection_error` on every evidence row;
+- produces a compartment-by-service coverage ledger and failed-call ledger;
+- exits `3` when collection is incomplete;
+- distinguishes missing data from a verified zero-resource result;
+- collects Load Balancer listeners and backend-set SSL independently;
+- covers CPEs, IPSec connections, tunnel lifecycle/status, IKE version,
+  routing/BGP state, negotiated phase-one/phase-two parameters and PFS;
+- records DRG attachment, route-table and attached-network context;
+- never requests or exposes an IPSec pre-shared key;
+- retains manual-evidence boundaries for NLB backend TLS, Base DB `sqlnet.ora`
+  and FSS encrypted client mounts.
+
+`TASK2-MANUAL-EVIDENCE-CHECKLIST.md` defines the screenshot/config package and
+review sign-off required to close those boundaries.
+
+The regression suite exercises every Task 2 service path. A denied tunnel-list
+call must yield exit `3`, a `DENIED/COLLECTION-FAILED` IPSec tunnel row, denied
+coverage and a retained error ledger. It is forbidden from producing
+`TUNNEL-DOWN`, `NO-IPSEC` or `NO-VPN`.
 
 ---
 

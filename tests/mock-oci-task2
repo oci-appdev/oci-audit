@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+args=("$@")
+if [ "${args[0]:-}" = "--region" ]; then
+  args=("${args[@]:2}")
+fi
+cmd="${args[*]}"
+
+case "$cmd" in
+  "iam compartment list --access-level ANY --limit 1 --query "*)
+    printf '%s\n' 'ocid1.tenancy.oc1..test'
+    ;;
+  "iam compartment get --compartment-id ocid1.compartment.oc1..test "*)
+    printf '%s\n' 'VCN'
+    ;;
+  "lb load-balancer list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.loadbalancer.oc1..lb1","display-name":"app-lb"}]}'
+    ;;
+  "lb listener list --load-balancer-id ocid1.loadbalancer.oc1..lb1 --all")
+    printf '%s\n' '{"data":[{"name":"https","protocol":"HTTP","ssl-configuration":{"protocols":["TLSv1.2"],"cipher-suite-name":"oci-default-ssl-cipher-suite-v1"}}]}'
+    ;;
+  "lb backend-set list --load-balancer-id ocid1.loadbalancer.oc1..lb1 --all")
+    printf '%s\n' '{"data":[{"name":"app-backends","ssl-configuration":{"verify-peer-certificate":true}}]}'
+    ;;
+  "nlb network-load-balancer list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.networkloadbalancer.oc1..nlb1","display-name":"edge-nlb"}]}}'
+    ;;
+  "nlb listener list --network-load-balancer-id ocid1.networkloadbalancer.oc1..nlb1 --all")
+    printf '%s\n' '{"data":{"items":[{"name":"tcp-443","protocol":"TCP"}]}}'
+    ;;
+  "db autonomous-database list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"db-name":"ADB1","is-mtls-connection-required":true,"connection-strings":{"profiles":[{"tls-authentication":"MUTUAL"}]}}]}'
+    ;;
+  "db system list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.dbsystem.oc1..db1","display-name":"base-db"}]}'
+    ;;
+  "os ns get --raw-output --query data")
+    printf '%s\n' 'testns'
+    ;;
+  "os bucket list --compartment-id ocid1.compartment.oc1..test --namespace-name testns --all")
+    printf '%s\n' '{"data":[{"name":"private-bucket"}]}'
+    ;;
+  "os bucket get --bucket-name private-bucket --namespace-name testns")
+    printf '%s\n' '{"data":{"public-access-type":"NoPublicAccess"}}'
+    ;;
+  "compute volume-attachment list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"volume-id":"ocid1.volume.oc1..volume1","instance-id":"ocid1.instance.oc1..instance1","is-pv-encryption-in-transit-enabled":true}]}'
+    ;;
+  "compute instance list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"display-name":"instance-1","launch-options":{"is-pv-encryption-in-transit-enabled":true}}]}'
+    ;;
+  "iam availability-domain list --compartment-id ocid1.compartment.oc1..test")
+    printf '%s\n' '{"data":[{"name":"AD-1"}]}'
+    ;;
+  "fs mount-target list --compartment-id ocid1.compartment.oc1..test --availability-domain AD-1 --all")
+    printf '%s\n' '{"data":[{"display-name":"fss-mount-target"}]}'
+    ;;
+  "api-gateway gateway list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":{"items":[{"display-name":"api-gw","hostname":"api.example.invalid","ca-bundles":[]}]}}'
+    ;;
+  "ce cluster list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"name":"oke-1","endpoint-config":{"is-public-ip-enabled":false}}]}'
+    ;;
+  "network cpe list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.cpe.oc1..cpe1","display-name":"onprem-cpe","ip-address":"192.0.2.10","cpe-device-shape-id":"ocid1.cpedeviceshape.oc1..vendor"}]}'
+    ;;
+  "network ip-sec-connection list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.ipsecconnection.oc1..ipsec1","display-name":"onprem-vpn"}]}'
+    ;;
+  "network ip-sec-connection get --ipsc-id ocid1.ipsecconnection.oc1..ipsec1")
+    printf '%s\n' '{"data":{"id":"ocid1.ipsecconnection.oc1..ipsec1","display-name":"onprem-vpn","drg-id":"ocid1.drg.oc1..drg1","cpe-id":"ocid1.cpe.oc1..cpe1","lifecycle-state":"AVAILABLE","static-routes":["10.20.0.0/16"]}}'
+    ;;
+  "network ip-sec-tunnel list --ipsc-id ocid1.ipsecconnection.oc1..ipsec1 --all")
+    if [ "${MOCK_DENY_TUNNEL:-0}" = "1" ]; then
+      echo 'ServiceError: Authorization failed. status: 403' >&2
+      exit 1
+    fi
+    printf '%s\n' '{"data":[{"id":"ocid1.ipsectunnel.oc1..tunnel1","display-name":"tunnel-1","ike-version":"V2","lifecycle-state":"AVAILABLE","status":"UP","routing":"BGP","time-status-updated":"2026-08-27T00:00:00Z","bgp-session-info":{"bgp-state":"UP"},"phase-one-details":{"is-ike-established":true,"negotiated-authentication-algorithm":"SHA2_384","negotiated-encryption-algorithm":"AES_256_CBC","negotiated-dh-group":"GROUP20"},"phase-two-details":{"is-esp-established":true,"is-pfs-enabled":true,"negotiated-authentication-algorithm":"HMAC_SHA2_256_128","negotiated-encryption-algorithm":"AES_256_GCM","negotiated-dh-group":"GROUP20"}}]}'
+    ;;
+  "network drg-attachment list --compartment-id ocid1.compartment.oc1..test --attachment-type ALL --all")
+    printf '%s\n' '{"data":[{"display-name":"ipsec-attachment","attachment-type":"IPSEC_TUNNEL","lifecycle-state":"ATTACHED","drg-id":"ocid1.drg.oc1..drg1","drg-route-table-id":"ocid1.drgroutetable.oc1..rt1","network-details":{"id":"ocid1.ipsectunnel.oc1..tunnel1","type":"IPSEC_TUNNEL"}}]}'
+    ;;
+  *)
+    echo "mock-oci-task2: unsupported command: $cmd" >&2
+    exit 64
+    ;;
+esac
+

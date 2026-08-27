@@ -7,9 +7,9 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Task 1, backup type/frequency/access/replication: implementation milestone
-  complete on `codex/task1-audit-hardening`; live OCI evidence is still pending.
-- Tasks 2, 3, 6, 8 and 9: partial collectors exist.
+- Tasks 1 and 2: implementation milestones complete on
+  `codex/task1-audit-hardening`; live OCI evidence is still pending.
+- Tasks 3, 6, 8 and 9: partial collectors exist.
 - Tasks 5, 7, 10–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
@@ -31,6 +31,7 @@ Use these three scripts together. Legacy `backup-storage.sh` and
 
 - OCI CLI authenticated to the target tenancy
 - `jq`
+- Python 3
 - Bash 4 or later
 - Read-only IAM permissions covering the services being collected
 
@@ -76,18 +77,60 @@ every subscribed region that contains in-scope resources.
 An exit code of `0` means the collection completed. It does not mean the
 tenancy passed the control. Review the findings and evidence rows separately.
 
+## Canonical Task 2 workflow
+
+`in-transit-encryption.sh` is the SC-8/SC-8(1)/SC-13 collector. It covers Load
+Balancer frontend and backend TLS, NLB passthrough, Autonomous and Base
+databases, Object Storage, volume attachments, FSS, API Gateway, OKE and the
+Site-to-Site VPN chain (CPE, IPSec connection, tunnels and DRG attachment/route
+context).
+
+The collector uses only OCI list/get operations and intentionally never
+retrieves an IPSec pre-shared key.
+
+Run the read-only check:
+
+```bash
+bash in-transit-encryption.sh --selfcheck
+```
+
+Example GovCloud collection:
+
+```bash
+REGION=us-langley-1
+SCOPE_NAMES='VCN,Shared Services,CD3'
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+EVIDENCE_DIR="./evidence/${REGION}/${RUN_ID}"
+
+mkdir -p "$EVIDENCE_DIR"
+
+bash in-transit-encryption.sh \
+  -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
+```
+
+The run produces an evidence CSV and compartment-by-service coverage CSV. A
+failed OCI call produces an attributed `COLLECTION-FAILED` row, a retained
+error ledger and exit code `3`; it cannot be mistaken for an absent service or
+down tunnel.
+
+Complete the API evidence with
+[TASK2-MANUAL-EVIDENCE-CHECKLIST.md](TASK2-MANUAL-EVIDENCE-CHECKLIST.md),
+including IPSec tunnel screenshots, Base DB `sqlnet.ora`, encrypted FSS mounts
+and backend TLS hidden by NLB passthrough.
+
 ## Tests
 
-Run the repository CP-9 regression suite with:
+Run the repository regression suite with:
 
 ```bash
 bash tests/run.sh
 ```
 
-The suite performs Bash syntax checks, executes the read-only self-check on all
-three CP-9 collectors, exercises all seven `cp09-03` service paths against a
-mock OCI CLI, and proves that a denied replica call becomes an incomplete row
-and exit code `3` instead of a false `NO-REPLICA` result.
+The suite performs Bash syntax and read-only checks for CP-9 and SC-8. It
+exercises all seven `cp09-03` service paths and every Task 2 service path
+against mock OCI CLIs. Denied-call regressions prove that unavailable replica
+or IPSec tunnel data becomes an incomplete row and exit code `3`, never a
+fabricated negative finding.
 
 ## Evidence handling
 

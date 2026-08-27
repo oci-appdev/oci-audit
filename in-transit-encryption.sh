@@ -1,391 +1,798 @@
 #!/usr/bin/env bash
 #
-# oci_intransit_encryption_audit.sh
+# in-transit-encryption.sh
 #
-# SC-8 / SC-8(1) / SC-13 EVIDENCE COLLECTION — Encryption in Transit
+# SC-8 / SC-8(1) / SC-13 EVIDENCE — Encryption in transit
 #
-# Tenancy-wide, read-only sweep of OCI in-transit encryption configuration.
-# Designed for OCI Cloud Shell (uses your existing delegation token — the same
-# auth that makes `oci iam compartment list` work). No API keys needed.
+# Read-only OCI configuration sweep for TLS, native transport encryption and
+# Site-to-Site VPN/IPSec. Designed for OCI Cloud Shell.
 #
-# Collects proof of TLS / in-transit encryption across:
-#   1. Load Balancers         - TLS listeners, min TLS version, cipher suite, backend SSL
-#   2. Network LBs            - listener protocol
-#   3. Autonomous Database    - mTLS/TLS connection posture
-#   4. Base DB Systems        - node/endpoint (native encryption confirmed at conn layer)
-#   5. Object Storage buckets - public-access posture (HTTPS enforced by platform)
-#   6. Block / Boot Volumes   - paravirtualized in-transit encryption flag on attachments
-#   7. File Storage (FSS)     - in-transit encryption capability (mount-target export)
-#   8. API Gateway            - deployment TLS / certificate posture
-#   9. OKE clusters           - API server endpoint (TLS by platform)
+# Services:
+#   lb       Load Balancer frontend TLS and backend-set SSL
+#   nlb      Network Load Balancer passthrough (backend TLS is manual evidence)
+#   adb      Autonomous Database TLS/mTLS posture
+#   basedb   Base Database inventory (sqlnet.ora remains manual evidence)
+#   object   Object Storage HTTPS/public-access posture
+#   volumes  Block/boot volume paravirtualized in-transit encryption
+#   fss      File Storage mount targets (encrypted mount remains manual evidence)
+#   apigw    API Gateway HTTPS endpoint posture
+#   oke      OKE Kubernetes API endpoint posture
+#   ipsec    CPEs, IPSec connections/tunnels and DRG attachment/route context
 #
-# READ-ONLY: every call is a list/get. Nothing is created, modified, or deleted.
+# READ-ONLY: every OCI call is a list/get. The script never retrieves an IPSec
+# pre-shared key. Nothing is created, modified, attached, detached or deleted.
 #
 # Usage:
-#   ./oci_intransit_encryption_audit.sh                 # all compartments
-#   ./oci_intransit_encryption_audit.sh -c <ocid>       # single compartment
-#   ./oci_intransit_encryption_audit.sh -r us-langley-1 # region override (GovCloud)
-#   ./oci_intransit_encryption_audit.sh -s "lb db"      # subset
+#   bash in-transit-encryption.sh
+#   bash in-transit-encryption.sh -c <compartment-ocid>
+#   bash in-transit-encryption.sh -n 'VCN,Shared Services,CD3'
+#   bash in-transit-encryption.sh -r us-langley-1
+#   bash in-transit-encryption.sh -s 'lb ipsec'
+#   bash in-transit-encryption.sh -o ./evidence
+#   bash in-transit-encryption.sh --selfcheck
 #
-# Output: timestamped CSV evidence file + console summary flagging any
-#         resource NOT enforcing TLS >= 1.2 or with encryption disabled.
+# Output:
+#   oci_intransit_encryption_<ts>.csv
+#   oci_intransit_encryption_coverage_<ts>.csv
+#   oci_intransit_encryption_collection_errors_<ts>.csv (failed calls only)
+#
+# Exit codes:
+#   0  collection completed; findings still require review
+#   1  collector could not start or establish scope
+#   3  collection ran but at least one OCI call/evidence row is incomplete
 #
 set -uo pipefail
 
-command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found."; exit 1; }
-command -v jq  >/dev/null 2>&1 || { echo "ERROR: jq not found."; exit 1; }
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+
+readonly_selfcheck() {                                          # selfcheck-exempt
+  local deny hits raw rawpat                                    # selfcheck-exempt
+  deny='oci[[:space:]]+([a-z0-9-]+[[:space:]]+)*(create|update|delete|change|move|restore|enable|disable|rotate|assign|attach|detach|terminate|reboot|import|export|upload|bulk-upload|bulk-delete|reset|activate|deactivate|cancel)([[:space:]]|$)'  # selfcheck-exempt
+  hits="$(grep -nE "$deny" "$SCRIPT_PATH" 2>/dev/null \
+          | grep -v 'selfcheck-exempt' \
+          | grep -vE '^[0-9]+:[[:space:]]*#' || true)"          # selfcheck-exempt
+  rawpat="raw""-request"                                       # selfcheck-exempt
+  raw="$(grep -nE "$rawpat" "$SCRIPT_PATH" 2>/dev/null \
+         | grep -viE 'http-method[[:space:]=]+GET' \
+         | grep -v 'selfcheck-exempt' \
+         | grep -vE '^[0-9]+:[[:space:]]*#' || true)"           # selfcheck-exempt
+  if [ -n "$hits" ] || [ -n "$raw" ]; then                    # selfcheck-exempt
+    echo "READ-ONLY SELF-CHECK: FAILED — mutating call found:" >&2
+    printf '%s\n%s\n' "$hits" "$raw" >&2
+    return 1
+  fi
+  return 0
+}
+
+if [ "${1:-}" = "--selfcheck" ]; then
+  if readonly_selfcheck; then
+    echo "READ-ONLY SELF-CHECK: PASSED (in-transit-encryption)"
+    echo "All OCI calls in $SCRIPT_PATH are list/get operations."
+    exit 0
+  fi
+  exit 1
+fi
+
+command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found." >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found." >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not found." >&2; exit 1; }
 
 SINGLE_COMP=""
+COMP_NAMES_FILTER=""
 REGION_OVERRIDE=""
-SERVICES="lb nlb adb basedb object volumes fss apigw oke"
+OUTDIR="."
+SERVICES="lb nlb adb basedb object volumes fss apigw oke ipsec"
 
-while getopts "c:r:s:h" opt; do
+while getopts "c:n:r:s:o:h" opt; do
   case "$opt" in
     c) SINGLE_COMP="$OPTARG" ;;
+    n) COMP_NAMES_FILTER="$OPTARG" ;;
     r) REGION_OVERRIDE="$OPTARG" ;;
     s) SERVICES="$OPTARG" ;;
+    o) OUTDIR="$OPTARG" ;;
     h) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "Use -h for help"; exit 1 ;;
+    *) echo "Use -h for help" >&2; exit 1 ;;
   esac
 done
 
 REGION_ARG=()
 [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")
-o() { oci "${REGION_ARG[@]}" "$@" 2>/dev/null; }
+mkdir -p -- "$OUTDIR" 2>/dev/null || { echo "ERROR: cannot create output directory: $OUTDIR" >&2; exit 1; }
+readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT="oci_intransit_encryption_${TS}.csv"
-echo "compartment_id,compartment_name,service,resource,tls_enabled,tls_min_version,cipher_or_detail,finding,control" > "$OUT"
+OUT="$OUTDIR/oci_intransit_encryption_${TS}.csv"
+COVERAGE="$OUTDIR/oci_intransit_encryption_coverage_${TS}.csv"
+ERROUT="$OUTDIR/oci_intransit_encryption_collection_errors_${TS}.csv"
 
+echo "compartment_id,compartment_name,service,resource,encryption_enabled,protocol_or_min_version,cipher_or_detail,finding,control,collection_status,collection_error" > "$OUT"
+echo "compartment_id,compartment_name,service,assets_found,collection_status,collection_error" > "$COVERAGE"
+echo "compartment_id,compartment_name,status,command,error" > "$ERROUT"
+
+INCOMPLETE=0
+CUR_COMP="<tenancy>"
+COLLECT_OUT=""
+COLLECT_STATUS="OK"
+COLLECT_ERROR=""
 declare -A COMP_NAME
 
-# Type-safe iterator for OCI list responses. Different services/CLI versions
-# return either {"data":[...]} or {"data":{"items":[...]}}. Naively writing
-# `.data.items[]? // .data[]?` throws "cannot index array with string" when
-# .data is an array. This filter checks the type first.
+oci_capture() {
+  local label="$1"; shift
+  local errf out rc err status cname cmd
+  errf="$(mktemp 2>/dev/null || printf '/tmp/sc8.%s.err' "$$")"
+  out="$(oci "${REGION_ARG[@]}" "$@" 2>"$errf")"; rc=$?
+  err="$(tr '\n\r' '  ' < "$errf" 2>/dev/null | sed 's/  */ /g' | cut -c1-300)"
+  rm -f "$errf" 2>/dev/null
+  if [ "$rc" -eq 0 ]; then
+    status="OK"
+  else
+    if printf '%s' "$err" | grep -qiE 'NotAuthorized|Authorization failed|forbidden|\b403\b'; then
+      status="DENIED"
+    elif printf '%s' "$err" | grep -qiE 'No such command|no such option|Usage:'; then
+      status="CLI_UNSUPPORTED"
+    elif printf '%s' "$err" | grep -qiE 'NotFound|does not exist|\b404\b'; then
+      status="NOTFOUND"
+    else
+      status="ERROR"
+    fi
+    if [ "$status" != "NOTFOUND" ]; then
+      INCOMPLETE=1
+      cname="${COMP_NAME[$CUR_COMP]:-<unknown>}"
+      cmd="$label :: $*"
+      cmd="${cmd//\"/\"\"}"; err="${err//\"/\"\"}"
+      printf '"%s","%s","%s","%s","%s"\n' \
+        "$CUR_COMP" "$cname" "$status" "$cmd" "$err" >> "$ERROUT"
+    fi
+  fi
+  COLLECT_OUT="$out"
+  COLLECT_STATUS="$status"
+  COLLECT_ERROR="$err"
+}
+
 LIST_ITER='if (.data|type)=="object" then ((.data.items // []) | .[]) elif (.data|type)=="array" then (.data[]) else empty end'
 
-# $1 = comp id; auto-inserts compartment name as field 2
+csv_escape() {
+  local s="$1"
+  s="${s//\"/\"\"}"
+  printf '"%s"' "$s"
+}
+
 row() {
   local comp_id="$1"; shift
   local cname="${COMP_NAME[$comp_id]:-<unknown>}"
-  local out="" f
-  for f in "$comp_id" "$cname" "$@"; do
-    f="${f//\"/\"\"}"
-    out+="\"${f}\","
+  local output="" field
+  for field in "$comp_id" "$cname" "$@"; do
+    field="${field//\"/\"\"}"
+    output+="\"${field}\","
   done
-  echo "${out%,}" >> "$OUT"
+  echo "${output%,}" >> "$OUT"
 }
 
-# ---------------------------------------------------------------------------
-# Tenancy + compartment enumeration (with names)
-# ---------------------------------------------------------------------------
-TENANCY_ID="$(o iam compartment list --access-level ANY --limit 1 \
-  --query 'data[0]."compartment-id"' --raw-output 2>/dev/null)"
-echo "Region : ${REGION_OVERRIDE:-<cloud-shell-default>}"
-echo "Tenancy: ${TENANCY_ID:-<unknown>}"
-echo
+coverage_row() {
+  local comp_id="$1" service="$2" count="$3" status="$4" error="$5"
+  printf '%s,%s,%s,%s,%s,%s\n' \
+    "$(csv_escape "$comp_id")" "$(csv_escape "${COMP_NAME[$comp_id]:-<unknown>}")" \
+    "$(csv_escape "$service")" "$(csv_escape "$count")" \
+    "$(csv_escape "$status")" "$(csv_escape "$error")" >> "$COVERAGE"
+}
+
+merge_status() {
+  local status_var="$1" error_var="$2" new_status="$3" new_error="$4"
+  local current="${!status_var}"
+  [ "$new_status" = "OK" ] || [ "$new_status" = "NOTFOUND" ] || {
+    if [ "$current" = "OK" ]; then printf -v "$status_var" '%s' "$new_status"; fi
+    if [ -n "$new_error" ]; then
+      local prior="${!error_var}"
+      printf -v "$error_var" '%s' "${prior:+$prior | }$new_error"
+    fi
+  }
+}
+
+collection_failure_row() {
+  local comp="$1" service="$2" resource="$3" status="$4" error="$5" control="$6"
+  INCOMPLETE=1
+  row "$comp" "$service" "$resource" "UNKNOWN" "UNKNOWN" "UNKNOWN" \
+    "COLLECTION-FAILED" "$control" "$status" "$error"
+}
+
+# Resolve tenancy and collection scope.
+oci_capture "resolve tenancy" iam compartment list --access-level ANY --limit 1 \
+  --query 'data[0]."compartment-id"' --raw-output
+TENANCY_ID="$COLLECT_OUT"
+[ -z "$TENANCY_ID" ] || [ "$TENANCY_ID" = "null" ] && {
+  echo "ERROR: could not resolve tenancy ($COLLECT_STATUS): $COLLECT_ERROR" >&2
+  echo "Collection errors retained in: $ERROUT" >&2
+  exit 1
+}
+COMP_NAME["$TENANCY_ID"]="root"
+CUR_COMP="$TENANCY_ID"
 
 if [ -n "$SINGLE_COMP" ]; then
   COMPS="$SINGLE_COMP"
-  cn="$(o iam compartment get --compartment-id "$SINGLE_COMP" --query 'data.name' --raw-output 2>/dev/null)"
-  COMP_NAME["$SINGLE_COMP"]="${cn:-<unknown>}"
+  CUR_COMP="$SINGLE_COMP"
+  oci_capture "get compartment name" iam compartment get --compartment-id "$SINGLE_COMP" \
+    --query 'data.name' --raw-output
+  COMP_NAME["$SINGLE_COMP"]="${COLLECT_OUT:-<unknown>}"
 else
-  comp_pairs="$(o iam compartment list --compartment-id-in-subtree true \
-                  --access-level ANY --lifecycle-state ACTIVE --all \
-                  --query 'data[].{id:id,name:name}' 2>/dev/null)"
+  oci_capture "enumerate active compartments" iam compartment list \
+    --compartment-id-in-subtree true --access-level ANY --lifecycle-state ACTIVE \
+    --all --query 'data[].{id:id,name:name}'
+  comp_pairs="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    echo "ERROR: compartment enumeration failed ($COLLECT_STATUS): $COLLECT_ERROR" >&2
+    echo "Collection errors retained in: $ERROUT" >&2
+    exit 1
+  fi
   while IFS=$'\t' read -r cid cname; do
     [ -z "$cid" ] && continue
     COMP_NAME["$cid"]="$cname"
-  done < <(echo "$comp_pairs" | jq -r '.[]? | [.id, .name] | @tsv' 2>/dev/null)
-  COMPS="$(echo "$comp_pairs" | jq -r '.[]?.id' 2>/dev/null)"
-  if [ -n "$TENANCY_ID" ]; then
-    tname="$(o iam compartment get --compartment-id "$TENANCY_ID" --query 'data.name' --raw-output 2>/dev/null)"
-    COMP_NAME["$TENANCY_ID"]="${tname:-root}"
-    COMPS="$TENANCY_ID"$'\n'"$COMPS"
-  fi
+  done < <(printf '%s' "$comp_pairs" | jq -r '.[]? | [.id, .name] | @tsv' 2>/dev/null)
+  COMPS="$(printf '%s' "$comp_pairs" | jq -r '.[]?.id' 2>/dev/null)"
+  CUR_COMP="$TENANCY_ID"
+  oci_capture "get tenancy name" iam compartment get --compartment-id "$TENANCY_ID" \
+    --query 'data.name' --raw-output
+  COMP_NAME["$TENANCY_ID"]="${COLLECT_OUT:-root}"
+  COMPS="$TENANCY_ID"$'\n'"$COMPS"
+fi
+
+if [ -n "$COMP_NAMES_FILTER" ]; then
+  FILTERED_COMPS=""
+  while IFS= read -r cid; do
+    [ -z "$cid" ] && continue
+    cname="${COMP_NAME[$cid]:-<unknown>}"
+    if printf ',%s,' "$COMP_NAMES_FILTER" | grep -Fqi ",${cname},"; then
+      FILTERED_COMPS+="${FILTERED_COMPS:+$'\n'}$cid"
+    fi
+  done <<< "$COMPS"
+  COMPS="$FILTERED_COMPS"
 fi
 
 COMP_COUNT="$(printf '%s\n' "$COMPS" | grep -c . || true)"
-[ "$COMP_COUNT" -eq 0 ] && { echo "ERROR: no compartments enumerated."; exit 1; }
-echo "Collecting SC-8 in-transit encryption evidence across ${COMP_COUNT} compartment(s)..."
+[ "$COMP_COUNT" -eq 0 ] && { echo "ERROR: no compartments enumerated." >&2; exit 1; }
+
+echo "Region : ${REGION_OVERRIDE:-<cloud-shell-default>}"
+echo "Tenancy: $TENANCY_ID"
+echo "Collecting SC-8 evidence across $COMP_COUNT compartment(s)..."
 echo
 
-# Weak TLS versions that should be flagged as findings
-weak_tls() {  # $1 = version string; returns 0 if weak
-  case "$1" in
-    *1.0*|*1.1*|SSL*|"") return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# ---------------------------------------------------------------------------
-# 1. Load Balancers (classic / application LB)
-# ---------------------------------------------------------------------------
 check_lb() {
-  local comp="$1"
-  local lbs
-  lbs="$(o lb load-balancer list --compartment-id "$comp" --all 2>/dev/null | jq -c '.data[]?' 2>/dev/null)"
+  local comp="$1" lbs_json count_front=0 count_back=0
+  local front_status="OK" front_error="" back_status="OK" back_error=""
+  oci_capture "Load Balancer list" lb load-balancer list --compartment-id "$comp" --all
+  lbs_json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "LoadBalancerFrontend" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    collection_failure_row "$comp" "LoadBalancerBackend" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "LoadBalancerFrontend" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    coverage_row "$comp" "LoadBalancerBackend" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    return
+  fi
+
   while IFS= read -r lb; do
     [ -z "$lb" ] && continue
-    local lbname listeners
-    lbname="$(echo "$lb" | jq -r '."display-name"')"
-    # iterate listeners — guard: only if .listeners is an object
-    echo "$lb" | jq -c 'if (.listeners|type)=="object" then (.listeners|to_entries[]) else empty end' 2>/dev/null | while IFS= read -r l; do
-      local lname proto has_ssl minver ciphers finding
-      lname="$(echo "$l" | jq -r '.key // "listener"' 2>/dev/null)"
-      proto="$(echo "$l" | jq -r '.value.protocol // "?"' 2>/dev/null)"
-      has_ssl="$(echo "$l" | jq -r '(.value | has("ssl-configuration")) and (.value."ssl-configuration" != null)' 2>/dev/null)"
-      if [ "$has_ssl" = "true" ]; then
-        # protocols may be an array; coerce safely regardless of type
-        minver="$(echo "$l" | jq -r '(.value."ssl-configuration"."protocols") as $p | if ($p|type)=="array" then ($p|join(",")) elif $p==null then "managed" else ($p|tostring) end' 2>/dev/null)"
-        ciphers="$(echo "$l" | jq -r '.value."ssl-configuration"."cipher-suite-name" // "default"' 2>/dev/null)"
-        [ -z "$minver" ] && minver="managed"
-        if echo "$minver" | grep -Eq 'TLSv1\.0|TLSv1\.1'; then
-          finding="WEAK-TLS-VERSION"
+    local lbid lbname listeners_json child_status child_error backends_json
+    lbid="$(printf '%s' "$lb" | jq -r '.id')"
+    lbname="$(printf '%s' "$lb" | jq -r '."display-name" // "load-balancer"')"
+
+    oci_capture "Load Balancer listener list [$lbname]" lb listener list \
+      --load-balancer-id "$lbid" --all
+    listeners_json="$COLLECT_OUT"; child_status="$COLLECT_STATUS"; child_error="$COLLECT_ERROR"
+    merge_status front_status front_error "$child_status" "$child_error"
+    if [ "$child_status" != "OK" ]; then
+      collection_failure_row "$comp" "LoadBalancerFrontend" "$lbname/<listeners>" "$child_status" "$child_error" "SC-8(1)"
+    else
+      while IFS= read -r listener; do
+        [ -z "$listener" ] && continue
+        count_front=$((count_front+1))
+        local lname proto ssl minver cipher finding
+        lname="$(printf '%s' "$listener" | jq -r '.name // "listener"')"
+        proto="$(printf '%s' "$listener" | jq -r '.protocol // "unknown"')"
+        ssl="$(printf '%s' "$listener" | jq -r '."ssl-configuration" // empty')"
+        if [ -n "$ssl" ]; then
+          minver="$(printf '%s' "$listener" | jq -r '(."ssl-configuration".protocols // ["managed"]) | if type=="array" then join(";") else tostring end')"
+          cipher="$(printf '%s' "$listener" | jq -r '."ssl-configuration"."cipher-suite-name" // "default"')"
+          if printf '%s' "$minver" | grep -Eq 'TLSv1(\.0|\.1)(;|$)'; then finding="WEAK-TLS-VERSION"; else finding="OK"; fi
+          row "$comp" "LoadBalancerFrontend" "$lbname/$lname" "YES" "$minver" "$cipher" "$finding" "SC-8(1)" "OK" ""
         else
-          finding="OK"
+          row "$comp" "LoadBalancerFrontend" "$lbname/$lname" "NO" "$proto" "no-ssl-configuration" "PLAINTEXT-LISTENER" "SC-8(1)" "OK" ""
         fi
-        row "$comp" "LoadBalancer" "${lbname}/${lname}" "YES" "$minver" "$ciphers" "$finding" "SC-8(1)"
-      else
-        # HTTP listener with no SSL = plaintext
-        row "$comp" "LoadBalancer" "${lbname}/${lname}" "NO" "none" "protocol=$proto" "PLAINTEXT-LISTENER" "SC-8(1)"
-      fi
-    done
-  done <<< "$lbs"
+      done < <(printf '%s' "$listeners_json" | jq -c "$LIST_ITER" 2>/dev/null)
+    fi
+
+    oci_capture "Load Balancer backend-set list [$lbname]" lb backend-set list \
+      --load-balancer-id "$lbid" --all
+    backends_json="$COLLECT_OUT"; child_status="$COLLECT_STATUS"; child_error="$COLLECT_ERROR"
+    merge_status back_status back_error "$child_status" "$child_error"
+    if [ "$child_status" != "OK" ]; then
+      collection_failure_row "$comp" "LoadBalancerBackend" "$lbname/<backend-sets>" "$child_status" "$child_error" "SC-8(1)"
+    else
+      while IFS= read -r backend; do
+        [ -z "$backend" ] && continue
+        count_back=$((count_back+1))
+        local bname ssl verify detail
+        bname="$(printf '%s' "$backend" | jq -r '.name // "backend-set"')"
+        ssl="$(printf '%s' "$backend" | jq -r '."ssl-configuration" // empty')"
+        if [ -n "$ssl" ]; then
+          verify="$(printf '%s' "$backend" | jq -r '."ssl-configuration"."verify-peer-certificate" // false')"
+          detail="verify-peer-certificate=$verify"
+          row "$comp" "LoadBalancerBackend" "$lbname/$bname" "YES" "TLS" "$detail" "OK-REVIEW-CERT-VERIFY" "SC-8(1)" "OK" ""
+        else
+          row "$comp" "LoadBalancerBackend" "$lbname/$bname" "NO" "plaintext" "no-backend-ssl-configuration" "BACKEND-PLAINTEXT" "SC-8(1)" "OK" ""
+        fi
+      done < <(printf '%s' "$backends_json" | jq -c "$LIST_ITER" 2>/dev/null)
+    fi
+  done < <(printf '%s' "$lbs_json" | jq -c "$LIST_ITER" 2>/dev/null)
+
+  coverage_row "$comp" "LoadBalancerFrontend" "$count_front" "$front_status" "$front_error"
+  coverage_row "$comp" "LoadBalancerBackend" "$count_back" "$back_status" "$back_error"
 }
 
-# ---------------------------------------------------------------------------
-# 2. Network Load Balancers
-# ---------------------------------------------------------------------------
 check_nlb() {
-  local comp="$1"
-  local nlbs
-  nlbs="$(o nlb network-load-balancer list --compartment-id "$comp" --all 2>/dev/null | jq -c "$LIST_ITER" 2>/dev/null)"
-  while IFS= read -r n; do
-    [ -z "$n" ] && continue
-    local nid nname
-    nid="$(echo "$n" | jq -r '.id')"
-    nname="$(echo "$n" | jq -r '."display-name"')"
-    local ls
-    ls="$(o nlb listener list --network-load-balancer-id "$nid" --all 2>/dev/null | jq -c "$LIST_ITER" 2>/dev/null)"
-    while IFS= read -r l; do
-      [ -z "$l" ] && continue
+  local comp="$1" nlbs_json count=0 service_status="OK" service_error=""
+  oci_capture "Network Load Balancer list" nlb network-load-balancer list --compartment-id "$comp" --all
+  nlbs_json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "NetworkLB" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "NetworkLB" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    return
+  fi
+  while IFS= read -r nlb; do
+    [ -z "$nlb" ] && continue
+    local nid nname listeners_json status error
+    nid="$(printf '%s' "$nlb" | jq -r '.id')"
+    nname="$(printf '%s' "$nlb" | jq -r '."display-name" // "network-lb"')"
+    oci_capture "Network Load Balancer listener list [$nname]" nlb listener list \
+      --network-load-balancer-id "$nid" --all
+    listeners_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
+    merge_status service_status service_error "$status" "$error"
+    if [ "$status" != "OK" ]; then
+      collection_failure_row "$comp" "NetworkLB" "$nname/<listeners>" "$status" "$error" "SC-8(1)"
+      continue
+    fi
+    while IFS= read -r listener; do
+      [ -z "$listener" ] && continue
+      count=$((count+1))
       local lname proto
-      lname="$(echo "$l" | jq -r '.name // "listener"')"
-      proto="$(echo "$l" | jq -r '.protocol // "?"')"
-      # NLB is L4 passthrough; TLS terminates at backend. Record protocol as evidence.
-      row "$comp" "NetworkLB" "${nname}/${lname}" "passthrough" "backend-terminated" "protocol=$proto" "REVIEW-BACKEND-TLS" "SC-8(1)"
-    done <<< "$ls"
-  done <<< "$nlbs"
+      lname="$(printf '%s' "$listener" | jq -r '.name // "listener"')"
+      proto="$(printf '%s' "$listener" | jq -r '.protocol // "unknown"')"
+      row "$comp" "NetworkLB" "$nname/$lname" "UNKNOWN" "backend-terminated" \
+        "listener-protocol=$proto; capture backend TLS evidence" "MANUAL-EVIDENCE-NLB-BACKEND" "SC-8(1)" "OK" ""
+    done < <(printf '%s' "$listeners_json" | jq -c "$LIST_ITER" 2>/dev/null)
+  done < <(printf '%s' "$nlbs_json" | jq -c "$LIST_ITER" 2>/dev/null)
+  coverage_row "$comp" "NetworkLB" "$count" "$service_status" "$service_error"
 }
 
-# ---------------------------------------------------------------------------
-# 3. Autonomous Database (TLS/mTLS)
-# ---------------------------------------------------------------------------
 check_adb() {
-  local comp="$1"
-  local adbs
-  adbs="$(o db autonomous-database list --compartment-id "$comp" --all 2>/dev/null | jq -c '.data[]?' 2>/dev/null)"
-  while IFS= read -r a; do
-    [ -z "$a" ] && continue
-    local name mtls tls_only detail finding
-    name="$(echo "$a" | jq -r '."db-name"')"
-    mtls="$(echo "$a" | jq -r '."is-mtls-connection-required" // "unknown"')"
-    # connection strings present => TLS profiles exist
-    tls_only="$(echo "$a" | jq -r '(."connection-strings"."profiles" // []) | if type=="array" then (map(select(."tls-authentication"=="SERVER" or ."tls-authentication"=="MUTUAL")) | length) else 0 end' 2>/dev/null)"
-    if [ "$mtls" = "true" ]; then
-      detail="mTLS-required"; finding="OK"
-    elif [ "$tls_only" != "0" ] && [ -n "$tls_only" ]; then
-      detail="TLS-available(mTLS-optional)"; finding="OK-REVIEW"
-    else
-      detail="verify-connection-profile"; finding="REVIEW"
-    fi
-    row "$comp" "AutonomousDB" "$name" "YES" "TLS1.2+" "$detail" "$finding" "SC-8(1)/SC-13"
-  done <<< "$adbs"
+  local comp="$1" json count=0
+  oci_capture "Autonomous Database list" db autonomous-database list --compartment-id "$comp" --all
+  json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "AutonomousDB" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)/SC-13"
+    coverage_row "$comp" "AutonomousDB" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    return
+  fi
+  while IFS= read -r adb; do
+    [ -z "$adb" ] && continue
+    count=$((count+1))
+    local name mtls profiles detail finding
+    name="$(printf '%s' "$adb" | jq -r '."db-name" // "autonomous-db"')"
+    mtls="$(printf '%s' "$adb" | jq -r '."is-mtls-connection-required" // "unknown"')"
+    profiles="$(printf '%s' "$adb" | jq -r '[(."connection-strings".profiles // [])[]? | select(."tls-authentication"=="SERVER" or ."tls-authentication"=="MUTUAL")] | length')"
+    if [ "$mtls" = "true" ]; then detail="mTLS-required"; finding="OK"
+    elif [ "${profiles:-0}" -gt 0 ]; then detail="TLS-available;mTLS-optional"; finding="OK-REVIEW-MTLS"
+    else detail="connection-profile-not-confirmed"; finding="REVIEW-TLS-PROFILE"; fi
+    row "$comp" "AutonomousDB" "$name" "YES" "TLS1.2+" "$detail" "$finding" "SC-8(1)/SC-13" "OK" ""
+  done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+  coverage_row "$comp" "AutonomousDB" "$count" "OK" ""
 }
 
-# ---------------------------------------------------------------------------
-# 4. Base DB Systems (native network encryption / TCPS)
-# ---------------------------------------------------------------------------
 check_basedb() {
-  local comp="$1"
-  local systems
-  systems="$(o db system list --compartment-id "$comp" --all 2>/dev/null | jq -c '.data[]?' 2>/dev/null)"
-  while IFS= read -r s; do
-    [ -z "$s" ] && continue
-    local sname sid
-    sname="$(echo "$s" | jq -r '."display-name"')"
-    # Native Oracle Net encryption (NNE) or TLS is configured at sqlnet.ora level;
-    # not fully exposed via API. Record presence as evidence pointer.
-    row "$comp" "BaseDB" "$sname" "config-at-sqlnet" "TLS1.2/NNE" "verify sqlnet.ora ENCRYPTION_SERVER=REQUIRED" "MANUAL-EVIDENCE" "SC-8(1)"
-  done <<< "$systems"
+  local comp="$1" json count=0
+  oci_capture "Base Database system list" db system list --compartment-id "$comp" --all
+  json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "BaseDB" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "BaseDB" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    return
+  fi
+  while IFS= read -r dbs; do
+    [ -z "$dbs" ] && continue
+    count=$((count+1))
+    local name
+    name="$(printf '%s' "$dbs" | jq -r '."display-name" // "db-system"')"
+    row "$comp" "BaseDB" "$name" "UNKNOWN" "Oracle Net TLS/NNE" \
+      "capture sqlnet.ora; require SQLNET.ENCRYPTION_SERVER=REQUIRED or approved TCPS" \
+      "MANUAL-EVIDENCE-SQLNET" "SC-8(1)" "OK" ""
+  done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+  coverage_row "$comp" "BaseDB" "$count" "OK" ""
 }
 
-# ---------------------------------------------------------------------------
-# 5. Object Storage (HTTPS enforced by platform; check public-access)
-# ---------------------------------------------------------------------------
 check_object() {
-  local comp="$1"
-  local ns
-  ns="$(o os ns get --raw-output --query 'data' 2>/dev/null)"
-  [ -z "$ns" ] && return
-  local buckets
-  buckets="$(o os bucket list --compartment-id "$comp" --namespace-name "$ns" --all 2>/dev/null | jq -r '.data[]?.name' 2>/dev/null)"
-  while IFS= read -r b; do
-    [ -z "$b" ] && continue
-    local pub finding
-    pub="$(o os bucket get --bucket-name "$b" --namespace-name "$ns" 2>/dev/null | jq -r '.data."public-access-type" // "NoPublicAccess"')"
-    if [ "$pub" = "NoPublicAccess" ]; then
-      finding="OK"
-    else
-      finding="PUBLIC-ACCESS-REVIEW"
+  local comp="$1" ns buckets_json count=0 service_status="OK" service_error=""
+  oci_capture "Object Storage namespace" os ns get --raw-output --query data
+  ns="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ] || [ -z "$ns" ]; then
+    local status="${COLLECT_STATUS}" error="${COLLECT_ERROR:-Object Storage namespace was empty}"
+    [ "$status" = "OK" ] && status="ERROR"
+    collection_failure_row "$comp" "ObjectStorage" "<collection>" "$status" "$error" "SC-8/SC-13"
+    coverage_row "$comp" "ObjectStorage" "UNKNOWN" "$status" "$error"
+    return
+  fi
+  oci_capture "Object Storage bucket list" os bucket list --compartment-id "$comp" \
+    --namespace-name "$ns" --all
+  buckets_json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "ObjectStorage" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8/SC-13"
+    coverage_row "$comp" "ObjectStorage" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    return
+  fi
+  while IFS= read -r bucket; do
+    [ -z "$bucket" ] && continue
+    count=$((count+1))
+    local name get_json status error public finding
+    name="$(printf '%s' "$bucket" | jq -r '.name')"
+    oci_capture "Object Storage bucket get [$name]" os bucket get --bucket-name "$name" --namespace-name "$ns"
+    get_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
+    merge_status service_status service_error "$status" "$error"
+    if [ "$status" != "OK" ]; then
+      collection_failure_row "$comp" "ObjectStorage" "$name" "$status" "$error" "SC-8/SC-13"
+      continue
     fi
-    # All OS endpoints are HTTPS/TLS1.2 by platform; document that.
-    row "$comp" "ObjectStorage" "$b" "YES" "TLS1.2 (platform-enforced HTTPS)" "public-access=$pub" "$finding" "SC-8/SC-13"
-  done <<< "$buckets"
+    public="$(printf '%s' "$get_json" | jq -r '.data."public-access-type" // "NoPublicAccess"')"
+    if [ "$public" = "NoPublicAccess" ]; then finding="OK"; else finding="PUBLIC-ACCESS-REVIEW"; fi
+    row "$comp" "ObjectStorage" "$name" "YES" "HTTPS/TLS1.2+" "public-access=$public" "$finding" "SC-8/SC-13" "OK" ""
+  done < <(printf '%s' "$buckets_json" | jq -c "$LIST_ITER" 2>/dev/null)
+  coverage_row "$comp" "ObjectStorage" "$count" "$service_status" "$service_error"
 }
 
-# ---------------------------------------------------------------------------
-# 6. Block / Boot Volume attachments — paravirtualized in-transit encryption
-# ---------------------------------------------------------------------------
 check_volumes() {
-  local comp="$1"
-  # Block volume attachments carry the is-pv-encryption-in-transit-enabled flag
-  local atts
-  atts="$(o compute volume-attachment list --compartment-id "$comp" --all 2>/dev/null | jq -c '.data[]?' 2>/dev/null)"
-  while IFS= read -r at; do
-    [ -z "$at" ] && continue
-    local vid inst enc finding
-    vid="$(echo "$at" | jq -r '."volume-id"')"
-    inst="$(echo "$at" | jq -r '."instance-id"')"
-    enc="$(echo "$at" | jq -r '."is-pv-encryption-in-transit-enabled" // false')"
-    if [ "$enc" = "true" ]; then
-      finding="OK"
-    else
-      finding="IN-TRANSIT-ENC-DISABLED"
-    fi
-    row "$comp" "BlockVolumeAttach" "vol:${vid: -12}/inst:${inst: -12}" "$enc" "PV-in-transit" "attachment" "$finding" "SC-8(1)"
-  done <<< "$atts"
+  local comp="$1" json count=0
+  oci_capture "Block Volume attachment list" compute volume-attachment list --compartment-id "$comp" --all
+  json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "BlockVolumeAttach" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "BlockVolumeAttach" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+  else
+    while IFS= read -r item; do
+      [ -z "$item" ] && continue
+      count=$((count+1))
+      local vid iid enabled finding
+      vid="$(printf '%s' "$item" | jq -r '."volume-id" // "unknown-volume"')"
+      iid="$(printf '%s' "$item" | jq -r '."instance-id" // "unknown-instance"')"
+      enabled="$(printf '%s' "$item" | jq -r '."is-pv-encryption-in-transit-enabled" // false')"
+      if [ "$enabled" = "true" ]; then finding="OK"; else finding="IN-TRANSIT-ENC-DISABLED"; fi
+      row "$comp" "BlockVolumeAttach" "vol:${vid: -12}/inst:${iid: -12}" "$enabled" "PV-in-transit" "attachment" "$finding" "SC-8(1)" "OK" ""
+    done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+    coverage_row "$comp" "BlockVolumeAttach" "$count" "OK" ""
+  fi
 
-  # Boot volume in-transit encryption is set at instance launch (is-pv-encryption-in-transit-enabled on instance)
-  local insts
-  insts="$(o compute instance list --compartment-id "$comp" --all 2>/dev/null | jq -c '.data[]?' 2>/dev/null)"
-  while IFS= read -r i; do
-    [ -z "$i" ] && continue
-    local iname enc finding
-    iname="$(echo "$i" | jq -r '."display-name"')"
-    enc="$(echo "$i" | jq -r '."launch-options"."is-pv-encryption-in-transit-enabled" // false')"
-    if [ "$enc" = "true" ]; then finding="OK"; else finding="BOOT-IN-TRANSIT-ENC-DISABLED"; fi
-    row "$comp" "InstanceBootVol" "$iname" "$enc" "PV-in-transit" "launch-option" "$finding" "SC-8(1)"
-  done <<< "$insts"
+  count=0
+  oci_capture "Compute instance list" compute instance list --compartment-id "$comp" --all
+  json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "InstanceBootVol" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "InstanceBootVol" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+  else
+    while IFS= read -r item; do
+      [ -z "$item" ] && continue
+      count=$((count+1))
+      local name enabled finding
+      name="$(printf '%s' "$item" | jq -r '."display-name" // "instance"')"
+      enabled="$(printf '%s' "$item" | jq -r '."launch-options"."is-pv-encryption-in-transit-enabled" // false')"
+      if [ "$enabled" = "true" ]; then finding="OK"; else finding="BOOT-IN-TRANSIT-ENC-DISABLED"; fi
+      row "$comp" "InstanceBootVol" "$name" "$enabled" "PV-in-transit" "launch-option" "$finding" "SC-8(1)" "OK" ""
+    done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+    coverage_row "$comp" "InstanceBootVol" "$count" "OK" ""
+  fi
 }
 
-# ---------------------------------------------------------------------------
-# 7. File Storage — in-transit encryption capability (mount targets)
-# ---------------------------------------------------------------------------
 check_fss() {
-  local comp="$1"
-  local ads
-  ads="$(o iam availability-domain list --compartment-id "$comp" 2>/dev/null | jq -r '.data[]?.name' 2>/dev/null)"
+  local comp="$1" ads_json count=0 service_status="OK" service_error=""
+  oci_capture "Availability Domain list for FSS" iam availability-domain list --compartment-id "$comp"
+  ads_json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "FSS-MountTarget" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "FSS-MountTarget" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    return
+  fi
   while IFS= read -r ad; do
     [ -z "$ad" ] && continue
-    local mts
-    mts="$(o fs mount-target list --compartment-id "$comp" --availability-domain "$ad" --all 2>/dev/null | jq -c '.data[]?' 2>/dev/null)"
-    while IFS= read -r mt; do
-      [ -z "$mt" ] && continue
-      local mtname
-      mtname="$(echo "$mt" | jq -r '."display-name"')"
-      # FSS in-transit encryption is enforced by the oci-fss-utils mount helper (TLS).
-      # API does not expose per-mount TLS state; record as evidence pointer.
-      row "$comp" "FSS-MountTarget" "$mtname" "capable" "TLS (oci-fss-utils)" "verify mount uses in-transit encryption" "MANUAL-EVIDENCE" "SC-8(1)"
-    done <<< "$mts"
-  done <<< "$ads"
+    local json status error
+    oci_capture "FSS mount-target list [$ad]" fs mount-target list --compartment-id "$comp" \
+      --availability-domain "$ad" --all
+    json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
+    merge_status service_status service_error "$status" "$error"
+    if [ "$status" != "OK" ]; then
+      collection_failure_row "$comp" "FSS-MountTarget" "$ad/<collection>" "$status" "$error" "SC-8(1)"
+      continue
+    fi
+    while IFS= read -r target; do
+      [ -z "$target" ] && continue
+      count=$((count+1))
+      local name
+      name="$(printf '%s' "$target" | jq -r '."display-name" // "mount-target"')"
+      row "$comp" "FSS-MountTarget" "$name" "UNKNOWN" "TLS via oci-fss-utils" \
+        "capture client mount output and encrypted mount option" "MANUAL-EVIDENCE-FSS-MOUNT" "SC-8(1)" "OK" ""
+    done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+  done < <(printf '%s' "$ads_json" | jq -r "$LIST_ITER | .name" 2>/dev/null)
+  coverage_row "$comp" "FSS-MountTarget" "$count" "$service_status" "$service_error"
 }
 
-# ---------------------------------------------------------------------------
-# 8. API Gateway — deployment TLS
-# ---------------------------------------------------------------------------
 check_apigw() {
-  local comp="$1"
-  local gws
-  gws="$(o api-gateway gateway list --compartment-id "$comp" --all 2>/dev/null | jq -c "$LIST_ITER" 2>/dev/null)"
-  while IFS= read -r g; do
-    [ -z "$g" ] && continue
-    local gname ep tls
-    gname="$(echo "$g" | jq -r '."display-name"')"
-    ep="$(echo "$g" | jq -r '.hostname // "n/a"')"
-    ca="$(echo "$g" | jq -r '(."ca-bundles" // []) | if type=="array" then length else 0 end' 2>/dev/null)"
-    # API Gateway endpoints are HTTPS/TLS by platform; certificate config is evidence.
-    row "$comp" "APIGateway" "$gname" "YES" "TLS1.2+ (platform)" "endpoint=$ep;ca-bundles=$ca" "OK" "SC-8(1)"
-  done <<< "$gws"
+  local comp="$1" json count=0
+  oci_capture "API Gateway list" api-gateway gateway list --compartment-id "$comp" --all
+  json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "APIGateway" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "APIGateway" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    return
+  fi
+  while IFS= read -r gw; do
+    [ -z "$gw" ] && continue
+    count=$((count+1))
+    local name host cas
+    name="$(printf '%s' "$gw" | jq -r '."display-name" // "gateway"')"
+    host="$(printf '%s' "$gw" | jq -r '.hostname // "n/a"')"
+    cas="$(printf '%s' "$gw" | jq -r '(."ca-bundles" // []) | length')"
+    row "$comp" "APIGateway" "$name" "YES" "HTTPS/TLS1.2+" "endpoint=$host;ca-bundles=$cas" "OK" "SC-8(1)" "OK" ""
+  done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+  coverage_row "$comp" "APIGateway" "$count" "OK" ""
 }
 
-# ---------------------------------------------------------------------------
-# 9. OKE clusters — API server endpoint
-# ---------------------------------------------------------------------------
 check_oke() {
-  local comp="$1"
-  local cls
-  cls="$(o ce cluster list --compartment-id "$comp" --all 2>/dev/null | jq -c '.data[]?' 2>/dev/null)"
-  while IFS= read -r c; do
-    [ -z "$c" ] && continue
-    local cname priv
-    cname="$(echo "$c" | jq -r '.name')"
-    priv="$(echo "$c" | jq -r '."endpoint-config"."is-public-ip-enabled" // "unknown"')"
-    # Kubernetes API server is TLS by design; note public/private endpoint exposure.
-    row "$comp" "OKE-Cluster" "$cname" "YES" "TLS1.2+ (k8s API)" "public-endpoint=$priv" "OK-REVIEW-EXPOSURE" "SC-8(1)"
-  done <<< "$cls"
+  local comp="$1" json count=0
+  oci_capture "OKE cluster list" ce cluster list --compartment-id "$comp" --all
+  json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "OKE-Cluster" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "OKE-Cluster" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    return
+  fi
+  while IFS= read -r cluster; do
+    [ -z "$cluster" ] && continue
+    count=$((count+1))
+    local name public
+    name="$(printf '%s' "$cluster" | jq -r '.name // "cluster"')"
+    public="$(printf '%s' "$cluster" | jq -r '."endpoint-config"."is-public-ip-enabled" // "unknown"')"
+    row "$comp" "OKE-Cluster" "$name" "YES" "HTTPS/TLS1.2+" "public-endpoint=$public" "OK-REVIEW-EXPOSURE" "SC-8(1)" "OK" ""
+  done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+  coverage_row "$comp" "OKE-Cluster" "$count" "OK" ""
 }
 
-# ---------------------------------------------------------------------------
-# Main loop
-# ---------------------------------------------------------------------------
+ipsec_finding() {
+  local tunnel="$1" status lifecycle ike p1 p2 parameters
+  status="$(printf '%s' "$tunnel" | jq -r '.status // "UNKNOWN"')"
+  lifecycle="$(printf '%s' "$tunnel" | jq -r '."lifecycle-state" // .state // "UNKNOWN"')"
+  ike="$(printf '%s' "$tunnel" | jq -r '."ike-version" // "UNKNOWN"')"
+  p1="$(printf '%s' "$tunnel" | jq -r '."phase-one-details"."is-ike-established" // "unknown"')"
+  p2="$(printf '%s' "$tunnel" | jq -r '."phase-two-details"."is-esp-established" // "unknown"')"
+  parameters="$(printf '%s' "$tunnel" | jq -r '[
+    ."phase-one-details"."negotiated-authentication-algorithm",
+    ."phase-one-details"."negotiated-encryption-algorithm",
+    ."phase-one-details"."negotiated-dh-group",
+    ."phase-two-details"."negotiated-authentication-algorithm",
+    ."phase-two-details"."negotiated-encryption-algorithm",
+    ."phase-two-details"."negotiated-dh-group"
+  ] | map(select(. != null)) | join(";")')"
+  if [ "$lifecycle" != "AVAILABLE" ] && [ "$lifecycle" != "UNKNOWN" ]; then
+    printf 'TUNNEL-LIFECYCLE-%s' "$lifecycle"
+  elif [ "$status" != "UP" ]; then
+    printf 'TUNNEL-DOWN'
+  elif [ "$p1" = "false" ]; then
+    printf 'IKE-NOT-ESTABLISHED'
+  elif [ "$p2" = "false" ]; then
+    printf 'ESP-NOT-ESTABLISHED'
+  elif printf '%s' "$parameters" | grep -qiE '(^|;)(3DES|DES|GROUP2|GROUP5|SHA1|HMAC_SHA1)($|;)'; then
+    printf 'WEAK-IPSEC-PARAMETERS'
+  elif [ "$ike" = "V1" ]; then
+    printf 'IKEV1-REVIEW'
+  elif [ "$p1" = "unknown" ] || [ "$p2" = "unknown" ] || [ -z "$parameters" ]; then
+    printf 'OK-REVIEW-NEGOTIATED-PARAMETERS'
+  else
+    printf 'OK'
+  fi
+}
+
+check_ipsec() {
+  local comp="$1" json count=0
+
+  # CPE inventory. The public headend address is evidence-sensitive; store the
+  # generated CSV only in the approved restricted evidence location.
+  oci_capture "CPE list" network cpe list --compartment-id "$comp" --all
+  json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "CPE" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "CPE" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+  else
+    while IFS= read -r cpe; do
+      [ -z "$cpe" ] && continue
+      count=$((count+1))
+      local name ip vendor
+      name="$(printf '%s' "$cpe" | jq -r '."display-name" // "cpe"')"
+      ip="$(printf '%s' "$cpe" | jq -r '."ip-address" // "unknown"')"
+      vendor="$(printf '%s' "$cpe" | jq -r '."cpe-device-shape-id" // "not-recorded"')"
+      row "$comp" "CPE" "$name" "CONFIGURED" "IPSec peer" "public-ip=$ip;device-shape=$vendor" "INFO" "SC-8(1)" "OK" ""
+    done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+    coverage_row "$comp" "CPE" "$count" "OK" ""
+  fi
+
+  # IPSec connections and their two tunnel objects.
+  local conns_json conn_count=0 tunnel_count=0
+  local conn_status="OK" conn_error="" tunnel_status="OK" tunnel_error="" tunnel_count_unknown=0
+  oci_capture "IPSec connection list" network ip-sec-connection list --compartment-id "$comp" --all
+  conns_json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "IPSecConnection" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    collection_failure_row "$comp" "IPSecTunnel" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "IPSecConnection" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+    coverage_row "$comp" "IPSecTunnel" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+  else
+    while IFS= read -r conn; do
+      [ -z "$conn" ] && continue
+      conn_count=$((conn_count+1))
+      local id name get_json status error drg cpe routes lifecycle tunnels_json
+      id="$(printf '%s' "$conn" | jq -r '.id')"
+      name="$(printf '%s' "$conn" | jq -r '."display-name" // "ipsec-connection"')"
+      oci_capture "IPSec connection get [$name]" network ip-sec-connection get --ipsc-id "$id"
+      get_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
+      merge_status conn_status conn_error "$status" "$error"
+      if [ "$status" != "OK" ]; then
+        collection_failure_row "$comp" "IPSecConnection" "$name" "$status" "$error" "SC-8(1)"
+      else
+        drg="$(printf '%s' "$get_json" | jq -r '.data."drg-id" // "unknown"')"
+        cpe="$(printf '%s' "$get_json" | jq -r '.data."cpe-id" // "unknown"')"
+        routes="$(printf '%s' "$get_json" | jq -r '(.data."static-routes" // []) | join(";")')"
+        lifecycle="$(printf '%s' "$get_json" | jq -r '.data."lifecycle-state" // "unknown"')"
+        row "$comp" "IPSecConnection" "$name" "CONFIGURED" "IKE/IPSec" \
+          "lifecycle=$lifecycle;drg=${drg: -16};cpe=${cpe: -16};static-routes=${routes:-none}" \
+          "OK-REVIEW-TUNNELS" "SC-8(1)" "OK" ""
+      fi
+
+      oci_capture "IPSec tunnel list [$name]" network ip-sec-tunnel list --ipsc-id "$id" --all
+      tunnels_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
+      merge_status tunnel_status tunnel_error "$status" "$error"
+      if [ "$status" != "OK" ]; then
+        tunnel_count_unknown=1
+        collection_failure_row "$comp" "IPSecTunnel" "$name/<tunnels>" "$status" "$error" "SC-8(1)"
+        continue
+      fi
+      while IFS= read -r tunnel; do
+        [ -z "$tunnel" ] && continue
+        tunnel_count=$((tunnel_count+1))
+        local tname tid ike tstatus tlifecycle routing bgp p1auth p1enc p1dh p2auth p2enc p2dh pfs updated finding enabled detail
+        tname="$(printf '%s' "$tunnel" | jq -r '."display-name" // "tunnel"')"
+        tid="$(printf '%s' "$tunnel" | jq -r '.id // "unknown"')"
+        ike="$(printf '%s' "$tunnel" | jq -r '."ike-version" // "unknown"')"
+        tstatus="$(printf '%s' "$tunnel" | jq -r '.status // "UNKNOWN"')"
+        tlifecycle="$(printf '%s' "$tunnel" | jq -r '."lifecycle-state" // .state // "UNKNOWN"')"
+        routing="$(printf '%s' "$tunnel" | jq -r '.routing // "unknown"')"
+        bgp="$(printf '%s' "$tunnel" | jq -r '."bgp-session-info"."bgp-state" // "n/a"')"
+        p1auth="$(printf '%s' "$tunnel" | jq -r '."phase-one-details"."negotiated-authentication-algorithm" // ."phase-one-details"."custom-authentication-algorithm" // "default"')"
+        p1enc="$(printf '%s' "$tunnel" | jq -r '."phase-one-details"."negotiated-encryption-algorithm" // ."phase-one-details"."custom-encryption-algorithm" // "default"')"
+        p1dh="$(printf '%s' "$tunnel" | jq -r '."phase-one-details"."negotiated-dh-group" // ."phase-one-details"."custom-dh-group" // "default"')"
+        p2auth="$(printf '%s' "$tunnel" | jq -r '."phase-two-details"."negotiated-authentication-algorithm" // ."phase-two-details"."custom-authentication-algorithm" // "default"')"
+        p2enc="$(printf '%s' "$tunnel" | jq -r '."phase-two-details"."negotiated-encryption-algorithm" // ."phase-two-details"."custom-encryption-algorithm" // "default"')"
+        p2dh="$(printf '%s' "$tunnel" | jq -r '."phase-two-details"."negotiated-dh-group" // ."phase-two-details"."dh-group" // "default"')"
+        pfs="$(printf '%s' "$tunnel" | jq -r '."phase-two-details"."is-pfs-enabled" // "unknown"')"
+        updated="$(printf '%s' "$tunnel" | jq -r '."time-status-updated" // "unknown"')"
+        finding="$(ipsec_finding "$tunnel")"
+        if [ "$tstatus" = "UP" ]; then enabled="YES"; else enabled="NO"; fi
+        detail="id=${tid: -16};status=$tstatus;lifecycle=$tlifecycle;routing=$routing;bgp=$bgp;p1=$p1enc/$p1auth/$p1dh;p2=$p2enc/$p2auth/$p2dh;pfs=$pfs;updated=$updated"
+        row "$comp" "IPSecTunnel" "$name/$tname" "$enabled" "IKE-$ike" "$detail" "$finding" "SC-8(1)" "OK" ""
+      done < <(printf '%s' "$tunnels_json" | jq -c "$LIST_ITER" 2>/dev/null)
+    done < <(printf '%s' "$conns_json" | jq -c "$LIST_ITER" 2>/dev/null)
+    coverage_row "$comp" "IPSecConnection" "$conn_count" "$conn_status" "$conn_error"
+    if [ "$tunnel_count_unknown" -eq 1 ]; then
+      coverage_row "$comp" "IPSecTunnel" "UNKNOWN" "$tunnel_status" "$tunnel_error"
+    else
+      coverage_row "$comp" "IPSecTunnel" "$tunnel_count" "$tunnel_status" "$tunnel_error"
+    fi
+  fi
+
+  # DRG attachment rows provide the route-table and attached-network context.
+  count=0
+  oci_capture "DRG attachment list" network drg-attachment list --compartment-id "$comp" \
+    --attachment-type ALL --all
+  json="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    collection_failure_row "$comp" "DRGAttachment" "<collection>" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)"
+    coverage_row "$comp" "DRGAttachment" "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+  else
+    while IFS= read -r attachment; do
+      [ -z "$attachment" ] && continue
+      count=$((count+1))
+      local name type lifecycle drg route_table network finding
+      name="$(printf '%s' "$attachment" | jq -r '."display-name" // "drg-attachment"')"
+      type="$(printf '%s' "$attachment" | jq -r '."attachment-type" // ."network-details".type // "unknown"')"
+      lifecycle="$(printf '%s' "$attachment" | jq -r '."lifecycle-state" // "unknown"')"
+      drg="$(printf '%s' "$attachment" | jq -r '."drg-id" // "unknown"')"
+      route_table="$(printf '%s' "$attachment" | jq -r '."drg-route-table-id" // "unknown"')"
+      network="$(printf '%s' "$attachment" | jq -r '."network-details".id // ."network-id" // "unknown"')"
+      if [ "$lifecycle" = "ATTACHED" ]; then finding="OK"; else finding="ATTACHMENT-NOT-ATTACHED"; fi
+      row "$comp" "DRGAttachment" "$name" "n/a" "$type" \
+        "lifecycle=$lifecycle;drg=${drg: -16};route-table=${route_table: -16};network=${network: -16}" \
+        "$finding" "SC-8(1)" "OK" ""
+    done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
+    coverage_row "$comp" "DRGAttachment" "$count" "OK" ""
+  fi
+}
+
 i=0
 while IFS= read -r comp; do
   [ -z "$comp" ] && continue
   i=$((i+1))
+  CUR_COMP="$comp"
   echo "[$i/$COMP_COUNT] ${COMP_NAME[$comp]:-$comp}"
   for svc in $SERVICES; do
     case "$svc" in
-      lb)      check_lb      "$comp" ;;
-      nlb)     check_nlb     "$comp" ;;
-      adb)     check_adb     "$comp" ;;
-      basedb)  check_basedb  "$comp" ;;
-      object)  check_object  "$comp" ;;
+      lb) check_lb "$comp" ;;
+      nlb) check_nlb "$comp" ;;
+      adb) check_adb "$comp" ;;
+      basedb) check_basedb "$comp" ;;
+      object) check_object "$comp" ;;
       volumes) check_volumes "$comp" ;;
-      fss)     check_fss     "$comp" ;;
-      apigw)   check_apigw   "$comp" ;;
-      oke)     check_oke     "$comp" ;;
-      *) echo "    ! unknown service: $svc" ;;
+      fss) check_fss "$comp" ;;
+      apigw) check_apigw "$comp" ;;
+      oke) check_oke "$comp" ;;
+      ipsec) check_ipsec "$comp" ;;
+      *)
+        INCOMPLETE=1
+        collection_failure_row "$comp" "$svc" "<unknown-service>" "ERROR" "unknown service token" "SC-8(1)"
+        coverage_row "$comp" "$svc" "UNKNOWN" "ERROR" "unknown service token"
+        ;;
     esac
   done
 done <<< "$COMPS"
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
+SUMMARY="$(python3 - "$OUT" <<'PY'
+import csv, json, sys
+
+hard_tokens = (
+    "WEAK", "PLAINTEXT", "DISABLED", "PUBLIC-ACCESS-REVIEW",
+    "BACKEND-PLAINTEXT", "TUNNEL-DOWN", "IKE-NOT-ESTABLISHED",
+    "ESP-NOT-ESTABLISHED", "ATTACHMENT-NOT-ATTACHED", "TUNNEL-LIFECYCLE-",
+)
+review_tokens = ("MANUAL-EVIDENCE", "REVIEW")
+total = hard = review = incomplete = 0
+with open(sys.argv[1], newline="", encoding="utf-8") as handle:
+    for row in csv.DictReader(handle):
+        total += 1
+        finding = row["finding"]
+        status = row["collection_status"]
+        if status != "OK":
+            incomplete += 1
+        elif any(token in finding for token in hard_tokens):
+            hard += 1
+        if any(token in finding for token in review_tokens):
+            review += 1
+print(json.dumps({"total": total, "hard": hard, "review": review, "incomplete": incomplete}))
+PY
+)"
+
+TOTAL="$(printf '%s' "$SUMMARY" | jq -r '.total')"
+FCOUNT="$(printf '%s' "$SUMMARY" | jq -r '.hard')"
+MANUAL="$(printf '%s' "$SUMMARY" | jq -r '.review')"
+INCOMPLETE_ROWS="$(printf '%s' "$SUMMARY" | jq -r '.incomplete')"
+
 echo
 echo "======================================================================"
 echo "SC-8 IN-TRANSIT ENCRYPTION EVIDENCE SUMMARY"
 echo "======================================================================"
-TOTAL="$(($(wc -l < "$OUT") - 1))"
-# findings that need action: anything not OK / not a documented manual-evidence pointer
-FINDINGS="$(awk -F',' 'NR>1 {gsub(/"/,"",$8); if($8 ~ /WEAK|PLAINTEXT|DISABLED|PUBLIC-ACCESS-REVIEW/) print}' "$OUT")"
-FCOUNT="$(printf '%s\n' "$FINDINGS" | grep -c . || true)"
-MANUAL="$(awk -F',' 'NR>1 {gsub(/"/,"",$8); if($8 ~ /MANUAL-EVIDENCE|REVIEW/) print}' "$OUT" | grep -c . || true)"
-
-echo "Total resources evaluated       : $TOTAL"
-echo "Hard findings (action required) : $FCOUNT"
-echo "Manual-evidence / review items  : $MANUAL"
-if [ "$FCOUNT" -gt 0 ]; then
-  echo
-  echo ">>> HARD FINDINGS — plaintext or weak TLS (fix before ATO):"
-  printf '%s\n' "$FINDINGS" | awk -F',' '{gsub(/"/,"",$2);gsub(/"/,"",$3);gsub(/"/,"",$4);gsub(/"/,"",$8); printf "  [%-18s] %-22s %-30s -> %s\n", $3, $2, $4, $8}'
-fi
+echo "Total evidence rows              : $TOTAL"
+echo "Hard findings (action required)  : $FCOUNT"
+echo "Manual-evidence / review items   : $MANUAL"
+echo "Rows not completely collected    : $INCOMPLETE_ROWS"
 echo
 echo "Evidence CSV written to: $OUT"
-echo
-echo "NOTE: Rows marked MANUAL-EVIDENCE (Base DB sqlnet.ora, FSS mount options)"
-echo "are not fully exposed via API. Capture supporting config screenshots or"
-echo "sqlnet.ora / mount command output to complete the SC-8(1) evidence chain."
+echo "Coverage CSV written to: $COVERAGE"
+echo "Manual evidence checklist: TASK2-MANUAL-EVIDENCE-CHECKLIST.md"
+
+if [ "$INCOMPLETE" -eq 0 ]; then
+  rm -f "$ERROUT" 2>/dev/null
+  echo "Collection integrity: COMPLETE"
+  exit 0
+fi
+
+echo "Collection errors written to: $ERROUT"
+echo "Collection integrity: INCOMPLETE — do not treat missing rows as absence." >&2
+exit 3
