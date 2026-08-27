@@ -15,9 +15,10 @@ audit package.
 - [ ] Record OCI region and authenticated tenancy OCID in the restricted package.
 - [ ] Identify the exact VCN, Shared Services and CD3 compartments in scope.
 - [ ] Run `bash sc28-oci-encryption-at-rest.sh --selfcheck` and retain the result.
-- [ ] For an operator run, use `--select-scope` and retain the displayed scope
-      plus both matching OCID entries. For automation, retain the approved job
-      definition containing the explicit `-c` or `-n` scope.
+- [ ] For an operator run, use the default interactive path (or `-i` /
+      `--select-scope`), retain both matching OCID entries and the complete
+      pre-scan summary, and enter exact uppercase `YES`. For automation, retain
+      the approved job definition containing the explicit `-c` or `-n` scope.
 - [ ] Repeat the run for every subscribed region containing an in-scope asset.
 - [ ] Require exit code `0`. Resolve and rerun every exit `3`, non-OK coverage
       row, `COLLECTION-FAILED` row and error-ledger entry.

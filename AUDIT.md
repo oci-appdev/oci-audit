@@ -131,18 +131,27 @@ coverage and a retained error ledger. It is forbidden from producing
 
 ---
 
-## 2026-08-27 — interactive OCI scope confirmation standard
+## 2026-08-27 — default interactive OCI scope and final approval standard
 
-All three CP-9 collectors and the SC-8 encryption collector now support `-i` /
-`--select-scope`. The scripts first discover the authenticated tenancy and
-active subtree compartments, show the full name/OCID catalog, then require an
-exact discovered OCID twice. Selecting the tenancy explicitly means root plus
+Follow-up testing found that CP-9 scripts 01–03 and SC-28 previously entered
+interactive mode only when `-i`/`--select-scope` was supplied. Their tests
+supplied the same flag, so they did not detect that a normal region/output-only
+operator command bypassed the prompt. This was a real implementation and test
+gap, not an operator error.
+
+All three CP-9 collectors plus the SC-8 and SC-28 encryption collectors now
+default normal/manual runs to interactive discovery. `-i` / `--select-scope`
+remain explicit aliases. The scripts discover the authenticated tenancy and
+active subtree compartments, show the full name/OCID catalog, require an exact
+discovered OCID twice, display the resolved targets/work/output plan, then
+require exact uppercase `YES`. Selecting the tenancy explicitly means root plus
 all active child compartments.
 
 The selector rejects unknown OCIDs, mismatched confirmation and combinations
-with `-c` or `-n`. Regression coverage proves a mismatch exits before the
-collector loop begins, including the script 03 replication and SC-8 encryption
-loops. Existing explicit scope flags remain available for approved automation.
+with `-c` or `-n`. Regression coverage proves every collector refuses lowercase
+`yes` before any workload call and removes header-only CSVs. Existing explicit
+`-c`/`-n` scope flags remain available for approved automation and print the
+resolved plan to the job log without prompting.
 
 `SCRIPT-DESIGN-STANDARD.md` makes this interface mandatory for every new or
 materially redesigned collector. The shared behavior lives in

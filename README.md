@@ -46,26 +46,30 @@ bash cp09-03-backup-replication-check.sh --selfcheck
 
 ### Interactive scope discovery and confirmation
 
-Scripts 01, 02 and 03 can discover the authenticated tenancy and active
-compartments, then require the selected OCID twice before service collection
-starts. The same mandatory interface is implemented by the Task 2 and Task 3
-collectors:
+Scripts 01, 02 and 03 default to interactive scope discovery. They discover
+the authenticated tenancy and active compartments, require the selected OCID
+twice, display the complete resolved scan plan, and require exact uppercase
+`YES` before service collection starts. The same mandatory interface is
+implemented by the Task 2 and Task 3 collectors:
 
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
-  --select-scope -r us-langley-1 -o ./evidence
+  -r us-langley-1 -o ./evidence
 
 bash cp09-02-backup-access-files-check.sh \
-  --select-scope -r us-langley-1 -o ./evidence
+  -r us-langley-1 -o ./evidence
 
 bash cp09-03-backup-replication-check.sh \
-  --select-scope -r us-langley-1 -o ./evidence
+  -r us-langley-1 -o ./evidence
 ```
 
-The short option is `-i`. Selecting the tenancy scans root plus every active
-discovered child compartment. Selecting a compartment scans only that exact
-OCID. A missing, unknown or mismatched confirmation exits before the collector
-loop. Do not combine interactive selection with `-c` or `-n`.
+The explicit interactive options are `-i` and `--select-scope`, but neither is
+required for a normal operator run. Selecting the tenancy scans root plus every
+active discovered child compartment. Selecting a compartment scans only that
+exact OCID. A missing/unknown/mismatched OCID or anything other than exact
+uppercase `YES` exits before workload-service collection and removes
+header-only evidence files. Do not combine interactive selection with `-c` or
+`-n`.
 
 The existing `-c` and `-n` modes remain available for approved non-interactive
 automation.
@@ -187,8 +191,13 @@ scope:
 bash sc28-oci-encryption-at-rest.sh --selfcheck
 
 bash sc28-oci-encryption-at-rest.sh \
-  --select-scope -r us-langley-1 -o ./evidence
+  -r us-langley-1 -o ./evidence
 ```
+
+The normal SC-28 command discovers the tenancy/compartments, requires the exact
+selected OCID twice, prints all resolved targets/services/output files, and
+requires exact uppercase `YES` before the first encryption-at-rest service
+call.
 
 For approved automation, use explicit `-c` or `-n` scope flags. Example:
 

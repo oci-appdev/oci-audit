@@ -21,7 +21,7 @@
 #       `oci iam compartment list` work). Outside Cloud Shell pass -p PROFILE.
 #
 # Usage:
-#   ./cp09-01-backup-type-config-frequency.sh                  # whole tenancy
+#   ./cp09-01-backup-type-config-frequency.sh                  # interactive scope + approval
 #   ./cp09-01-backup-type-config-frequency.sh --select-scope   # discover + confirm scope
 #   ./cp09-01-backup-type-config-frequency.sh -i               # short form
 #   ./cp09-01-backup-type-config-frequency.sh -c <ocid>        # one compartment
@@ -148,6 +148,24 @@ if [ "$SELECT_SCOPE" -eq 1 ] && { [ -n "$SINGLE_COMP" ] || [ -n "$COMP_NAMES_FIL
   exit 1
 fi
 
+if [ -n "$SINGLE_COMP" ] && [ -n "$COMP_NAMES_FILTER" ]; then
+  echo "ERROR: -c and -n are mutually exclusive scope modes." >&2
+  exit 1
+fi
+
+if [ -n "$SINGLE_COMP" ]; then
+  case "$SINGLE_COMP" in
+    ocid1.compartment.*) ;;
+    *) echo "ERROR: -c requires a compartment OCID. Use interactive mode to select the tenancy." >&2; exit 1 ;;
+  esac
+fi
+
+# A normal operator run always discovers the tenancy/compartments and asks for
+# the exact OCID. Explicit -c/-n remain the approved automation path.
+if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
+  SELECT_SCOPE=1
+fi
+
 has_svc() { case " $SERVICES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 mkdir -p -- "$OUTDIR" 2>/dev/null || { echo "ERROR: cannot create output dir: $OUTDIR" >&2; exit 1; }
@@ -222,6 +240,13 @@ printf '%s\n' 'compartment_id,compartment_name,service,resource_type,resource_na
 printf '%s\n' 'compartment_id,compartment_name,service,assets_found,collection_status,collection_error' > "$COV_CSV"
 printf '%s\n' 'severity,category,compartment_id,compartment_name,service,resource,detail,recommendation' > "$FIND_CSV"
 
+abort_before_scan() {
+  local reason="$1"
+  rm -f -- "$CFG_CSV" "$COV_CSV" "$FIND_CSV" 2>/dev/null
+  echo "SCAN NOT STARTED: $reason" >&2
+  exit 1
+}
+
 FINDING_COUNT=0
 finding() {  # severity category comp service resource detail recommendation
   csv_row "$FIND_CSV" "$1" "$2" "$3" "${COMP_NAME[$3]:-<unknown>}" "$4" "$5" "$6" "$7"
@@ -283,8 +308,7 @@ if [ "$SELECT_SCOPE" -eq 1 ]; then
   COMP_NAME["$TENANCY_ID"]="${OCI_OUT:-root}"
 
   if ! oci_scope_select_interactive "$TENANCY_ID" "${COMP_NAME[$TENANCY_ID]}" "$scope_catalog"; then
-    echo "Scope selection aborted." >&2
-    exit 1
+    abort_before_scan "scope selection or OCID confirmation failed"
   fi
 
   if [ "$OCI_SCOPE_SELECTED_KIND" = "TENANCY" ]; then
@@ -333,9 +357,42 @@ if [ -n "$COMP_NAMES_FILTER" ]; then
 fi
 
 COMP_COUNT="$(num "$(printf '%s\n' "$COMPS" | grep -c . || true)")"
-[ "$COMP_COUNT" -eq 0 ] && { echo "ERROR: no compartments enumerated." >&2; exit 1; }
+[ "$COMP_COUNT" -eq 0 ] && abort_before_scan "no compartments matched the requested scope"
 echo "Scope  : $COMP_COUNT compartment(s)"
 echo
+
+if [ "$SELECT_SCOPE" -eq 1 ]; then
+  PLAN_SCOPE_TYPE="$OCI_SCOPE_SELECTED_KIND"
+  PLAN_SCOPE_NAME="$OCI_SCOPE_SELECTED_NAME"
+  PLAN_SCOPE_OCID="$OCI_SCOPE_SELECTED_OCID"
+elif [ -n "$SINGLE_COMP" ]; then
+  PLAN_SCOPE_TYPE="AUTOMATION-COMPARTMENT"
+  PLAN_SCOPE_NAME="${COMP_NAME[$SINGLE_COMP]:-<unknown>}"
+  PLAN_SCOPE_OCID="$SINGLE_COMP"
+else
+  PLAN_SCOPE_TYPE="AUTOMATION-NAME-FILTER"
+  PLAN_SCOPE_NAME="$COMP_NAMES_FILTER"
+  PLAN_SCOPE_OCID="multiple resolved compartment OCIDs"
+fi
+
+PLAN_TARGETS=""
+while IFS= read -r cid; do
+  [ -z "$cid" ] && continue
+  PLAN_TARGETS+="${cid}"$'\t'"${COMP_NAME[$cid]:-<unknown>}"$'\n'
+done <<< "$COMPS"
+PLAN_WORK=""
+for svc in $SERVICES; do PLAN_WORK+="${svc}"$'\n'; done
+
+oci_scope_print_scan_plan \
+  "CP-9 BACKUP CONFIGURATION" "cp09-01-backup-type-config-frequency.sh" \
+  "CP-9 / CP-9(1)" "${REGION_OVERRIDE:-<cloud-shell / config default>}" \
+  "$PLAN_SCOPE_TYPE" "$PLAN_SCOPE_NAME" "$PLAN_SCOPE_OCID" "$COMP_COUNT" \
+  "$PLAN_TARGETS" "Requested service scans" "$PLAN_WORK" \
+  "$CFG_CSV"$'\n'"$COV_CSV"$'\n'"$FIND_CSV" \
+  "resource OCIDs/names, backup policies, schedules, retention and backup times"
+if ! oci_scope_require_final_approval "$SELECT_SCOPE"; then
+  abort_before_scan "$OCI_SCOPE_APPROVAL_ERROR"
+fi
 
 OS_NS=""
 if has_svc object; then

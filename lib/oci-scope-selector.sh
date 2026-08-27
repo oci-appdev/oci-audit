@@ -14,10 +14,11 @@
 #
 # This helper makes no OCI calls and performs no cloud or local writes.
 
-OCI_SCOPE_SELECTOR_VERSION="1.0"
+OCI_SCOPE_SELECTOR_VERSION="1.1"
 OCI_SCOPE_SELECTED_OCID=""
 OCI_SCOPE_SELECTED_NAME=""
 OCI_SCOPE_SELECTED_KIND=""
+OCI_SCOPE_APPROVAL_ERROR=""
 
 oci_scope_trim() {
   printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
@@ -117,3 +118,78 @@ oci_scope_select_interactive() {
   return 0
 }
 
+# Print the resolved plan after IAM discovery/double-OCID confirmation and
+# before the caller starts any workload-service collection. Multiline catalog,
+# work-item and output arguments are printed one line at a time.
+oci_scope_print_scan_plan() {
+  local heading="$1" collector="$2" controls="$3" region="$4"
+  local scope_type="$5" scope_name="$6" scope_ocid="$7" target_count="$8"
+  local target_catalog="$9" work_label="${10}" work_items="${11}"
+  local output_files="${12}" evidence_note="${13}"
+  local cid cname item
+
+  echo "======================================================================"
+  echo " $heading PRE-SCAN SAFETY SUMMARY"
+  echo "======================================================================"
+  echo "Collector       : $collector"
+  echo "Controls        : $controls"
+  echo "Region          : $region"
+  echo "Scope type      : $scope_type"
+  echo "Scope name      : $scope_name"
+  echo "Confirmed OCID  : $scope_ocid"
+  echo "Compartments    : $target_count"
+  echo "Cloud operations: OCI list/get only; no creates, updates or deletes"
+  echo "Local writes    : CSV evidence files plus temporary stderr capture"
+  echo "Evidence data   : $evidence_note"
+  echo
+  echo "Target compartments:"
+  while IFS=$'\t' read -r cid cname; do
+    [ -z "$cid" ] && continue
+    echo "  - ${cname:-<unknown>}"
+    echo "    $cid"
+  done <<< "$target_catalog"
+  echo
+  echo "$work_label:"
+  if [ -z "$work_items" ]; then
+    echo "  - <none> (scope/approval test only)"
+  else
+    while IFS= read -r item; do
+      [ -z "$item" ] && continue
+      echo "  - $item"
+    done <<< "$work_items"
+  fi
+  echo
+  echo "Output files:"
+  while IFS= read -r item; do
+    [ -z "$item" ] && continue
+    echo "  - $item"
+  done <<< "$output_files"
+  echo "======================================================================"
+}
+
+# Interactive/manual runs require exact uppercase YES. Explicit -c/-n runs are
+# the approved non-interactive automation path and still print the resolved
+# plan to their job log.
+oci_scope_require_final_approval() {
+  local interactive="$1" approval
+  OCI_SCOPE_APPROVAL_ERROR=""
+
+  if [ "$interactive" -eq 1 ]; then
+    echo "Scope discovery is complete. No workload-service scan has started."
+    echo "Type exact uppercase YES to run this scan. Any other response aborts."
+    if ! IFS= read -r approval; then
+      OCI_SCOPE_APPROVAL_ERROR="approval input was not provided"
+      return 2
+    fi
+    if [ "$approval" != "YES" ]; then
+      OCI_SCOPE_APPROVAL_ERROR="operator did not enter exact uppercase YES"
+      return 2
+    fi
+    echo "SCAN APPROVED: starting read-only service collection."
+    echo
+  else
+    echo "Approval mode   : approved non-interactive scope supplied with -c or -n"
+    echo
+  fi
+  return 0
+}

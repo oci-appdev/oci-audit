@@ -24,7 +24,7 @@
 #   7. Base DB         - backup recovery window + Data Guard association
 #
 # Usage:
-#   ./cp09-03-backup-replication-check.sh                  # all compartments
+#   ./cp09-03-backup-replication-check.sh                  # interactive scope + approval
 #   ./cp09-03-backup-replication-check.sh --select-scope   # discover + confirm scope
 #   ./cp09-03-backup-replication-check.sh -i               # short form
 #   ./cp09-03-backup-replication-check.sh -c <ocid>        # one compartment
@@ -113,6 +113,24 @@ if [ "$SELECT_SCOPE" -eq 1 ] && { [ -n "$SINGLE_COMP" ] || [ -n "$COMP_NAMES_FIL
   exit 1
 fi
 
+if [ -n "$SINGLE_COMP" ] && [ -n "$COMP_NAMES_FILTER" ]; then
+  echo "ERROR: -c and -n are mutually exclusive scope modes." >&2
+  exit 1
+fi
+
+if [ -n "$SINGLE_COMP" ]; then
+  case "$SINGLE_COMP" in
+    ocid1.compartment.*) ;;
+    *) echo "ERROR: -c requires a compartment OCID. Use interactive mode to select the tenancy." >&2; exit 1 ;;
+  esac
+fi
+
+# A normal operator run always discovers the tenancy/compartments and asks for
+# the exact OCID. Explicit -c/-n remain the approved automation path.
+if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
+  SELECT_SCOPE=1
+fi
+
 REGION_ARG=(); [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")
 mkdir -p -- "$OUTDIR" 2>/dev/null || { echo "ERROR: cannot create output directory: $OUTDIR" >&2; exit 1; }
 readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
@@ -124,6 +142,13 @@ ERROUT="$OUTDIR/oci_backup_dr_collection_errors_${TS}.csv"
 echo "compartment_id,compartment_name,service,resource,replicated,replica_target,retention,immutable_worm,versioning,finding,control,collection_status,collection_error" > "$OUT"
 echo "compartment_id,compartment_name,service,assets_found,collection_status,collection_error" > "$COVERAGE"
 echo "compartment_id,compartment_name,status,command,error" > "$ERROUT"
+
+abort_before_scan() {
+  local reason="$1"
+  rm -f -- "$OUT" "$COVERAGE" "$ERROUT" 2>/dev/null
+  echo "SCAN NOT STARTED: $reason" >&2
+  exit 1
+}
 
 # ---------------------------------------------------------------------------
 # OCI wrapper.
@@ -282,8 +307,7 @@ if [ "$SELECT_SCOPE" -eq 1 ]; then
   COMP_NAME["$TENANCY_ID"]="${COLLECT_OUT:-root}"
 
   if ! oci_scope_select_interactive "$TENANCY_ID" "${COMP_NAME[$TENANCY_ID]}" "$scope_catalog"; then
-    echo "Scope selection aborted." >&2
-    exit 1
+    abort_before_scan "scope selection or OCID confirmation failed"
   fi
 
   if [ "$OCI_SCOPE_SELECTED_KIND" = "TENANCY" ]; then
@@ -334,7 +358,41 @@ if [ -n "$COMP_NAMES_FILTER" ]; then
   COMPS="$FILTERED_COMPS"
 fi
 COMP_COUNT="$(printf '%s\n' "$COMPS" | grep -c . || true)"
-[ "$COMP_COUNT" -eq 0 ] && { echo "ERROR: no compartments enumerated."; exit 1; }
+[ "$COMP_COUNT" -eq 0 ] && abort_before_scan "no compartments matched the requested scope"
+
+if [ "$SELECT_SCOPE" -eq 1 ]; then
+  PLAN_SCOPE_TYPE="$OCI_SCOPE_SELECTED_KIND"
+  PLAN_SCOPE_NAME="$OCI_SCOPE_SELECTED_NAME"
+  PLAN_SCOPE_OCID="$OCI_SCOPE_SELECTED_OCID"
+elif [ -n "$SINGLE_COMP" ]; then
+  PLAN_SCOPE_TYPE="AUTOMATION-COMPARTMENT"
+  PLAN_SCOPE_NAME="${COMP_NAME[$SINGLE_COMP]:-<unknown>}"
+  PLAN_SCOPE_OCID="$SINGLE_COMP"
+else
+  PLAN_SCOPE_TYPE="AUTOMATION-NAME-FILTER"
+  PLAN_SCOPE_NAME="$COMP_NAMES_FILTER"
+  PLAN_SCOPE_OCID="multiple resolved compartment OCIDs"
+fi
+
+PLAN_TARGETS=""
+while IFS= read -r cid; do
+  [ -z "$cid" ] && continue
+  PLAN_TARGETS+="${cid}"$'\t'"${COMP_NAME[$cid]:-<unknown>}"$'\n'
+done <<< "$COMPS"
+PLAN_WORK=""
+for svc in $SERVICES; do PLAN_WORK+="${svc}"$'\n'; done
+
+oci_scope_print_scan_plan \
+  "CP-9 BACKUP REPLICATION" "cp09-03-backup-replication-check.sh" \
+  "CP-9(5) / CP-10" "${REGION_OVERRIDE:-${CUR_REGION:-<cloud-shell-default>}}" \
+  "$PLAN_SCOPE_TYPE" "$PLAN_SCOPE_NAME" "$PLAN_SCOPE_OCID" "$COMP_COUNT" \
+  "$PLAN_TARGETS" "Requested service scans" "$PLAN_WORK" \
+  "$OUT"$'\n'"$COVERAGE"$'\n'"$ERROUT" \
+  "resource OCIDs/names, replicas, retention, WORM and versioning posture"
+if ! oci_scope_require_final_approval "$SELECT_SCOPE"; then
+  abort_before_scan "$OCI_SCOPE_APPROVAL_ERROR"
+fi
+
 echo "Auditing DR posture (replication/retention/versioning) across ${COMP_COUNT} compartment(s)..."
 echo
 

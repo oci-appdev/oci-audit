@@ -12,20 +12,22 @@
 
 ## Mandatory scope-selection standard
 
-Scripts `cp09-01`, `cp09-02`, `cp09-03`, `in-transit-encryption.sh` and
-`sc28-oci-encryption-at-rest.sh` now support `-i` / `--select-scope`. They
-discover the tenancy and active compartments, display full OCIDs, require an
-exact discovered OCID and require the same OCID again before starting service
-collection. A tenancy selection means root plus every active child
-compartment. A mismatch exits before the collector loop; script 03, SC-8 and
-SC-28 have dedicated fail-closed regressions.
+Root-cause correction: the earlier CP-9 and SC-28 implementations only set
+interactive mode when `-i`/`--select-scope` was present, while their regression
+cases also passed that flag. That allowed the tests to pass even though a
+normal command containing only region/output options silently used the old
+tenancy-wide path. The option parser and tests now exercise the real no-scope-
+flag operator command for every canonical collector.
 
-SC-8 now adds the next required boundary: after the two OCIDs match, it prints
-the complete scan plan and requires exact uppercase `YES`. No-argument SC-8
-runs default to that interactive workflow. Refusal removes header-only files
-and makes no service call. Other collectors retain their existing double-OCID
-behavior until this final plan/approval gate is adopted during their next
-hardening pass.
+Scripts `cp09-01`, `cp09-02`, `cp09-03`, `in-transit-encryption.sh` and
+`sc28-oci-encryption-at-rest.sh` now default normal/manual runs to interactive
+scope selection; `-i` / `--select-scope` are optional aliases. They discover
+the tenancy and active compartments, display full OCIDs, require an exact
+discovered OCID twice, print the resolved scan plan, and require exact uppercase
+`YES` before workload-service collection. A tenancy selection means root plus
+every active child compartment. Mismatch/refusal exits before the collector
+loop, removes header-only CSVs and has dedicated fail-closed regressions for all
+five collectors.
 
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
@@ -169,7 +171,7 @@ Verified 27 SC-8 OCI wrapper calls: list/get only; no PSK retrieval
 PASS: SC-8 static OCI action, mutation, secret and pre-scan validation gates
 PASS: Task 2 integrity, TLS/IPSec findings and evidence-file safety regressions
 PASS: SC-28 data-store, KMS rotation and failure-ledger evidence
-PASS: CP-9, SC-8 and SC-28 interactive scope discovery and OCID confirmation
+PASS: CP-9, SC-8 and SC-28 default interactive scope, double-OCID and exact-YES gates
 PASS: CP-9, SC-8 and SC-28 static, read-only and mock test suite
 ```
 

@@ -9,7 +9,8 @@ repository. Existing scripts should adopt it when they are next hardened.
 
 Every collector must support both of these modes:
 
-1. **Interactive:** `-i` and `--select-scope`
+1. **Interactive:** the default manual/no-scope-flag path, plus explicit `-i`
+   and `--select-scope`
 2. **Non-interactive:** explicit compartment OCID/name flags for controlled
    automation
 
@@ -75,6 +76,6 @@ The shared double-OCID implementation and regression examples are:
 - `sc28-oci-encryption-at-rest.sh`
 - `tests/test-scope-selection.sh`
 
-`in-transit-encryption.sh` is the first collector implementing the additional
-pre-scan summary and exact-`YES` gate. Apply that final gate to the other
-collectors when they are next hardened; do not claim they already have it.
+All five canonical Task 1–3 collectors now default manual runs to this shared
+interactive workflow and implement the pre-scan summary plus exact-`YES` gate.
+Future collectors must adopt the full boundary when first introduced.
