@@ -112,8 +112,10 @@ databases, Object Storage, volume attachments, FSS, API Gateway, OKE and the
 Site-to-Site VPN chain (CPE, IPSec connection, tunnels and DRG attachment/route
 context).
 
-The collector uses only OCI list/get operations and intentionally never
-retrieves an IPSec pre-shared key.
+The collector uses only OCI list/get operations and intentionally never calls
+`network ip-sec-psk get`, the separate operation that retrieves an IPSec
+pre-shared key. The full source and evidence-handling review is in
+[SC08-SAFETY-REVIEW.md](SC08-SAFETY-REVIEW.md).
 
 Run the read-only check:
 
@@ -121,13 +123,20 @@ Run the read-only check:
 bash in-transit-encryption.sh --selfcheck
 ```
 
-For an operator-controlled run, discover the tenancy and active compartments
-and confirm the exact selected OCID twice:
+No-argument execution is interactive by default. It discovers the tenancy and
+active compartments, requires the exact selected OCID twice, displays the
+complete scan plan and starts service collection only after exact uppercase
+`YES`:
 
 ```bash
 bash in-transit-encryption.sh \
-  --select-scope -r us-langley-1 -o ./evidence
+  -r us-langley-1 -o ./evidence
 ```
+
+`-i` and `--select-scope` explicitly select the same workflow. Selecting the
+tenancy means root plus every active discovered compartment. A missing or
+mismatched OCID, or anything other than exact uppercase `YES`, exits before the
+first service call and removes header-only CSVs.
 
 Example GovCloud collection:
 
@@ -143,10 +152,16 @@ bash in-transit-encryption.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 ```
 
+Explicit `-c` and `-n` are approved non-interactive automation modes. Their
+resolved scan plan is printed to the job log, but they do not prompt.
+
 The run produces an evidence CSV and compartment-by-service coverage CSV. A
 failed OCI call produces an attributed `COLLECTION-FAILED` row, a retained
 error ledger and exit code `3`; it cannot be mistaken for an absent service or
-down tunnel.
+down tunnel. Successful CLI processes are also checked for valid, expected
+JSON response shapes so a malformed response cannot become a false zero-asset
+result. Generated CSVs use private permissions and neutralize spreadsheet
+formula prefixes.
 
 Each OCI Site-to-Site VPN connection is expected to expose two tunnel objects.
 Both are collected independently. A successful tunnel list with a count other
@@ -209,7 +224,10 @@ bash tests/run.sh
 
 The suite performs Bash syntax and read-only checks for CP-9, SC-8 and SC-28. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
-against mock OCI CLIs. Task 3 exercises all data-store/KMS paths, the current
+against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
+wrapper call sites, injects prohibited mutation/PSK calls, proves default
+interactive plan approval/refusal, checks malformed response handling and
+validates private/formula-safe CSV output. Task 3 exercises all data-store/KMS paths, the current
 MySQL and PostgreSQL schemas, rotation success/failure and a denied key-list
 call. Task 2 requires both IPSec tunnels and separately proves the
 incomplete-pair finding. Denied-call regressions prove that unavailable replica,

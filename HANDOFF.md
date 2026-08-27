@@ -20,6 +20,13 @@ collection. A tenancy selection means root plus every active child
 compartment. A mismatch exits before the collector loop; script 03, SC-8 and
 SC-28 have dedicated fail-closed regressions.
 
+SC-8 now adds the next required boundary: after the two OCIDs match, it prints
+the complete scan plan and requires exact uppercase `YES`. No-argument SC-8
+runs default to that interactive workflow. Refusal removes header-only files
+and makes no service call. Other collectors retain their existing double-OCID
+behavior until this final plan/approval gate is adopted during their next
+hardening pass.
+
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
 
@@ -27,7 +34,26 @@ Every new or materially redesigned collector must follow
 `SCRIPT-DESIGN-STANDARD.md`. Preserve `-c`/`-n` for approved non-interactive
 automation, but do not create a different interactive selection workflow.
 
-## Latest milestone — Task 3
+## Latest safety hardening — SC-8
+
+`SC08-SAFETY-REVIEW.md` records a second source-level review of
+`in-transit-encryption.sh`:
+
+- 27 OCI wrapper call sites parsed and restricted to `list`/`get`;
+- `network ip-sec-psk get` explicitly prohibited and injection-tested;
+- default interactive double-OCID, pre-scan summary and exact-`YES` gate;
+- invalid compartment, ambiguous scope and unknown service failures before
+  collection;
+- successful CLI JSON syntax/shape validation to prevent false zero assets;
+- secure temporary files, private/no-clobber/formula-safe CSV output;
+- missing volume encryption fields remain unknown instead of false disabled;
+- backend TLS peer-verification disabled is an explicit review finding.
+
+Tests are in `tests/test-sc8-safety.sh`,
+`tests/test-in-transit-encryption.sh` and `tests/test-scope-selection.sh`.
+Static/mock review passed; live OCI evidence remains pending.
+
+## Prior milestone — Task 3
 
 ### `sc28-oci-encryption-at-rest.sh`
 
@@ -136,10 +162,12 @@ Latest local result:
 READ-ONLY SELF-CHECK: PASSED (cp09-01)
 READ-ONLY SELF-CHECK: PASSED (cp09-02)
 READ-ONLY SELF-CHECK: PASSED (cp09-03)
-READ-ONLY SELF-CHECK: PASSED (in-transit-encryption)
+READ-ONLY/NO-SECRET SELF-CHECK: PASSED (in-transit-encryption)
 READ-ONLY SELF-CHECK: PASSED (sc28-oci-encryption-at-rest)
 PASS: cp09-03 success and denied-collection regressions
-PASS: Task 2 two-tunnel, incomplete-pair and denied-IPSec regressions
+Verified 27 SC-8 OCI wrapper calls: list/get only; no PSK retrieval
+PASS: SC-8 static OCI action, mutation, secret and pre-scan validation gates
+PASS: Task 2 integrity, TLS/IPSec findings and evidence-file safety regressions
 PASS: SC-28 data-store, KMS rotation and failure-ledger evidence
 PASS: CP-9, SC-8 and SC-28 interactive scope discovery and OCID confirmation
 PASS: CP-9, SC-8 and SC-28 static, read-only and mock test suite
@@ -175,11 +203,13 @@ Do not commit live OCI CSVs or screenshots to this public repository.
 ## Task 2 is not audit-complete
 
 1. Run the collector in every in-scope region and exact worksheet compartment.
-2. Require exit `0` and reconcile every coverage row and finding.
-3. Complete `TASK2-MANUAL-EVIDENCE-CHECKLIST.md`.
-4. Capture both IPSec tunnels, Base DB `sqlnet.ora`, FSS encrypted mounts and
+2. For an operator run, retain the double-OCID and approved pre-scan summary;
+   exact uppercase `YES` must precede service calls.
+3. Require exit `0` and reconcile every coverage row and finding.
+4. Complete `TASK2-MANUAL-EVIDENCE-CHECKLIST.md`.
+5. Capture both IPSec tunnels, Base DB `sqlnet.ora`, FSS encrypted mounts and
    NLB backend TLS without capturing PSKs or other secrets.
-5. Store and approve the package in the restricted evidence location.
+6. Store and approve the package in the restricted evidence location.
 
 Do not commit live OCI CSVs or screenshots to this public repository.
 

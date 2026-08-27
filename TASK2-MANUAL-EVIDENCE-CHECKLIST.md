@@ -27,9 +27,16 @@ location and record only its controlled reference in the audit worksheet.
 
 ## Automated integrity gate
 
-- [ ] `bash in-transit-encryption.sh --selfcheck` passed.
-- [ ] `--select-scope` was used for the operator run and the exact discovered
-      OCID was confirmed twice, or the approved job supplied explicit `-c`/`-n`.
+- [ ] `bash in-transit-encryption.sh --selfcheck` reported the
+      read-only/no-secret check as passed.
+- [ ] The operator run used default interactive mode, `-i` or
+      `--select-scope`; the exact discovered OCID was confirmed twice; the
+      pre-scan safety summary was reviewed; and exact uppercase `YES` was
+      entered. Alternatively, retain the approved job definition containing
+      explicit `-c`/`-n`.
+- [ ] The retained operator/job log shows the final region, scope type/name/OCID,
+      compartment count, target compartment list, requested services and
+      output paths before collection began.
 - [ ] The collector was run in every region containing in-scope resources.
 - [ ] The exact VCN, Shared Services and CD3 compartment names were used.
 - [ ] The process exited `0`. An exit of `3` was treated as incomplete evidence.

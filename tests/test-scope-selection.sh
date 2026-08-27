@@ -7,7 +7,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/bin" "$TMP/cp01" "$TMP/cp02" "$TMP/cp03" "$TMP/sc08" \
   "$TMP/sc08-tenancy" "$TMP/sc28" "$TMP/sc28-tenancy" "$TMP/mismatch" \
-  "$TMP/mismatch03" "$TMP/mismatch08" "$TMP/mismatch28"
+  "$TMP/mismatch03" "$TMP/mismatch08" "$TMP/refuse08" "$TMP/mismatch28"
 ln -s "$ROOT/tests/mock-oci-scope" "$TMP/bin/oci"
 
 TENANCY='ocid1.tenancy.oc1..scope'
@@ -48,19 +48,23 @@ grep -q "Confirmed OCID : $COMPARTMENT" "$TMP/cp03.out"
 grep -q 'Auditing DR posture (replication/retention/versioning) across 1 compartment(s)' "$TMP/cp03.out"
 grep -q 'compartment-id-in-subtree true' "$TMP/cp03.log"
 
-# SC-8: the encryption collector follows the same confirmed-scope boundary.
-printf '%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" | \
+# SC-8: no scope flag defaults to discovery, double-OCID confirmation, a final
+# scan-plan summary and exact uppercase YES before service collection.
+printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'YES' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/sc08.log" \
   bash "$ROOT/in-transit-encryption.sh" \
-    --select-scope -r us-langley-1 -s '' -o "$TMP/sc08" > "$TMP/sc08.out"
+    -r us-langley-1 -s '' -o "$TMP/sc08" > "$TMP/sc08.out"
 
 grep -q 'Confirmed scope: COMPARTMENT — VCN' "$TMP/sc08.out"
 grep -q "Confirmed OCID : $COMPARTMENT" "$TMP/sc08.out"
+grep -q 'SC-8 PRE-SCAN SAFETY SUMMARY' "$TMP/sc08.out"
+grep -q 'Type exact uppercase YES to run this scan.' "$TMP/sc08.out"
+grep -q 'SCAN APPROVED: starting read-only SC-8 service collection.' "$TMP/sc08.out"
 grep -q 'Collecting SC-8 evidence across 1 compartment(s)' "$TMP/sc08.out"
 grep -q 'compartment-id-in-subtree true' "$TMP/sc08.log"
 
 # SC-8 tenancy selection must expand to root plus both active children.
-printf '%s\n%s\n' "$TENANCY" "$TENANCY" | \
+printf '%s\n%s\n%s\n' "$TENANCY" "$TENANCY" 'YES' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/sc08-tenancy.log" \
   bash "$ROOT/in-transit-encryption.sh" \
     -i -r us-langley-1 -s '' -o "$TMP/sc08-tenancy" > "$TMP/sc08-tenancy.out"
@@ -68,6 +72,8 @@ printf '%s\n%s\n' "$TENANCY" "$TENANCY" | \
 grep -q 'WARNING: this selection scans the tenancy root and every active child compartment.' "$TMP/sc08-tenancy.out"
 grep -q 'Confirmed scope: TENANCY — OCS-Tenancy' "$TMP/sc08-tenancy.out"
 grep -q "Confirmed OCID : $TENANCY" "$TMP/sc08-tenancy.out"
+grep -q 'Compartments    : 3' "$TMP/sc08-tenancy.out"
+grep -q 'Secret access   : PROHIBITED' "$TMP/sc08-tenancy.out"
 grep -q 'Collecting SC-8 evidence across 3 compartment(s)' "$TMP/sc08-tenancy.out"
 
 # SC-28: encryption-at-rest collection uses the same confirmed-scope boundary.
@@ -131,9 +137,34 @@ rc=$?
 set -e
 [ "$rc" -eq 1 ]
 grep -q 'scope confirmation did not match. Nothing was scanned.' "$TMP/mismatch08.out"
-grep -q 'Scope selection aborted.' "$TMP/mismatch08.out"
+grep -q 'SCAN NOT STARTED: scope selection or OCID confirmation failed' "$TMP/mismatch08.out"
 if grep -q 'Collecting SC-8 evidence' "$TMP/mismatch08.out" || grep -q '^\[[0-9]' "$TMP/mismatch08.out"; then
   echo "FAIL: SC-8 collector loop started after scope confirmation mismatch" >&2
+  exit 1
+fi
+
+# Even after both OCIDs match, anything other than exact uppercase YES must
+# abort and make no SC-8 service call.
+set +e
+printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'yes' | \
+  PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/refuse08.log" \
+  bash "$ROOT/in-transit-encryption.sh" \
+    -i -r us-langley-1 -s ipsec -o "$TMP/refuse08" > "$TMP/refuse08.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 1 ]
+grep -q 'SC-8 PRE-SCAN SAFETY SUMMARY' "$TMP/refuse08.out"
+grep -q 'SCAN NOT STARTED: operator did not enter exact uppercase YES' "$TMP/refuse08.out"
+if grep -q 'Collecting SC-8 evidence' "$TMP/refuse08.out"; then
+  echo "FAIL: SC-8 service scan started after final approval refusal" >&2
+  exit 1
+fi
+if grep -Eq '^(network cpe|network ip-sec|network drg-attachment)' "$TMP/refuse08.log"; then
+  echo "FAIL: mock received an SC-8 service call before exact YES approval" >&2
+  exit 1
+fi
+if find "$TMP/refuse08" -name '*.csv' -print -quit | grep -q .; then
+  echo "FAIL: refused SC-8 scan left misleading header-only CSVs" >&2
   exit 1
 fi
 

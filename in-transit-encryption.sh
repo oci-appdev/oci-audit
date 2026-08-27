@@ -23,15 +23,23 @@
 # pre-shared key. Nothing is created, modified, attached, detached or deleted.
 #
 # Usage:
-#   bash in-transit-encryption.sh
+#   bash in-transit-encryption.sh                         # interactive by default
 #   bash in-transit-encryption.sh --select-scope
 #   bash in-transit-encryption.sh -i
-#   bash in-transit-encryption.sh -c <compartment-ocid>
-#   bash in-transit-encryption.sh -n 'VCN,Shared Services,CD3'
+#   bash in-transit-encryption.sh -c <compartment-ocid>   # approved automation
+#   bash in-transit-encryption.sh -n 'VCN,Shared Services,CD3' # approved automation
 #   bash in-transit-encryption.sh -r us-langley-1
 #   bash in-transit-encryption.sh -s 'lb ipsec'
 #   bash in-transit-encryption.sh -o ./evidence
 #   bash in-transit-encryption.sh --selfcheck
+#
+# Interactive runs:
+#   1. Discover the tenancy and active compartments.
+#   2. Require the exact selected tenancy/compartment OCID twice.
+#   3. Display the final region, scope, target compartments, services, local
+#      output files and evidence sensitivity.
+#   4. Start service collection only after the operator types exact uppercase
+#      YES. Any other response aborts before the first service API call.
 #
 # Output:
 #   oci_intransit_encryption_<ts>.csv
@@ -50,10 +58,10 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SCOPE_HELPER="$SCRIPT_DIR/lib/oci-scope-selector.sh"
 
 readonly_selfcheck() {                                          # selfcheck-exempt
-  local deny hits raw rawpat                                    # selfcheck-exempt
+  local deny hits raw rawpat secret secretpat                   # selfcheck-exempt
   local -a check_paths=("$SCRIPT_PATH" "$SCOPE_HELPER")         # selfcheck-exempt
   [ -r "$SCOPE_HELPER" ] || { echo "READ-ONLY SELF-CHECK: FAILED — missing $SCOPE_HELPER" >&2; return 1; }  # selfcheck-exempt
-  deny='oci[[:space:]]+([a-z0-9-]+[[:space:]]+)*(create|update|delete|change|move|restore|enable|disable|rotate|assign|attach|detach|terminate|reboot|import|export|upload|bulk-upload|bulk-delete|reset|activate|deactivate|cancel)([[:space:]]|$)'  # selfcheck-exempt
+  deny='(oci|oci_capture)[[:space:]].*(create|update|delete|change|move|restore|enable|disable|rotate|assign|attach|detach|terminate|reboot|import|export|upload|bulk-upload|bulk-delete|reset|activate|deactivate|cancel)([[:space:]]|$)'  # selfcheck-exempt
   hits="$(grep -nE "$deny" "${check_paths[@]}" 2>/dev/null \
           | grep -v 'selfcheck-exempt' \
           | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"      # selfcheck-exempt
@@ -62,9 +70,13 @@ readonly_selfcheck() {                                          # selfcheck-exem
          | grep -viE 'http-method[[:space:]=]+GET' \
          | grep -v 'selfcheck-exempt' \
          | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"       # selfcheck-exempt
-  if [ -n "$hits" ] || [ -n "$raw" ]; then                    # selfcheck-exempt
-    echo "READ-ONLY SELF-CHECK: FAILED — mutating call found:" >&2
-    printf '%s\n%s\n' "$hits" "$raw" >&2
+  secretpat='(oci|oci_capture)[[:space:]].*network[[:space:]]+ip-sec-psk[[:space:]]+get([[:space:]]|$)'  # selfcheck-exempt
+  secret="$(grep -nE "$secretpat" "${check_paths[@]}" 2>/dev/null \
+            | grep -v 'selfcheck-exempt' \
+            | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"    # selfcheck-exempt
+  if [ -n "$hits" ] || [ -n "$raw" ] || [ -n "$secret" ]; then  # selfcheck-exempt
+    echo "READ-ONLY/NO-SECRET SELF-CHECK: FAILED — prohibited call found:" >&2
+    printf '%s\n%s\n%s\n' "$hits" "$raw" "$secret" >&2
     return 1
   fi
   return 0
@@ -72,8 +84,8 @@ readonly_selfcheck() {                                          # selfcheck-exem
 
 if [ "${1:-}" = "--selfcheck" ]; then
   if readonly_selfcheck; then
-    echo "READ-ONLY SELF-CHECK: PASSED (in-transit-encryption)"
-    echo "All OCI calls in $SCRIPT_PATH are list/get operations."
+    echo "READ-ONLY/NO-SECRET SELF-CHECK: PASSED (in-transit-encryption)"
+    echo "All OCI calls in $SCRIPT_PATH are list/get operations; ip-sec-psk get is prohibited."
     exit 0
   fi
   exit 1
@@ -82,6 +94,7 @@ fi
 command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found." >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found." >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not found." >&2; exit 1; }
+command -v mktemp >/dev/null 2>&1 || { echo "ERROR: mktemp not found." >&2; exit 1; }
 
 [ -r "$SCOPE_HELPER" ] || { echo "ERROR: scope selector not found: $SCOPE_HELPER" >&2; exit 1; }
 # shellcheck source=lib/oci-scope-selector.sh
@@ -121,8 +134,34 @@ if [ "$SELECT_SCOPE" -eq 1 ] && { [ -n "$SINGLE_COMP" ] || [ -n "$COMP_NAMES_FIL
   exit 1
 fi
 
+if [ -n "$SINGLE_COMP" ] && [ -n "$COMP_NAMES_FILTER" ]; then
+  echo "ERROR: -c and -n are mutually exclusive scope modes." >&2
+  exit 1
+fi
+
+if [ -n "$SINGLE_COMP" ]; then
+  case "$SINGLE_COMP" in
+    ocid1.compartment.*) ;;
+    *) echo "ERROR: -c requires a compartment OCID. Use interactive mode to select the tenancy." >&2; exit 1 ;;
+  esac
+fi
+
+# A run without an explicit automation scope is always interactive. This
+# prevents an accidental no-argument invocation from sweeping the tenancy.
+if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
+  SELECT_SCOPE=1
+fi
+
+for requested_service in $SERVICES; do
+  case "$requested_service" in
+    lb|nlb|adb|basedb|object|volumes|fss|apigw|oke|ipsec) ;;
+    *) echo "ERROR: unknown service selector: $requested_service" >&2; exit 1 ;;
+  esac
+done
+
 REGION_ARG=()
 [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")
+umask 077
 mkdir -p -- "$OUTDIR" 2>/dev/null || { echo "ERROR: cannot create output directory: $OUTDIR" >&2; exit 1; }
 readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
 
@@ -131,24 +170,89 @@ OUT="$OUTDIR/oci_intransit_encryption_${TS}.csv"
 COVERAGE="$OUTDIR/oci_intransit_encryption_coverage_${TS}.csv"
 ERROUT="$OUTDIR/oci_intransit_encryption_collection_errors_${TS}.csv"
 
-echo "compartment_id,compartment_name,service,resource,encryption_enabled,protocol_or_min_version,cipher_or_detail,finding,control,collection_status,collection_error" > "$OUT"
-echo "compartment_id,compartment_name,service,assets_found,collection_status,collection_error" > "$COVERAGE"
-echo "compartment_id,compartment_name,status,command,error" > "$ERROUT"
+init_output_file() {
+  local path="$1" header="$2"
+  if ! (set -C; printf '%s\n' "$header" > "$path") 2>/dev/null; then
+    echo "ERROR: refusing to overwrite an existing output path: $path" >&2
+    exit 1
+  fi
+}
+
+init_output_file "$OUT" "compartment_id,compartment_name,service,resource,encryption_enabled,protocol_or_min_version,cipher_or_detail,finding,control,collection_status,collection_error"
+init_output_file "$COVERAGE" "compartment_id,compartment_name,service,assets_found,collection_status,collection_error"
+init_output_file "$ERROUT" "compartment_id,compartment_name,status,command,error"
 
 INCOMPLETE=0
 CUR_COMP="<tenancy>"
 COLLECT_OUT=""
 COLLECT_STATUS="OK"
 COLLECT_ERROR=""
+TEMP_ERR_FILE=""
 declare -A COMP_NAME
+
+cleanup_temp_file() {
+  if [ -n "$TEMP_ERR_FILE" ]; then
+    rm -f -- "$TEMP_ERR_FILE" 2>/dev/null
+    TEMP_ERR_FILE=""
+  fi
+}
+trap cleanup_temp_file EXIT
+trap 'cleanup_temp_file; exit 130' INT
+trap 'cleanup_temp_file; exit 143' TERM
+
+csv_escape() {
+  local value="$1"
+  value="${value//$'\n'/ }"
+  value="${value//$'\r'/}"
+  case "$value" in [=+@-]*) value="'$value" ;; esac
+  value="${value//\"/\"\"}"
+  printf '"%s"' "$value"
+}
+
+has_cli_arg() {
+  local wanted="$1"; shift
+  local item
+  for item in "$@"; do
+    [ "$item" = "$wanted" ] && return 0
+  done
+  return 1
+}
 
 oci_capture() {
   local label="$1"; shift
-  local errf out rc err status cname cmd
-  errf="$(mktemp 2>/dev/null || printf '/tmp/sc8.%s.err' "$$")"
+  local errf out rc err status cname cmd action
+  errf="$(mktemp "${TMPDIR:-/tmp}/sc8.XXXXXX" 2>/dev/null)" || {
+    echo "ERROR: could not create a secure temporary error file." >&2
+    exit 1
+  }
+  TEMP_ERR_FILE="$errf"
   out="$(oci "${REGION_ARG[@]}" "$@" 2>"$errf")"; rc=$?
   err="$(tr '\n\r' '  ' < "$errf" 2>/dev/null | sed 's/  */ /g' | cut -c1-300)"
-  rm -f "$errf" 2>/dev/null
+  rm -f -- "$errf" 2>/dev/null
+  TEMP_ERR_FILE=""
+
+  # A successful CLI return with malformed or schema-incompatible JSON must
+  # not be counted as a verified zero-resource result.
+  if [ "$rc" -eq 0 ] && ! has_cli_arg --raw-output "$@"; then
+    if ! printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
+      rc=65
+      err="OCI CLI returned invalid JSON for: $label"
+    else
+      action="${3:-}"
+      if [ "$action" = "list" ] && ! has_cli_arg --query "$@" && \
+         ! printf '%s' "$out" | jq -e \
+           '(.data|type)=="array" or ((.data|type)=="object" and (.data.items|type)=="array")' \
+           >/dev/null 2>&1; then
+        rc=65
+        err="OCI CLI list response had an unexpected data shape for: $label"
+      elif [ "$action" = "get" ] && ! has_cli_arg --query "$@" && \
+           ! printf '%s' "$out" | jq -e 'type=="object" and has("data")' >/dev/null 2>&1; then
+        rc=65
+        err="OCI CLI get response had no data object for: $label"
+      fi
+    fi
+  fi
+
   if [ "$rc" -eq 0 ]; then
     status="OK"
   else
@@ -161,14 +265,13 @@ oci_capture() {
     else
       status="ERROR"
     fi
-    if [ "$status" != "NOTFOUND" ]; then
-      INCOMPLETE=1
-      cname="${COMP_NAME[$CUR_COMP]:-<unknown>}"
-      cmd="$label :: $*"
-      cmd="${cmd//\"/\"\"}"; err="${err//\"/\"\"}"
-      printf '"%s","%s","%s","%s","%s"\n' \
-        "$CUR_COMP" "$cname" "$status" "$cmd" "$err" >> "$ERROUT"
-    fi
+    INCOMPLETE=1
+    cname="${COMP_NAME[$CUR_COMP]:-<unknown>}"
+    cmd="$label :: $*"
+    printf '%s,%s,%s,%s,%s\n' \
+      "$(csv_escape "$CUR_COMP")" "$(csv_escape "$cname")" \
+      "$(csv_escape "$status")" "$(csv_escape "$cmd")" \
+      "$(csv_escape "$err")" >> "$ERROUT"
   fi
   COLLECT_OUT="$out"
   COLLECT_STATUS="$status"
@@ -177,19 +280,13 @@ oci_capture() {
 
 LIST_ITER='if (.data|type)=="object" then ((.data.items // []) | .[]) elif (.data|type)=="array" then (.data[]) else empty end'
 
-csv_escape() {
-  local s="$1"
-  s="${s//\"/\"\"}"
-  printf '"%s"' "$s"
-}
-
 row() {
   local comp_id="$1"; shift
   local cname="${COMP_NAME[$comp_id]:-<unknown>}"
-  local output="" field
+  local output="" field escaped
   for field in "$comp_id" "$cname" "$@"; do
-    field="${field//\"/\"\"}"
-    output+="\"${field}\","
+    escaped="$(csv_escape "$field")"
+    output+="${escaped},"
   done
   echo "${output%,}" >> "$OUT"
 }
@@ -219,6 +316,95 @@ collection_failure_row() {
   INCOMPLETE=1
   row "$comp" "$service" "$resource" "UNKNOWN" "UNKNOWN" "UNKNOWN" \
     "COLLECTION-FAILED" "$control" "$status" "$error"
+}
+
+abort_before_scan() {
+  local reason="$1"
+  rm -f -- "$OUT" "$COVERAGE" "$ERROUT" 2>/dev/null
+  echo "SCAN NOT STARTED: $reason" >&2
+  exit 1
+}
+
+sc8_service_label() {
+  case "$1" in
+    lb) printf 'Load Balancer frontend and backend TLS' ;;
+    nlb) printf 'Network Load Balancer passthrough inventory' ;;
+    adb) printf 'Autonomous Database TLS/mTLS' ;;
+    basedb) printf 'Base Database inventory (sqlnet.ora manual)' ;;
+    object) printf 'Object Storage HTTPS/public exposure' ;;
+    volumes) printf 'Block/boot volume in-transit encryption' ;;
+    fss) printf 'File Storage mount targets (client proof manual)' ;;
+    apigw) printf 'API Gateway HTTPS endpoints' ;;
+    oke) printf 'OKE Kubernetes API endpoints' ;;
+    ipsec) printf 'CPE, IPSec tunnels and DRG context (no PSKs)' ;;
+  esac
+}
+
+confirm_sc8_scan_plan() {
+  local scope_type scope_name scope_ocid approval svc cid
+  if [ "$SELECT_SCOPE" -eq 1 ]; then
+    scope_type="$OCI_SCOPE_SELECTED_KIND"
+    scope_name="$OCI_SCOPE_SELECTED_NAME"
+    scope_ocid="$OCI_SCOPE_SELECTED_OCID"
+  elif [ -n "$SINGLE_COMP" ]; then
+    scope_type="AUTOMATION-COMPARTMENT"
+    scope_name="${COMP_NAME[$SINGLE_COMP]:-<unknown>}"
+    scope_ocid="$SINGLE_COMP"
+  else
+    scope_type="AUTOMATION-NAME-FILTER"
+    scope_name="$COMP_NAMES_FILTER"
+    scope_ocid="multiple resolved compartment OCIDs"
+  fi
+
+  echo "======================================================================"
+  echo "SC-8 PRE-SCAN SAFETY SUMMARY"
+  echo "======================================================================"
+  echo "Collector       : in-transit-encryption.sh"
+  echo "Controls        : SC-8 / SC-8(1) / SC-13"
+  echo "Region          : ${REGION_OVERRIDE:-<cloud-shell-default>}"
+  echo "Scope type      : $scope_type"
+  echo "Scope name      : $scope_name"
+  echo "Confirmed OCID  : $scope_ocid"
+  echo "Compartments    : $COMP_COUNT"
+  echo "Cloud operations: OCI list/get only; no creates, updates or deletes"
+  echo "Secret access   : PROHIBITED — network ip-sec-psk get is never called"
+  echo "Local writes    : private CSVs plus ephemeral secure stderr temp files"
+  echo "Evidence data   : OCIDs, resource names, endpoints, public CPE IPs,"
+  echo "                  routes and negotiated IPSec/TLS configuration"
+  echo
+  echo "Target compartments:"
+  while IFS= read -r cid; do
+    [ -z "$cid" ] && continue
+    echo "  - ${COMP_NAME[$cid]:-<unknown>}"
+    echo "    $cid"
+  done <<< "$COMPS"
+  echo
+  echo "Requested service scans:"
+  if [ -z "$SERVICES" ]; then
+    echo "  - <none> (scope/approval test only)"
+  else
+    for svc in $SERVICES; do
+      echo "  - $svc — $(sc8_service_label "$svc")"
+    done
+  fi
+  echo
+  echo "Output files:"
+  echo "  - $OUT"
+  echo "  - $COVERAGE"
+  echo "  - $ERROUT (retained only when calls fail)"
+  echo "======================================================================"
+
+  if [ "$SELECT_SCOPE" -eq 1 ]; then
+    echo "Scope discovery is complete. No SC-8 service scan has started."
+    echo "Type exact uppercase YES to run this scan. Any other response aborts."
+    IFS= read -r approval || abort_before_scan "approval input was not provided"
+    [ "$approval" = "YES" ] || abort_before_scan "operator did not enter exact uppercase YES"
+    echo "SCAN APPROVED: starting read-only SC-8 service collection."
+    echo
+  else
+    echo "Approval mode   : approved non-interactive scope supplied with -c or -n"
+    echo
+  fi
 }
 
 # Resolve tenancy and collection scope.
@@ -269,8 +455,7 @@ if [ "$SELECT_SCOPE" -eq 1 ]; then
   COMP_NAME["$TENANCY_ID"]="${COLLECT_OUT:-root}"
 
   if ! oci_scope_select_interactive "$TENANCY_ID" "${COMP_NAME[$TENANCY_ID]}" "$scope_catalog"; then
-    echo "Scope selection aborted." >&2
-    exit 1
+    abort_before_scan "scope selection or OCID confirmation failed"
   fi
 
   if [ "$OCI_SCOPE_SELECTED_KIND" = "TENANCY" ]; then
@@ -284,6 +469,9 @@ elif [ -n "$SINGLE_COMP" ]; then
   CUR_COMP="$SINGLE_COMP"
   oci_capture "get compartment name" iam compartment get --compartment-id "$SINGLE_COMP" \
     --query 'data.name' --raw-output
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    abort_before_scan "explicit compartment validation failed ($COLLECT_STATUS): $COLLECT_ERROR"
+  fi
   COMP_NAME["$SINGLE_COMP"]="${COLLECT_OUT:-<unknown>}"
 else
   oci_capture "enumerate active compartments" iam compartment list \
@@ -310,18 +498,25 @@ fi
 
 if [ -n "$COMP_NAMES_FILTER" ]; then
   FILTERED_COMPS=""
+  IFS=',' read -ra requested_names <<< "$COMP_NAMES_FILTER"
   while IFS= read -r cid; do
     [ -z "$cid" ] && continue
     cname="${COMP_NAME[$cid]:-<unknown>}"
-    if printf ',%s,' "$COMP_NAMES_FILTER" | grep -Fqi ",${cname},"; then
-      FILTERED_COMPS+="${FILTERED_COMPS:+$'\n'}$cid"
-    fi
+    for requested_name in "${requested_names[@]}"; do
+      requested_name="$(printf '%s' "$requested_name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      if [ -n "$requested_name" ] && [ "$(printf '%s' "$cname" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$requested_name" | tr '[:upper:]' '[:lower:]')" ]; then
+        FILTERED_COMPS+="${FILTERED_COMPS:+$'\n'}$cid"
+        break
+      fi
+    done
   done <<< "$COMPS"
   COMPS="$FILTERED_COMPS"
 fi
 
 COMP_COUNT="$(printf '%s\n' "$COMPS" | grep -c . || true)"
-[ "$COMP_COUNT" -eq 0 ] && { echo "ERROR: no compartments enumerated." >&2; exit 1; }
+[ "$COMP_COUNT" -eq 0 ] && abort_before_scan "no compartments matched the requested scope"
+
+confirm_sc8_scan_plan
 
 echo "Collecting SC-8 evidence across $COMP_COUNT compartment(s)..."
 echo
@@ -380,13 +575,18 @@ check_lb() {
       while IFS= read -r backend; do
         [ -z "$backend" ] && continue
         count_back=$((count_back+1))
-        local bname ssl verify detail
+        local bname ssl verify detail finding
         bname="$(printf '%s' "$backend" | jq -r '.name // "backend-set"')"
         ssl="$(printf '%s' "$backend" | jq -r '."ssl-configuration" // empty')"
         if [ -n "$ssl" ]; then
           verify="$(printf '%s' "$backend" | jq -r '."ssl-configuration"."verify-peer-certificate" // false')"
           detail="verify-peer-certificate=$verify"
-          row "$comp" "LoadBalancerBackend" "$lbname/$bname" "YES" "TLS" "$detail" "OK-REVIEW-CERT-VERIFY" "SC-8(1)" "OK" ""
+          if [ "$verify" = "true" ]; then
+            finding="OK"
+          else
+            finding="REVIEW-BACKEND-CERT-VERIFY-DISABLED"
+          fi
+          row "$comp" "LoadBalancerBackend" "$lbname/$bname" "YES" "TLS" "$detail" "$finding" "SC-8(1)" "OK" ""
         else
           row "$comp" "LoadBalancerBackend" "$lbname/$bname" "NO" "plaintext" "no-backend-ssl-configuration" "BACKEND-PLAINTEXT" "SC-8(1)" "OK" ""
         fi
@@ -530,8 +730,10 @@ check_volumes() {
       local vid iid enabled finding
       vid="$(printf '%s' "$item" | jq -r '."volume-id" // "unknown-volume"')"
       iid="$(printf '%s' "$item" | jq -r '."instance-id" // "unknown-instance"')"
-      enabled="$(printf '%s' "$item" | jq -r '."is-pv-encryption-in-transit-enabled" // false')"
-      if [ "$enabled" = "true" ]; then finding="OK"; else finding="IN-TRANSIT-ENC-DISABLED"; fi
+      enabled="$(printf '%s' "$item" | jq -r 'if has("is-pv-encryption-in-transit-enabled") then ."is-pv-encryption-in-transit-enabled" else "unknown" end')"
+      if [ "$enabled" = "true" ]; then finding="OK"
+      elif [ "$enabled" = "false" ]; then finding="IN-TRANSIT-ENC-DISABLED"
+      else finding="REVIEW-IN-TRANSIT-ENC-NOT-EXPOSED"; fi
       row "$comp" "BlockVolumeAttach" "vol:${vid: -12}/inst:${iid: -12}" "$enabled" "PV-in-transit" "attachment" "$finding" "SC-8(1)" "OK" ""
     done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
     coverage_row "$comp" "BlockVolumeAttach" "$count" "OK" ""
@@ -549,8 +751,10 @@ check_volumes() {
       count=$((count+1))
       local name enabled finding
       name="$(printf '%s' "$item" | jq -r '."display-name" // "instance"')"
-      enabled="$(printf '%s' "$item" | jq -r '."launch-options"."is-pv-encryption-in-transit-enabled" // false')"
-      if [ "$enabled" = "true" ]; then finding="OK"; else finding="BOOT-IN-TRANSIT-ENC-DISABLED"; fi
+      enabled="$(printf '%s' "$item" | jq -r 'if ((."launch-options"|type)=="object" and (."launch-options"|has("is-pv-encryption-in-transit-enabled"))) then ."launch-options"."is-pv-encryption-in-transit-enabled" else "unknown" end')"
+      if [ "$enabled" = "true" ]; then finding="OK"
+      elif [ "$enabled" = "false" ]; then finding="BOOT-IN-TRANSIT-ENC-DISABLED"
+      else finding="REVIEW-BOOT-IN-TRANSIT-ENC-NOT-EXPOSED"; fi
       row "$comp" "InstanceBootVol" "$name" "$enabled" "PV-in-transit" "launch-option" "$finding" "SC-8(1)" "OK" ""
     done < <(printf '%s' "$json" | jq -c "$LIST_ITER" 2>/dev/null)
     coverage_row "$comp" "InstanceBootVol" "$count" "OK" ""

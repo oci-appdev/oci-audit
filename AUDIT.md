@@ -23,6 +23,41 @@ Task 5 is the next implementation target.
 
 ---
 
+## 2026-08-27 — SC-8 pre-scan authorization and safety review
+
+A second source-level safety review of `in-transit-encryption.sh` verified 27
+OCI wrapper call sites. All are `list`/`get`, and none retrieves the separate
+IPSec shared-secret object. The review also found that the previous
+no-argument path immediately expanded to a tenancy scan and that the original
+self-check could miss a mutating command introduced through `oci_capture`.
+
+The SC-8 collector now:
+
+- defaults no-argument/manual runs to interactive discovery;
+- requires exact discovered tenancy/compartment OCID entry twice;
+- displays region, selected scope, every target compartment, requested
+  services, local outputs and evidence sensitivity before service collection;
+- requires exact uppercase `YES` after that summary and removes header-only
+  outputs on refusal;
+- retains explicit `-c`/`-n` for approved non-interactive jobs and prints the
+  resolved plan to their logs;
+- rejects invalid compartment OCIDs, ambiguous `-c`/`-n` combinations and
+  unknown service tokens before collection;
+- validates successful list/get JSON response shapes so malformed output cannot
+  become a false zero-resource result;
+- explicitly prohibits `network ip-sec-psk get` in both the self-check and an
+  injection regression;
+- uses secure temporary files, private output permissions, no-clobber output
+  creation and CSV formula neutralization;
+- reports missing volume encryption fields as unknown/review rather than
+  fabricating a disabled result;
+- reports backend TLS with peer verification disabled as a review finding.
+
+`SC08-SAFETY-REVIEW.md` records the complete review, command inventory,
+resolved findings, local-write boundary and remaining manual evidence.
+
+---
+
 ## 2026-08-27 — Task 3 SC-28 encryption-at-rest integrity and KMS evidence
 
 The original `sc28-oci-encryption-at-rest.sh` discarded stderr for every OCI

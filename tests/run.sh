@@ -17,6 +17,7 @@ bash -n \
   tests/mock-oci-scope \
   tests/test-cp09-03.sh \
   tests/test-in-transit-encryption.sh \
+  tests/test-sc8-safety.sh \
   tests/test-encryption-at-rest.sh \
   tests/test-scope-selection.sh
 
@@ -26,6 +27,7 @@ bash cp09-03-backup-replication-check.sh --selfcheck
 bash in-transit-encryption.sh --selfcheck
 bash sc28-oci-encryption-at-rest.sh --selfcheck
 bash tests/test-cp09-03.sh
+bash tests/test-sc8-safety.sh
 bash tests/test-in-transit-encryption.sh
 bash tests/test-encryption-at-rest.sh
 bash tests/test-scope-selection.sh

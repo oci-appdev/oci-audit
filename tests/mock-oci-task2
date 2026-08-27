@@ -15,13 +15,23 @@ case "$cmd" in
     printf '%s\n' 'VCN'
     ;;
   "lb load-balancer list --compartment-id ocid1.compartment.oc1..test --all")
-    printf '%s\n' '{"data":[{"id":"ocid1.loadbalancer.oc1..lb1","display-name":"app-lb"}]}'
+    if [ "${MOCK_BAD_SHAPE_LB:-0}" = "1" ]; then
+      printf '%s\n' '{"unexpected":[]}'
+    elif [ "${MOCK_FORMULA_NAME:-0}" = "1" ]; then
+      printf '%s\n' '{"data":[{"id":"ocid1.loadbalancer.oc1..lb1","display-name":"=2+3"}]}'
+    else
+      printf '%s\n' '{"data":[{"id":"ocid1.loadbalancer.oc1..lb1","display-name":"app-lb"}]}'
+    fi
     ;;
   "lb listener list --load-balancer-id ocid1.loadbalancer.oc1..lb1 --all")
     printf '%s\n' '{"data":[{"name":"https","protocol":"HTTP","ssl-configuration":{"protocols":["TLSv1.2"],"cipher-suite-name":"oci-default-ssl-cipher-suite-v1"}}]}'
     ;;
   "lb backend-set list --load-balancer-id ocid1.loadbalancer.oc1..lb1 --all")
-    printf '%s\n' '{"data":[{"name":"app-backends","ssl-configuration":{"verify-peer-certificate":true}}]}'
+    if [ "${MOCK_BACKEND_VERIFY_FALSE:-0}" = "1" ]; then
+      printf '%s\n' '{"data":[{"name":"app-backends","ssl-configuration":{"verify-peer-certificate":false}}]}'
+    else
+      printf '%s\n' '{"data":[{"name":"app-backends","ssl-configuration":{"verify-peer-certificate":true}}]}'
+    fi
     ;;
   "nlb network-load-balancer list --compartment-id ocid1.compartment.oc1..test --all")
     printf '%s\n' '{"data":{"items":[{"id":"ocid1.networkloadbalancer.oc1..nlb1","display-name":"edge-nlb"}]}}'
@@ -45,10 +55,18 @@ case "$cmd" in
     printf '%s\n' '{"data":{"public-access-type":"NoPublicAccess"}}'
     ;;
   "compute volume-attachment list --compartment-id ocid1.compartment.oc1..test --all")
-    printf '%s\n' '{"data":[{"volume-id":"ocid1.volume.oc1..volume1","instance-id":"ocid1.instance.oc1..instance1","is-pv-encryption-in-transit-enabled":true}]}'
+    if [ "${MOCK_VOLUME_FIELD_MISSING:-0}" = "1" ]; then
+      printf '%s\n' '{"data":[{"volume-id":"ocid1.volume.oc1..volume1","instance-id":"ocid1.instance.oc1..instance1"}]}'
+    else
+      printf '%s\n' '{"data":[{"volume-id":"ocid1.volume.oc1..volume1","instance-id":"ocid1.instance.oc1..instance1","is-pv-encryption-in-transit-enabled":true}]}'
+    fi
     ;;
   "compute instance list --compartment-id ocid1.compartment.oc1..test --all")
-    printf '%s\n' '{"data":[{"display-name":"instance-1","launch-options":{"is-pv-encryption-in-transit-enabled":true}}]}'
+    if [ "${MOCK_VOLUME_FIELD_MISSING:-0}" = "1" ]; then
+      printf '%s\n' '{"data":[{"display-name":"instance-1","launch-options":{}}]}'
+    else
+      printf '%s\n' '{"data":[{"display-name":"instance-1","launch-options":{"is-pv-encryption-in-transit-enabled":true}}]}'
+    fi
     ;;
   "iam availability-domain list --compartment-id ocid1.compartment.oc1..test")
     printf '%s\n' '{"data":[{"name":"AD-1"}]}'
