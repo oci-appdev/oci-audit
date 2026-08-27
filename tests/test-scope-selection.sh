@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-mkdir -p "$TMP/bin" "$TMP/cp01" "$TMP/cp02" "$TMP/cp03" "$TMP/mismatch" "$TMP/mismatch03"
+mkdir -p "$TMP/bin" "$TMP/cp01" "$TMP/cp02" "$TMP/cp03" "$TMP/sc08" \
+  "$TMP/sc08-tenancy" "$TMP/mismatch" "$TMP/mismatch03" "$TMP/mismatch08"
 ln -s "$ROOT/tests/mock-oci-scope" "$TMP/bin/oci"
 
 TENANCY='ocid1.tenancy.oc1..scope'
@@ -46,6 +47,28 @@ grep -q "Confirmed OCID : $COMPARTMENT" "$TMP/cp03.out"
 grep -q 'Auditing DR posture (replication/retention/versioning) across 1 compartment(s)' "$TMP/cp03.out"
 grep -q 'compartment-id-in-subtree true' "$TMP/cp03.log"
 
+# SC-8: the encryption collector follows the same confirmed-scope boundary.
+printf '%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" | \
+  PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/sc08.log" \
+  bash "$ROOT/in-transit-encryption.sh" \
+    --select-scope -r us-langley-1 -s '' -o "$TMP/sc08" > "$TMP/sc08.out"
+
+grep -q 'Confirmed scope: COMPARTMENT — VCN' "$TMP/sc08.out"
+grep -q "Confirmed OCID : $COMPARTMENT" "$TMP/sc08.out"
+grep -q 'Collecting SC-8 evidence across 1 compartment(s)' "$TMP/sc08.out"
+grep -q 'compartment-id-in-subtree true' "$TMP/sc08.log"
+
+# SC-8 tenancy selection must expand to root plus both active children.
+printf '%s\n%s\n' "$TENANCY" "$TENANCY" | \
+  PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/sc08-tenancy.log" \
+  bash "$ROOT/in-transit-encryption.sh" \
+    -i -r us-langley-1 -s '' -o "$TMP/sc08-tenancy" > "$TMP/sc08-tenancy.out"
+
+grep -q 'WARNING: this selection scans the tenancy root and every active child compartment.' "$TMP/sc08-tenancy.out"
+grep -q 'Confirmed scope: TENANCY — OCS-Tenancy' "$TMP/sc08-tenancy.out"
+grep -q "Confirmed OCID : $TENANCY" "$TMP/sc08-tenancy.out"
+grep -q 'Collecting SC-8 evidence across 3 compartment(s)' "$TMP/sc08-tenancy.out"
+
 # A mismatched confirmation must stop before the collector loop.
 set +e
 printf '%s\n%s\n' "$COMPARTMENT" "$TENANCY" | \
@@ -76,6 +99,21 @@ if grep -q 'Auditing DR posture' "$TMP/mismatch03.out" || grep -q '^\[[0-9]' "$T
   exit 1
 fi
 
+# SC-8 must also fail closed before any encryption or IPSec collection begins.
+set +e
+printf '%s\n%s\n' "$COMPARTMENT" "$TENANCY" | \
+  PATH="$TMP/bin:$PATH" bash "$ROOT/in-transit-encryption.sh" \
+    -i -r us-langley-1 -s '' -o "$TMP/mismatch08" > "$TMP/mismatch08.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 1 ]
+grep -q 'scope confirmation did not match. Nothing was scanned.' "$TMP/mismatch08.out"
+grep -q 'Scope selection aborted.' "$TMP/mismatch08.out"
+if grep -q 'Collecting SC-8 evidence' "$TMP/mismatch08.out" || grep -q '^\[[0-9]' "$TMP/mismatch08.out"; then
+  echo "FAIL: SC-8 collector loop started after scope confirmation mismatch" >&2
+  exit 1
+fi
+
 # Interactive selection cannot be mixed with non-interactive scope flags.
 set +e
 PATH="$TMP/bin:$PATH" bash "$ROOT/cp09-02-backup-access-files-check.sh" \
@@ -85,4 +123,12 @@ set -e
 [ "$rc" -eq 1 ]
 grep -q 'cannot be combined with -c or -n' "$TMP/conflict.out"
 
-echo "PASS: CP-9 interactive scope discovery and OCID confirmation"
+set +e
+PATH="$TMP/bin:$PATH" bash "$ROOT/in-transit-encryption.sh" \
+  --select-scope -c "$COMPARTMENT" -s '' -o "$TMP/conflict08" > "$TMP/conflict08.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 1 ]
+grep -q 'cannot be combined with -c or -n' "$TMP/conflict08.out"
+
+echo "PASS: CP-9 and SC-8 interactive scope discovery and OCID confirmation"

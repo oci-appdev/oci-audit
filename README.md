@@ -120,6 +120,14 @@ Run the read-only check:
 bash in-transit-encryption.sh --selfcheck
 ```
 
+For an operator-controlled run, discover the tenancy and active compartments
+and confirm the exact selected OCID twice:
+
+```bash
+bash in-transit-encryption.sh \
+  --select-scope -r us-langley-1 -o ./evidence
+```
+
 Example GovCloud collection:
 
 ```bash
@@ -139,6 +147,10 @@ failed OCI call produces an attributed `COLLECTION-FAILED` row, a retained
 error ledger and exit code `3`; it cannot be mistaken for an absent service or
 down tunnel.
 
+Each OCI Site-to-Site VPN connection is expected to expose two tunnel objects.
+Both are collected independently. A successful tunnel list with a count other
+than two produces `IPSEC-TUNNEL-PAIR-INCOMPLETE` for review.
+
 Complete the API evidence with
 [TASK2-MANUAL-EVIDENCE-CHECKLIST.md](TASK2-MANUAL-EVIDENCE-CHECKLIST.md),
 including IPSec tunnel screenshots, Base DB `sqlnet.ora`, encrypted FSS mounts
@@ -154,9 +166,10 @@ bash tests/run.sh
 
 The suite performs Bash syntax and read-only checks for CP-9 and SC-8. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
-against mock OCI CLIs. Denied-call regressions prove that unavailable replica
-or IPSec tunnel data becomes an incomplete row and exit code `3`, never a
-fabricated negative finding. Scope-selection regressions prove confirmed
+against mock OCI CLIs. Task 2 requires both IPSec tunnels and separately proves
+the incomplete-pair finding. Denied-call regressions prove that unavailable
+replica or IPSec tunnel data becomes an incomplete row and exit code `3`, never
+a fabricated negative finding. Scope-selection regressions prove confirmed
 compartment and tenancy scans plus fail-closed behavior on a mismatched OCID.
 
 ## Evidence handling

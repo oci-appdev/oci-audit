@@ -38,6 +38,8 @@ The collector now:
 - collects Load Balancer listeners and backend-set SSL independently;
 - covers CPEs, IPSec connections, tunnel lifecycle/status, IKE version,
   routing/BGP state, negotiated phase-one/phase-two parameters and PFS;
+- collects both OCI tunnel objects independently and flags any connection that
+  does not return exactly two tunnels as `IPSEC-TUNNEL-PAIR-INCOMPLETE`;
 - records DRG attachment, route-table and attached-network context;
 - never requests or exposes an IPSec pre-shared key;
 - retains manual-evidence boundaries for NLB backend TLS, Base DB `sqlnet.ora`
@@ -55,15 +57,16 @@ coverage and a retained error ledger. It is forbidden from producing
 
 ## 2026-08-27 — interactive OCI scope confirmation standard
 
-All three CP-9 collectors now support `-i` / `--select-scope`. The scripts first
-discover the authenticated tenancy and active subtree compartments, show the
-full name/OCID catalog, then require an exact discovered OCID twice. Selecting
-the tenancy explicitly means root plus all active child compartments.
+All three CP-9 collectors and the SC-8 encryption collector now support `-i` /
+`--select-scope`. The scripts first discover the authenticated tenancy and
+active subtree compartments, show the full name/OCID catalog, then require an
+exact discovered OCID twice. Selecting the tenancy explicitly means root plus
+all active child compartments.
 
 The selector rejects unknown OCIDs, mismatched confirmation and combinations
 with `-c` or `-n`. Regression coverage proves a mismatch exits before the
-collector loop begins, including the script 03 replication loop. Existing
-explicit scope flags remain available for approved automation.
+collector loop begins, including the script 03 replication and SC-8 encryption
+loops. Existing explicit scope flags remain available for approved automation.
 
 `SCRIPT-DESIGN-STANDARD.md` makes this interface mandatory for every new or
 materially redesigned collector. The shared behavior lives in

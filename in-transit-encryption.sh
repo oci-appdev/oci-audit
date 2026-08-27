@@ -24,6 +24,8 @@
 #
 # Usage:
 #   bash in-transit-encryption.sh
+#   bash in-transit-encryption.sh --select-scope
+#   bash in-transit-encryption.sh -i
 #   bash in-transit-encryption.sh -c <compartment-ocid>
 #   bash in-transit-encryption.sh -n 'VCN,Shared Services,CD3'
 #   bash in-transit-encryption.sh -r us-langley-1
@@ -44,18 +46,22 @@
 set -uo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+SCOPE_HELPER="$SCRIPT_DIR/lib/oci-scope-selector.sh"
 
 readonly_selfcheck() {                                          # selfcheck-exempt
   local deny hits raw rawpat                                    # selfcheck-exempt
+  local -a check_paths=("$SCRIPT_PATH" "$SCOPE_HELPER")         # selfcheck-exempt
+  [ -r "$SCOPE_HELPER" ] || { echo "READ-ONLY SELF-CHECK: FAILED — missing $SCOPE_HELPER" >&2; return 1; }  # selfcheck-exempt
   deny='oci[[:space:]]+([a-z0-9-]+[[:space:]]+)*(create|update|delete|change|move|restore|enable|disable|rotate|assign|attach|detach|terminate|reboot|import|export|upload|bulk-upload|bulk-delete|reset|activate|deactivate|cancel)([[:space:]]|$)'  # selfcheck-exempt
-  hits="$(grep -nE "$deny" "$SCRIPT_PATH" 2>/dev/null \
+  hits="$(grep -nE "$deny" "${check_paths[@]}" 2>/dev/null \
           | grep -v 'selfcheck-exempt' \
-          | grep -vE '^[0-9]+:[[:space:]]*#' || true)"          # selfcheck-exempt
+          | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"      # selfcheck-exempt
   rawpat="raw""-request"                                       # selfcheck-exempt
-  raw="$(grep -nE "$rawpat" "$SCRIPT_PATH" 2>/dev/null \
+  raw="$(grep -nE "$rawpat" "${check_paths[@]}" 2>/dev/null \
          | grep -viE 'http-method[[:space:]=]+GET' \
          | grep -v 'selfcheck-exempt' \
-         | grep -vE '^[0-9]+:[[:space:]]*#' || true)"           # selfcheck-exempt
+         | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"       # selfcheck-exempt
   if [ -n "$hits" ] || [ -n "$raw" ]; then                    # selfcheck-exempt
     echo "READ-ONLY SELF-CHECK: FAILED — mutating call found:" >&2
     printf '%s\n%s\n' "$hits" "$raw" >&2
@@ -77,14 +83,29 @@ command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found." >&2; exit 1
 command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found." >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not found." >&2; exit 1; }
 
+[ -r "$SCOPE_HELPER" ] || { echo "ERROR: scope selector not found: $SCOPE_HELPER" >&2; exit 1; }
+# shellcheck source=lib/oci-scope-selector.sh
+source "$SCOPE_HELPER"
+
 SINGLE_COMP=""
 COMP_NAMES_FILTER=""
 REGION_OVERRIDE=""
 OUTDIR="."
 SERVICES="lb nlb adb basedb object volumes fss apigw oke ipsec"
+SELECT_SCOPE=0
 
-while getopts "c:n:r:s:o:h" opt; do
+NORMALIZED_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --select-scope) SELECT_SCOPE=1 ;;
+    *) NORMALIZED_ARGS+=("$arg") ;;
+  esac
+done
+set -- "${NORMALIZED_ARGS[@]}"
+
+while getopts "ic:n:r:s:o:h" opt; do
   case "$opt" in
+    i) SELECT_SCOPE=1 ;;
     c) SINGLE_COMP="$OPTARG" ;;
     n) COMP_NAMES_FILTER="$OPTARG" ;;
     r) REGION_OVERRIDE="$OPTARG" ;;
@@ -94,6 +115,11 @@ while getopts "c:n:r:s:o:h" opt; do
     *) echo "Use -h for help" >&2; exit 1 ;;
   esac
 done
+
+if [ "$SELECT_SCOPE" -eq 1 ] && { [ -n "$SINGLE_COMP" ] || [ -n "$COMP_NAMES_FILTER" ]; }; then
+  echo "ERROR: --select-scope/-i cannot be combined with -c or -n." >&2
+  exit 1
+fi
 
 REGION_ARG=()
 [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")
@@ -207,7 +233,53 @@ TENANCY_ID="$COLLECT_OUT"
 COMP_NAME["$TENANCY_ID"]="root"
 CUR_COMP="$TENANCY_ID"
 
-if [ -n "$SINGLE_COMP" ]; then
+echo "Region : ${REGION_OVERRIDE:-<cloud-shell-default>}"
+echo "Tenancy: $TENANCY_ID"
+echo "Scope  : $([ "$SELECT_SCOPE" -eq 1 ] && printf 'interactive discovery + OCID confirmation' || printf 'command-line/default')"
+echo
+
+if [ "$SELECT_SCOPE" -eq 1 ]; then
+  CUR_COMP="$TENANCY_ID"
+  oci_capture "discover active compartments" iam compartment list \
+    --compartment-id "$TENANCY_ID" --compartment-id-in-subtree true \
+    --access-level ANY --lifecycle-state ACTIVE --all \
+    --query 'data[].{id:id,name:name}'
+  comp_pairs="$COLLECT_OUT"
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    echo "ERROR: compartment discovery failed ($COLLECT_STATUS): $COLLECT_ERROR" >&2
+    echo "Collection errors retained in: $ERROUT" >&2
+    exit 1
+  fi
+
+  scope_catalog="$(printf '%s' "$comp_pairs" | jq -r '.[]? | [.id, .name] | @tsv' 2>/dev/null | tr -d '\r' | sort -f -k2)"
+  discovered_comps=""
+  while IFS=$'\t' read -r cid cname; do
+    [ -z "$cid" ] && continue
+    COMP_NAME["$cid"]="$cname"
+    discovered_comps="${discovered_comps}${cid}"$'\n'
+  done <<< "$scope_catalog"
+
+  oci_capture "get tenancy name" iam compartment get --compartment-id "$TENANCY_ID" \
+    --query 'data.name' --raw-output
+  if [ "$COLLECT_STATUS" != "OK" ]; then
+    echo "ERROR: tenancy name lookup failed ($COLLECT_STATUS): $COLLECT_ERROR" >&2
+    echo "Collection errors retained in: $ERROUT" >&2
+    exit 1
+  fi
+  COMP_NAME["$TENANCY_ID"]="${COLLECT_OUT:-root}"
+
+  if ! oci_scope_select_interactive "$TENANCY_ID" "${COMP_NAME[$TENANCY_ID]}" "$scope_catalog"; then
+    echo "Scope selection aborted." >&2
+    exit 1
+  fi
+
+  if [ "$OCI_SCOPE_SELECTED_KIND" = "TENANCY" ]; then
+    COMPS="$TENANCY_ID"$'\n'"$discovered_comps"
+  else
+    SINGLE_COMP="$OCI_SCOPE_SELECTED_OCID"
+    COMPS="$SINGLE_COMP"
+  fi
+elif [ -n "$SINGLE_COMP" ]; then
   COMPS="$SINGLE_COMP"
   CUR_COMP="$SINGLE_COMP"
   oci_capture "get compartment name" iam compartment get --compartment-id "$SINGLE_COMP" \
@@ -215,7 +287,8 @@ if [ -n "$SINGLE_COMP" ]; then
   COMP_NAME["$SINGLE_COMP"]="${COLLECT_OUT:-<unknown>}"
 else
   oci_capture "enumerate active compartments" iam compartment list \
-    --compartment-id-in-subtree true --access-level ANY --lifecycle-state ACTIVE \
+    --compartment-id "$TENANCY_ID" --compartment-id-in-subtree true \
+    --access-level ANY --lifecycle-state ACTIVE \
     --all --query 'data[].{id:id,name:name}'
   comp_pairs="$COLLECT_OUT"
   if [ "$COLLECT_STATUS" != "OK" ]; then
@@ -250,8 +323,6 @@ fi
 COMP_COUNT="$(printf '%s\n' "$COMPS" | grep -c . || true)"
 [ "$COMP_COUNT" -eq 0 ] && { echo "ERROR: no compartments enumerated." >&2; exit 1; }
 
-echo "Region : ${REGION_OVERRIDE:-<cloud-shell-default>}"
-echo "Tenancy: $TENANCY_ID"
 echo "Collecting SC-8 evidence across $COMP_COUNT compartment(s)..."
 echo
 
@@ -630,7 +701,7 @@ check_ipsec() {
     while IFS= read -r conn; do
       [ -z "$conn" ] && continue
       conn_count=$((conn_count+1))
-      local id name get_json status error drg cpe routes lifecycle tunnels_json
+      local id name get_json status error drg cpe routes lifecycle tunnels_json connection_tunnel_count=0
       id="$(printf '%s' "$conn" | jq -r '.id')"
       name="$(printf '%s' "$conn" | jq -r '."display-name" // "ipsec-connection"')"
       oci_capture "IPSec connection get [$name]" network ip-sec-connection get --ipsc-id "$id"
@@ -659,6 +730,7 @@ check_ipsec() {
       while IFS= read -r tunnel; do
         [ -z "$tunnel" ] && continue
         tunnel_count=$((tunnel_count+1))
+        connection_tunnel_count=$((connection_tunnel_count+1))
         local tname tid ike tstatus tlifecycle routing bgp p1auth p1enc p1dh p2auth p2enc p2dh pfs updated finding enabled detail
         tname="$(printf '%s' "$tunnel" | jq -r '."display-name" // "tunnel"')"
         tid="$(printf '%s' "$tunnel" | jq -r '.id // "unknown"')"
@@ -680,6 +752,12 @@ check_ipsec() {
         detail="id=${tid: -16};status=$tstatus;lifecycle=$tlifecycle;routing=$routing;bgp=$bgp;p1=$p1enc/$p1auth/$p1dh;p2=$p2enc/$p2auth/$p2dh;pfs=$pfs;updated=$updated"
         row "$comp" "IPSecTunnel" "$name/$tname" "$enabled" "IKE-$ike" "$detail" "$finding" "SC-8(1)" "OK" ""
       done < <(printf '%s' "$tunnels_json" | jq -c "$LIST_ITER" 2>/dev/null)
+
+      if [ "$connection_tunnel_count" -ne 2 ]; then
+        row "$comp" "IPSecTunnel" "$name/<tunnel-pair>" "UNKNOWN" "IKE/IPSec" \
+          "expected-tunnels=2;discovered-tunnels=$connection_tunnel_count" \
+          "IPSEC-TUNNEL-PAIR-INCOMPLETE" "SC-8(1)" "OK" ""
+      fi
     done < <(printf '%s' "$conns_json" | jq -c "$LIST_ITER" 2>/dev/null)
     coverage_row "$comp" "IPSecConnection" "$conn_count" "$conn_status" "$conn_error"
     if [ "$tunnel_count_unknown" -eq 1 ]; then
@@ -750,7 +828,8 @@ import csv, json, sys
 hard_tokens = (
     "WEAK", "PLAINTEXT", "DISABLED", "PUBLIC-ACCESS-REVIEW",
     "BACKEND-PLAINTEXT", "TUNNEL-DOWN", "IKE-NOT-ESTABLISHED",
-    "ESP-NOT-ESTABLISHED", "ATTACHMENT-NOT-ATTACHED", "TUNNEL-LIFECYCLE-",
+    "ESP-NOT-ESTABLISHED", "IPSEC-TUNNEL-PAIR-INCOMPLETE",
+    "ATTACHMENT-NOT-ATTACHED", "TUNNEL-LIFECYCLE-",
 )
 review_tokens = ("MANUAL-EVIDENCE", "REVIEW")
 total = hard = review = incomplete = 0

@@ -12,13 +12,12 @@
 
 ## Mandatory scope-selection standard
 
-Scripts `cp09-01`, `cp09-02` and `cp09-03` now support `-i` /
-`--select-scope`. They discover the tenancy and active compartments, display full
-OCIDs, require an
-exact discovered OCID and require the same OCID again before starting service
-collection. A tenancy selection means root plus every active child
-compartment. A mismatch exits before the collector loop; script 03 has a
-dedicated regression proving replication collection does not start.
+Scripts `cp09-01`, `cp09-02`, `cp09-03` and `in-transit-encryption.sh` now
+support `-i` / `--select-scope`. They discover the tenancy and active
+compartments, display full OCIDs, require an exact discovered OCID and require
+the same OCID again before starting service collection. A tenancy selection
+means root plus every active child compartment. A mismatch exits before the
+collector loop; script 03 and SC-8 have dedicated fail-closed regressions.
 
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
@@ -36,10 +35,13 @@ automation, but do not create a different interactive selection workflow.
 - Added compartment-by-service coverage and failed-call CSVs.
 - Added exit code `3` for any incomplete collection.
 - Added `--selfcheck`, compartment-name filtering and output routing.
+- Added confirmed tenancy/compartment discovery with exact double-OCID entry.
 - Added Load Balancer backend-set SSL collection.
 - Added CPE, IPSec connection, tunnel and DRG attachment/route context.
 - Tunnel rows include lifecycle/status, IKE version, routing/BGP state,
   negotiated phase-one/phase-two algorithms and PFS.
+- Both OCI tunnel objects are required per connection; any other successful
+  count produces `IPSEC-TUNNEL-PAIR-INCOMPLETE`.
 - The collector never retrieves an IPSec pre-shared key.
 
 ### Task 2 manual evidence
@@ -51,10 +53,11 @@ evidence handling and reviewer sign-off.
 ### Task 2 regression gate
 
 Added `tests/mock-oci-task2` and `tests/test-in-transit-encryption.sh`. The
-success path exercises every Task 2 service. The denied path injects a 403 on
-the IPSec tunnel list and requires exit `3`, an attributed
-`DENIED/COLLECTION-FAILED` row, denied coverage and an error ledger. It also
-proves the failure cannot become `TUNNEL-DOWN`, `NO-IPSEC` or `NO-VPN`.
+success path exercises every Task 2 service and requires two independent IPSec
+tunnel rows. A one-tunnel fixture must produce the incomplete-pair finding. The
+denied path injects a 403 on the IPSec tunnel list and requires exit `3`, an
+attributed `DENIED/COLLECTION-FAILED` row, denied coverage and an error ledger.
+It also proves the failure cannot become `TUNNEL-DOWN`, `NO-IPSEC` or `NO-VPN`.
 
 ## What changed
 
@@ -97,8 +100,8 @@ READ-ONLY SELF-CHECK: PASSED (cp09-02)
 READ-ONLY SELF-CHECK: PASSED (cp09-03)
 READ-ONLY SELF-CHECK: PASSED (in-transit-encryption)
 PASS: cp09-03 success and denied-collection regressions
-PASS: Task 2 success and denied-IPSec regressions
-PASS: CP-9 interactive scope discovery and OCID confirmation
+PASS: Task 2 two-tunnel, incomplete-pair and denied-IPSec regressions
+PASS: CP-9 and SC-8 interactive scope discovery and OCID confirmation
 PASS: CP-9 and SC-8 static, read-only and mock test suite
 ```
 

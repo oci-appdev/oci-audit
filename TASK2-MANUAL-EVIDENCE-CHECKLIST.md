@@ -28,12 +28,16 @@ location and record only its controlled reference in the audit worksheet.
 ## Automated integrity gate
 
 - [ ] `bash in-transit-encryption.sh --selfcheck` passed.
+- [ ] `--select-scope` was used for the operator run and the exact discovered
+      OCID was confirmed twice, or the approved job supplied explicit `-c`/`-n`.
 - [ ] The collector was run in every region containing in-scope resources.
 - [ ] The exact VCN, Shared Services and CD3 compartment names were used.
 - [ ] The process exited `0`. An exit of `3` was treated as incomplete evidence.
 - [ ] Every requested compartment/service pair has a coverage row.
 - [ ] No evidence row has a non-`OK` `collection_status`.
 - [ ] Every hard finding and review item has an owner and disposition.
+- [ ] Every IPSec connection has two collected tunnel rows. Any
+      `IPSEC-TUNNEL-PAIR-INCOMPLETE` row is resolved or formally dispositioned.
 - [ ] The evidence and coverage CSV hashes were recorded in the evidence index.
 
 ## Site-to-Site VPN / IPSec
@@ -119,4 +123,3 @@ Oracle reference: [Using In-transit TLS Encryption](https://docs.oracle.com/en-u
 - [ ] Evidence package is access-controlled, immutable per the evidence policy
       and referenced from the Continuous Monitoring/audit worksheet.
 - [ ] Reviewer signed and dated the completed checklist.
-
