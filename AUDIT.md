@@ -1,8 +1,33 @@
-# OCI Backup Audit Script — Read-Only Posture Review
+# OCI Audit Implementation Review
 
-**Script:** `oci_backup_audit.py`  
-**Date:** 2026-07-14  
-**Reviewer:** Copilot Audit Agent
+**Last updated:** 2026-08-27
+
+**Current branch:** `codex/task1-audit-hardening`
+
+**Master tracker:** `MASTER-TASK-LIST.md`
+
+**Continuation notes:** `HANDOFF.md`
+
+## Current audit position
+
+Task 1 now has an implementation-complete three-script CP-9 collector family.
+This means the code and reproducible mock gate are ready for a controlled OCI
+run. It does not mean Task 1 is audit-complete: live CSVs, reviewer disposition,
+evidence-location references and approval records have not been produced in
+this repository.
+
+The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
+in worksheet order. Task 2 is next.
+
+---
+
+## Original SDK collector review
+
+**Script:** `oci_backup_audit.py`
+
+**Original review date:** 2026-07-14
+
+**Original reviewer:** Copilot Audit Agent
 
 ---
 
@@ -68,13 +93,13 @@ The script's **stated purpose and design are read-only**. To confirm fully, revi
 
 | Script | Dimension | Status |
 |---|---|---|
-| `cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | rewritten 2026-08-27, blockers fixed |
-| `cp09-02-backup-access-files-check.sh` | who can access the backup files | new 2026-08-27 |
-| `cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | collection-failure reporting fixed 2026-08-27 |
+| `cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | implementation complete; OCI evidence pending |
+| `cp09-02-backup-access-files-check.sh` | who can access the backup files | implementation complete; OCI evidence pending |
+| `cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | row-level failure attribution and coverage complete; OCI evidence pending |
 
 All three are read-only, record compartment names, and refuse to let a failed
-collection look like a clean result. `cp09-01` and `cp09-02` carry a
-`--selfcheck` flag that proves read-only-ness against their own source.
+collection look like a clean result. All three carry a `--selfcheck` flag that
+proves read-only-ness against their own source.
 
 Together these cover the evidence line item *"Backup type/frequency, access,
 replication — all OCS assets (VCN, Shared Services, CD3)"*.
@@ -118,15 +143,34 @@ Patching the individual bugs would have left the architecture intact, and the ar
 
 ---
 
-## 2026-08-27 — cp09-03 collection-failure reporting
+## 2026-08-27 — cp09-03 row-level collection integrity
 
 `cp09-03` had the same defect as the retired access scripts: `o() { oci ... 2>/dev/null; }` discarded all stderr. For a replication control this is the worst possible failure mode — a 403 on `bv block-volume-replica list` returns nothing, and nothing is then reported as `NO-REPLICA`. An auditor would read a permissions problem as proof that no DR copy exists.
 
-The wrapper now captures stderr, classifies the failure (DENIED / CLI_UNSUPPORTED / NOTFOUND / ERROR), writes it to a companion `oci_backup_dr_collection_errors_<ts>.csv`, prints a prominent warning, and exits 3.
+The first repair captured errors in a separate file, but status assignments made
+inside command substitutions could not reach the caller. That made it
+impossible to attribute incomplete collection to the affected evidence row.
 
-**Subtlety worth remembering:** most call sites invoke `o()` inside `$( ... )`, which is a subshell, so an `INCOMPLETE=1` set inside it never reaches the parent scope. The verdict is therefore derived from the error file's row count — file appends survive the subshell, variable assignments do not. The first version of this fix deleted the error file precisely because it trusted the variable.
+The collector now uses explicit captured calls in the current shell. Every row
+has `collection_status` and `collection_error`. Each compartment/service also
+has a coverage row, and a failed primary collection produces a synthetic
+`COLLECTION-FAILED` evidence row. Failed replica lookups produce
+`replicated=UNKNOWN`; they can no longer produce a false `NO-REPLICA` finding.
 
-Still outstanding for `cp09-03`: per-row `collection_status`. Attributing a status to each row means threading it through all seven check functions; the current fix makes failures impossible to miss but does not yet mark *which* row is affected.
+Other changes:
+
+- Added `--selfcheck`, `-n` compartment-name filtering and `-o` output routing.
+- Reduced repeated API calls by caching replica lists per compartment or AD.
+- Added support for both `.data[]` and `.data.items[]` response shapes.
+- Added mock coverage for all seven service paths.
+- Added a denied-call regression that requires exit `3`, a `DENIED` asset row,
+  a `DENIED` coverage row and a retained failed-call ledger.
+
+Regression command:
+
+```bash
+bash tests/run.sh
+```
 
 ---
 
@@ -139,7 +183,10 @@ Added to fill the empty slot between `cp09-01` (type/frequency) and `cp09-03` (r
 - `oci-backup-audit.sh` — older duplicate of `backup-storage.sh`
 - `backup-storage-access.sh` — fully superseded by `cp09-02`
 
-**Kept:** `backup-storage.sh` — its Base DB / ADB / MySQL / PostgreSQL backup-posture coverage (configured? schedule? retention?) is not yet provided anywhere else in this repo.
+**Later status:** `cp09-01` now covers Base DB, ADB, MySQL and PostgreSQL with
+failure-aware rows and a coverage ledger. `backup-storage.sh` and
+`oci_backup_audit.py` are therefore deprecated compatibility/reference
+collectors and are not canonical audit evidence sources.
 
 ### Gaps closed vs. the scripts it replaces
 
