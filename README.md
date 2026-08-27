@@ -46,7 +46,7 @@ bash cp09-03-backup-replication-check.sh --selfcheck
 
 ### Interactive scope discovery and confirmation
 
-Scripts 01 and 02 can discover the authenticated tenancy and active
+Scripts 01, 02 and 03 can discover the authenticated tenancy and active
 compartments, then require the selected OCID twice before service collection
 starts:
 
@@ -55,6 +55,9 @@ bash cp09-01-backup-type-config-frequency.sh \
   --select-scope -r us-langley-1 -o ./evidence
 
 bash cp09-02-backup-access-files-check.sh \
+  --select-scope -r us-langley-1 -o ./evidence
+
+bash cp09-03-backup-replication-check.sh \
   --select-scope -r us-langley-1 -o ./evidence
 ```
 

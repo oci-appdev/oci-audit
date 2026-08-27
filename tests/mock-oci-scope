@@ -21,6 +21,9 @@ case "$cmd" in
   "iam compartment list --compartment-id ocid1.tenancy.oc1..scope --compartment-id-in-subtree true --access-level ANY --lifecycle-state ACTIVE --all")
     printf '%s\n' '{"data":[{"id":"ocid1.compartment.oc1..vcn","name":"VCN"},{"id":"ocid1.compartment.oc1..cd3","name":"CD3"}]}'
     ;;
+  "iam compartment list --compartment-id ocid1.tenancy.oc1..scope --compartment-id-in-subtree true --access-level ANY --lifecycle-state ACTIVE --all --query "*)
+    printf '%s\n' '[{"id":"ocid1.compartment.oc1..vcn","name":"VCN"},{"id":"ocid1.compartment.oc1..cd3","name":"CD3"}]'
+    ;;
   "iam compartment get --compartment-id ocid1.tenancy.oc1..scope --query data.name --raw-output")
     printf '%s\n' 'OCS-Tenancy'
     ;;
@@ -29,4 +32,3 @@ case "$cmd" in
     exit 64
     ;;
 esac
-

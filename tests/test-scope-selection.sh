@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-mkdir -p "$TMP/bin" "$TMP/cp01" "$TMP/cp02" "$TMP/mismatch"
+mkdir -p "$TMP/bin" "$TMP/cp01" "$TMP/cp02" "$TMP/cp03" "$TMP/mismatch" "$TMP/mismatch03"
 ln -s "$ROOT/tests/mock-oci-scope" "$TMP/bin/oci"
 
 TENANCY='ocid1.tenancy.oc1..scope'
@@ -35,6 +35,17 @@ grep -q 'Confirmed scope: TENANCY — OCS-Tenancy' "$TMP/cp02.out"
 grep -q "Confirmed OCID : $TENANCY" "$TMP/cp02.out"
 grep -q 'Scope  : 3 compartment(s)' "$TMP/cp02.out"
 
+# Script 03: use the same shared selector and confirm a single compartment.
+printf '%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" | \
+  PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/cp03.log" \
+  bash "$ROOT/cp09-03-backup-replication-check.sh" \
+    --select-scope -r us-langley-1 -s '' -o "$TMP/cp03" > "$TMP/cp03.out"
+
+grep -q 'Confirmed scope: COMPARTMENT — VCN' "$TMP/cp03.out"
+grep -q "Confirmed OCID : $COMPARTMENT" "$TMP/cp03.out"
+grep -q 'Auditing DR posture (replication/retention/versioning) across 1 compartment(s)' "$TMP/cp03.out"
+grep -q 'compartment-id-in-subtree true' "$TMP/cp03.log"
+
 # A mismatched confirmation must stop before the collector loop.
 set +e
 printf '%s\n%s\n' "$COMPARTMENT" "$TENANCY" | \
@@ -50,6 +61,21 @@ if grep -q '^\[[0-9]' "$TMP/mismatch.out"; then
   exit 1
 fi
 
+# Script 03 must also fail closed on a mismatched second OCID.
+set +e
+printf '%s\n%s\n' "$COMPARTMENT" "$TENANCY" | \
+  PATH="$TMP/bin:$PATH" bash "$ROOT/cp09-03-backup-replication-check.sh" \
+    -i -r us-langley-1 -s '' -o "$TMP/mismatch03" > "$TMP/mismatch03.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 1 ]
+grep -q 'scope confirmation did not match. Nothing was scanned.' "$TMP/mismatch03.out"
+grep -q 'Scope selection aborted.' "$TMP/mismatch03.out"
+if grep -q 'Auditing DR posture' "$TMP/mismatch03.out" || grep -q '^\[[0-9]' "$TMP/mismatch03.out"; then
+  echo "FAIL: script 03 collector loop started after scope confirmation mismatch" >&2
+  exit 1
+fi
+
 # Interactive selection cannot be mixed with non-interactive scope flags.
 set +e
 PATH="$TMP/bin:$PATH" bash "$ROOT/cp09-02-backup-access-files-check.sh" \
@@ -60,4 +86,3 @@ set -e
 grep -q 'cannot be combined with -c or -n' "$TMP/conflict.out"
 
 echo "PASS: CP-9 interactive scope discovery and OCID confirmation"
-

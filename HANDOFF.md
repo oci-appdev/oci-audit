@@ -12,11 +12,13 @@
 
 ## Mandatory scope-selection standard
 
-Scripts `cp09-01` and `cp09-02` now support `-i` / `--select-scope`. They
-discover the tenancy and active compartments, display full OCIDs, require an
+Scripts `cp09-01`, `cp09-02` and `cp09-03` now support `-i` /
+`--select-scope`. They discover the tenancy and active compartments, display full
+OCIDs, require an
 exact discovered OCID and require the same OCID again before starting service
 collection. A tenancy selection means root plus every active child
-compartment. A mismatch exits before the collector loop.
+compartment. A mismatch exits before the collector loop; script 03 has a
+dedicated regression proving replication collection does not start.
 
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.

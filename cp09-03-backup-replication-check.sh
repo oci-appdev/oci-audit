@@ -25,6 +25,8 @@
 #
 # Usage:
 #   ./cp09-03-backup-replication-check.sh                  # all compartments
+#   ./cp09-03-backup-replication-check.sh --select-scope   # discover + confirm scope
+#   ./cp09-03-backup-replication-check.sh -i               # short form
 #   ./cp09-03-backup-replication-check.sh -c <ocid>        # one compartment
 #   ./cp09-03-backup-replication-check.sh -n VCN,CD3       # compartment names
 #   ./cp09-03-backup-replication-check.sh -r us-langley-1  # GovCloud region
@@ -40,18 +42,22 @@
 set -uo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+SCOPE_HELPER="$SCRIPT_DIR/lib/oci-scope-selector.sh"
 
 readonly_selfcheck() {                                          # selfcheck-exempt
   local deny hits raw rawpat                                    # selfcheck-exempt
+  local -a check_paths=("$SCRIPT_PATH" "$SCOPE_HELPER")         # selfcheck-exempt
+  [ -r "$SCOPE_HELPER" ] || { echo "READ-ONLY SELF-CHECK: FAILED — missing $SCOPE_HELPER" >&2; return 1; }  # selfcheck-exempt
   deny='oci[[:space:]]+([a-z0-9-]+[[:space:]]+)*(create|update|delete|change|move|restore|enable|disable|rotate|assign|attach|detach|terminate|reboot|import|export|upload|bulk-upload|bulk-delete|reset|activate|deactivate|cancel)([[:space:]]|$)'  # selfcheck-exempt
-  hits="$(grep -nE "$deny" "$SCRIPT_PATH" 2>/dev/null \
+  hits="$(grep -nE "$deny" "${check_paths[@]}" 2>/dev/null \
           | grep -v 'selfcheck-exempt' \
-          | grep -vE '^[0-9]+:[[:space:]]*#' || true)"          # selfcheck-exempt
+          | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"      # selfcheck-exempt
   rawpat="raw""-request"                                       # selfcheck-exempt
-  raw="$(grep -nE "$rawpat" "$SCRIPT_PATH" 2>/dev/null \
+  raw="$(grep -nE "$rawpat" "${check_paths[@]}" 2>/dev/null \
          | grep -viE 'http-method[[:space:]=]+GET' \
          | grep -v 'selfcheck-exempt' \
-         | grep -vE '^[0-9]+:[[:space:]]*#' || true)"           # selfcheck-exempt
+         | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"       # selfcheck-exempt
   if [ -n "$hits" ] || [ -n "$raw" ]; then                    # selfcheck-exempt
     echo "READ-ONLY SELF-CHECK: FAILED — mutating call found:" >&2
     printf '%s\n%s\n' "$hits" "$raw" >&2
@@ -72,11 +78,26 @@ fi
 command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found."; exit 1; }
 command -v jq  >/dev/null 2>&1 || { echo "ERROR: jq not found."; exit 1; }
 
+[ -r "$SCOPE_HELPER" ] || { echo "ERROR: scope selector not found: $SCOPE_HELPER" >&2; exit 1; }
+# shellcheck source=lib/oci-scope-selector.sh
+source "$SCOPE_HELPER"
+
 SINGLE_COMP=""; COMP_NAMES_FILTER=""; REGION_OVERRIDE=""; OUTDIR="."
 SERVICES="object volumes bootvol backups fss adb basedb"
+SELECT_SCOPE=0
 
-while getopts "c:n:r:s:o:h" opt; do
+NORMALIZED_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --select-scope) SELECT_SCOPE=1 ;;
+    *) NORMALIZED_ARGS+=("$arg") ;;
+  esac
+done
+set -- "${NORMALIZED_ARGS[@]}"
+
+while getopts "ic:n:r:s:o:h" opt; do
   case "$opt" in
+    i) SELECT_SCOPE=1 ;;
     c) SINGLE_COMP="$OPTARG" ;;
     n) COMP_NAMES_FILTER="$OPTARG" ;;
     r) REGION_OVERRIDE="$OPTARG" ;;
@@ -86,6 +107,11 @@ while getopts "c:n:r:s:o:h" opt; do
     *) echo "Use -h for help"; exit 1 ;;
   esac
 done
+
+if [ "$SELECT_SCOPE" -eq 1 ] && { [ -n "$SINGLE_COMP" ] || [ -n "$COMP_NAMES_FILTER" ]; }; then
+  echo "ERROR: --select-scope/-i cannot be combined with -c or -n." >&2
+  exit 1
+fi
 
 REGION_ARG=(); [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")
 mkdir -p -- "$OUTDIR" 2>/dev/null || { echo "ERROR: cannot create output directory: $OUTDIR" >&2; exit 1; }
@@ -222,9 +248,51 @@ CUR_COMP="$TENANCY_ID"
 COMP_NAME["$TENANCY_ID"]="root"
 echo "Region : ${REGION_OVERRIDE:-<cloud-shell-default>} (detected: ${CUR_REGION:-unknown})"
 echo "Tenancy: ${TENANCY_ID:-<unknown>}"
+echo "Scope  : $([ "$SELECT_SCOPE" -eq 1 ] && printf 'interactive discovery + OCID confirmation' || printf 'command-line/default')"
 echo
 
-if [ -n "$SINGLE_COMP" ]; then
+if [ "$SELECT_SCOPE" -eq 1 ]; then
+  CUR_COMP="$TENANCY_ID"
+  oci_capture "discover active compartments" iam compartment list \
+    --compartment-id "$TENANCY_ID" --compartment-id-in-subtree true \
+    --access-level ANY --lifecycle-state ACTIVE --all \
+    --query 'data[].{id:id,name:name}'
+  comp_pairs="$COLLECT_OUT"
+  [ "$COLLECT_STATUS" = "OK" ] || {
+    echo "ERROR: compartment discovery failed ($COLLECT_STATUS): $COLLECT_ERROR" >&2
+    echo "Collection errors retained in: $ERROUT" >&2
+    exit 1
+  }
+
+  scope_catalog="$(printf '%s' "$comp_pairs" | jq -r '.[]? | [.id, .name] | @tsv' 2>/dev/null | tr -d '\r' | sort -f -k2)"
+  discovered_comps=""
+  while IFS=$'\t' read -r cid cname; do
+    [ -z "$cid" ] && continue
+    COMP_NAME["$cid"]="$cname"
+    discovered_comps="${discovered_comps}${cid}"$'\n'
+  done <<< "$scope_catalog"
+
+  oci_capture "get tenancy name" iam compartment get --compartment-id "$TENANCY_ID" \
+    --query 'data.name' --raw-output
+  [ "$COLLECT_STATUS" = "OK" ] || {
+    echo "ERROR: tenancy name lookup failed ($COLLECT_STATUS): $COLLECT_ERROR" >&2
+    echo "Collection errors retained in: $ERROUT" >&2
+    exit 1
+  }
+  COMP_NAME["$TENANCY_ID"]="${COLLECT_OUT:-root}"
+
+  if ! oci_scope_select_interactive "$TENANCY_ID" "${COMP_NAME[$TENANCY_ID]}" "$scope_catalog"; then
+    echo "Scope selection aborted." >&2
+    exit 1
+  fi
+
+  if [ "$OCI_SCOPE_SELECTED_KIND" = "TENANCY" ]; then
+    COMPS="$TENANCY_ID"$'\n'"$discovered_comps"
+  else
+    SINGLE_COMP="$OCI_SCOPE_SELECTED_OCID"
+    COMPS="$SINGLE_COMP"
+  fi
+elif [ -n "$SINGLE_COMP" ]; then
   COMPS="$SINGLE_COMP"
   CUR_COMP="$SINGLE_COMP"
   oci_capture "get compartment name" iam compartment get --compartment-id "$SINGLE_COMP" \
@@ -234,7 +302,8 @@ if [ -n "$SINGLE_COMP" ]; then
 else
   CUR_COMP="$TENANCY_ID"
   oci_capture "enumerate active compartments" iam compartment list \
-    --compartment-id-in-subtree true --access-level ANY --lifecycle-state ACTIVE \
+    --compartment-id "$TENANCY_ID" --compartment-id-in-subtree true \
+    --access-level ANY --lifecycle-state ACTIVE \
     --all --query 'data[].{id:id,name:name}'
   comp_pairs="$COLLECT_OUT"
   [ "$COLLECT_STATUS" = "OK" ] || {

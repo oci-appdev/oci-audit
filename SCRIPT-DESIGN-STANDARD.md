@@ -58,5 +58,5 @@ The current implementation and regression examples are:
 
 - `cp09-01-backup-type-config-frequency.sh`
 - `cp09-02-backup-access-files-check.sh`
+- `cp09-03-backup-replication-check.sh`
 - `tests/test-scope-selection.sh`
-
