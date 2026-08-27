@@ -64,7 +64,24 @@ The script's **stated purpose and design are read-only**. To confirm fully, revi
 
 ---
 
-## 2026-08-27 — cp09-01 coverage review (blockers found, not yet fixed)
+## CP-9 family — current state
+
+| Script | Dimension | Status |
+|---|---|---|
+| `cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | rewritten 2026-08-27, blockers fixed |
+| `cp09-02-backup-access-files-check.sh` | who can access the backup files | new 2026-08-27 |
+| `cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | collection-failure reporting fixed 2026-08-27 |
+
+All three are read-only, record compartment names, and refuse to let a failed
+collection look like a clean result. `cp09-01` and `cp09-02` carry a
+`--selfcheck` flag that proves read-only-ness against their own source.
+
+Together these cover the evidence line item *"Backup type/frequency, access,
+replication — all OCS assets (VCN, Shared Services, CD3)"*.
+
+---
+
+## 2026-08-27 — cp09-01 coverage review (blockers found — now fixed, see below)
 
 A 7-lens review of `cp09-01-backup-type-config-frequency.sh` against the CP-9 evidence requirement "Backup type/frequency, access, replication — all OCS assets (VCN, Shared Services, CD3)" found several **blocker**-severity defects still open:
 
@@ -76,7 +93,40 @@ A 7-lens review of `cp09-01-backup-type-config-frequency.sh` against the CP-9 ev
 - No coverage of Base DB, Autonomous DB, MySQL, or PostgreSQL.
 - "Access" and "replication" dimensions are entirely absent from this script's output — see the next section for where that evidence now lives.
 
-Not yet remediated. Revisit before treating `cp09-01` output as complete CP-9 evidence.
+**Remediated 2026-08-27** — see the rewrite section below.
+
+---
+
+## 2026-08-27 — cp09-01 rewritten as a direct-CLI collector
+
+Patching the individual bugs would have left the architecture intact, and the architecture was the problem: collection ran through showoci and the join guessed CSV filenames and column headers. Rewritten in the same house style as `cp09-02`/`cp09-03`. showoci and the embedded Python workers are no longer required.
+
+### Blockers fixed
+
+- **`oci fs snapshot-policy list` does not exist** — the command group is `oci fs filesystem-snapshot-policy`. Every FSS row previously errored.
+- **FSS schedules are not in the LIST response** — they appear only on GET. Fixing only the command name would have converted hard errors into *silent false-clean* `NO_SCHEDULES` rows, so both were fixed together and each policy is now fetched by id. Regression-tested with a mock whose list response deliberately omits `schedules`.
+- **Per-asset policy linkage** now uses the authoritative `bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment` rather than a showoci column that may not exist.
+- **Compartment names** are recorded, so evidence is filterable by VCN / Shared Services / CD3.
+- **Coverage added** for Base DB, Autonomous DB, MySQL, PostgreSQL and volume groups.
+- **Denials no longer read as "no backup configured"** — stderr is captured, every row carries `collection_status`, and the run exits 3 if any collection was incomplete.
+- A new **coverage CSV** records every compartment/service pair actually visited, so "no assets" is distinguishable from "never collected".
+- `last_backup_time` and `backup_count` show whether schedules actually **fire**, not merely that they are configured.
+
+### Bug found during end-to-end testing
+
+`check_volumes` captured the volume list *after* the backup-list call had already overwritten the shared output variable, so the loop iterated over backups and **no block volume was ever processed**. Static reading did not catch this; running against a mock did.
+
+---
+
+## 2026-08-27 — cp09-03 collection-failure reporting
+
+`cp09-03` had the same defect as the retired access scripts: `o() { oci ... 2>/dev/null; }` discarded all stderr. For a replication control this is the worst possible failure mode — a 403 on `bv block-volume-replica list` returns nothing, and nothing is then reported as `NO-REPLICA`. An auditor would read a permissions problem as proof that no DR copy exists.
+
+The wrapper now captures stderr, classifies the failure (DENIED / CLI_UNSUPPORTED / NOTFOUND / ERROR), writes it to a companion `oci_backup_dr_collection_errors_<ts>.csv`, prints a prominent warning, and exits 3.
+
+**Subtlety worth remembering:** most call sites invoke `o()` inside `$( ... )`, which is a subshell, so an `INCOMPLETE=1` set inside it never reaches the parent scope. The verdict is therefore derived from the error file's row count — file appends survive the subshell, variable assignments do not. The first version of this fix deleted the error file precisely because it trusted the variable.
+
+Still outstanding for `cp09-03`: per-row `collection_status`. Attributing a status to each row means threading it through all seven check functions; the current fix makes failures impossible to miss but does not yet mark *which* row is affected.
 
 ---
 

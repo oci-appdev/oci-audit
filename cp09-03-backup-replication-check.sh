@@ -51,11 +51,59 @@ while getopts "c:r:s:h" opt; do
 done
 
 REGION_ARG=(); [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")
-o() { oci "${REGION_ARG[@]}" "$@" 2>/dev/null; }
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="oci_backup_dr_${TS}.csv"
+ERROUT="oci_backup_dr_collection_errors_${TS}.csv"
 echo "compartment_id,compartment_name,service,resource,replicated,replica_target,retention,immutable_worm,versioning,finding,control" > "$OUT"
+echo "compartment_id,compartment_name,status,command,error" > "$ERROUT"
+
+# ---------------------------------------------------------------------------
+# OCI wrapper.
+#
+# This previously discarded stderr entirely (`oci ... 2>/dev/null`). For a
+# replication control that is a dangerous false negative: a 403 on, say,
+# `bv block-volume-replica list` returned nothing, and nothing was then
+# reported as "NO-REPLICA" — an auditor would read a permission problem as
+# proof that no DR copy exists.
+#
+# stdout still flows to the caller unchanged, so all existing call sites work.
+# Failures are now recorded to $ERROUT and force a non-zero exit.
+# ---------------------------------------------------------------------------
+INCOMPLETE=0
+CUR_COMP=""          # set by the main loop so failures can be attributed
+LAST_STATUS="OK"
+
+o() {
+  local errf out rc err
+  errf="$(mktemp 2>/dev/null || echo "/tmp/cp0903.$$.err")"
+  out="$(oci "${REGION_ARG[@]}" "$@" 2>"$errf")"; rc=$?
+  err="$(tr '\n\r' '  ' < "$errf" 2>/dev/null | sed 's/  */ /g' | cut -c1-300)"
+  rm -f "$errf" 2>/dev/null
+  if [ "$rc" -eq 0 ]; then
+    LAST_STATUS="OK"
+  else
+    if printf '%s' "$err" | grep -qiE 'NotAuthorized|Authorization failed|forbidden|\b403\b'; then
+      LAST_STATUS="DENIED"
+    elif printf '%s' "$err" | grep -qiE 'No such command|no such option|Usage:'; then
+      LAST_STATUS="CLI_UNSUPPORTED"
+    elif printf '%s' "$err" | grep -qiE 'NotFound|does not exist|\b404\b'; then
+      LAST_STATUS="NOTFOUND"
+    else
+      LAST_STATUS="ERROR"
+    fi
+    # NOTFOUND is a normal answer for optional resources; the rest are not.
+    if [ "$LAST_STATUS" != "NOTFOUND" ]; then
+      INCOMPLETE=1
+      local cname="${COMP_NAME[$CUR_COMP]:-<unknown>}"
+      local cmd="$*"
+      cmd="${cmd//\"/\"\"}"; err="${err//\"/\"\"}"
+      printf '"%s","%s","%s","%s","%s"\n' "$CUR_COMP" "$cname" "$LAST_STATUS" "$cmd" "$err" >> "$ERROUT"
+    fi
+  fi
+  printf '%s' "$out"
+  return 0
+}
 
 declare -A COMP_NAME
 LIST_ITER='if (.data|type)=="object" then ((.data.items // []) | .[]) elif (.data|type)=="array" then (.data[]) else empty end'
@@ -317,6 +365,7 @@ i=0
 while IFS= read -r comp; do
   [ -z "$comp" ] && continue
   i=$((i+1))
+  CUR_COMP="$comp"          # attribute any collection failure to this compartment
   echo "[$i/$COMP_COUNT] ${COMP_NAME[$comp]:-$comp}"
   for svc in $SERVICES; do
     case "$svc" in
@@ -362,3 +411,25 @@ echo "replication policy, volume/boot replica, FSS replication, DB Data Guard"
 echo "or ADB cross-region peer). Manual cross-region backup COPIES appear under"
 echo "VolumeBackup rows as COPY-OF-ANOTHER. WORM/immutability applies to Object"
 echo "Storage retention rules; LOCKED-WORM = time-locked (cannot be shortened)."
+
+# Most call sites invoke o() inside $( ... ), i.e. a subshell, so the INCOMPLETE
+# variable set there never reaches this scope. The error file does survive —
+# it is an append from the subshell — so the row count is the reliable verdict.
+ERR_N="$(( $(wc -l < "$ERROUT") - 1 ))"; [ "$ERR_N" -lt 0 ] && ERR_N=0
+if [ "$ERR_N" -gt 0 ]; then
+  echo
+  echo "======================================================================"
+  echo " WARNING — COLLECTION INCOMPLETE: $ERR_N call(s) failed"
+  echo "======================================================================"
+  echo " A failed call returns no rows, and a resource with no rows can look"
+  echo " identical to one with no replica. Do NOT read absence as 'not"
+  echo " replicated' for anything listed in:"
+  echo "   $ERROUT"
+  echo
+  awk -F'","' 'NR>1 {s=$3; c=$2; cmd=$4; if(length(cmd)>58) cmd=substr(cmd,1,55) "...";
+        printf "   [%-15s] %-20s %s\n", s, c, cmd}' "$ERROUT" 2>/dev/null | head -20
+  echo "======================================================================"
+  exit 3
+fi
+rm -f "$ERROUT"   # nothing failed; no empty error file left behind
+exit 0
