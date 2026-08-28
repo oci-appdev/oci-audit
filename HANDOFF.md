@@ -8,7 +8,7 @@
 
 **Current milestone:** Tasks 1–3 and Task 6 collector implementations complete; live/manual/approval evidence pending
 
-**Draft PR:** <https://github.com/oci-appdev/oci-audit/pull/2>
+**Pull request:** <https://github.com/oci-appdev/oci-audit/pull/2>
 
 ## Mandatory scope-selection standard
 
@@ -70,11 +70,12 @@ refusal and mixed-scope rejection.
 The three older CM-7 scripts remain legacy references and are not canonical
 evidence sources.
 
-The connector environment used for this change did not expose a local shell,
-so the new mock suite has not yet been executed here. Static source validation
-confirmed 12 OCI wrapper sites, all restricted to list/get, plus the required
-selector, double-OCID and exact-YES paths. Run `bash tests/run.sh` before making
-the PR ready or merging it.
+GitHub Actions run 33132296803 completed successfully against commit
+`29d78fe751a010fdf5a0d12bde247a9d606bdfb4`. The full repository gate ran
+Bash syntax checks, read-only self-checks, the prior CP-9/SC-8/SC-28 regressions
+and the new CM07-01 mock suite. Static source validation also confirmed 12 OCI
+wrapper sites, all restricted to list/get, plus the required selector,
+double-OCID and exact-YES paths.
 
 
 ## Prior safety hardening — SC-8
