@@ -6,7 +6,7 @@
 
 **Base commit:** `882fe0be8f8a708ff0cd24fb9104d6f081ff0fbc`
 
-**Current milestone:** Tasks 1–3, Task 6 and Task 7 collector implementations complete; live/manual/approval evidence pending
+**Current milestone:** Tasks 1–3 and Task 7 collector implementations complete; Task 6 corrective patch required; live/manual/approval evidence pending
 
 **Pull request:** not opened for the Task 7 branch
 
@@ -101,6 +101,10 @@ exact published branch head before merge.
 
 ## Latest milestone — Task 6 open ports, protocols and services
 
+**Corrective status:** Task 6 is Partial. Do not use CM07-01 as complete audit
+evidence until the findings and acceptance gate in `CM07-CORRECTIVE-REVIEW.md`
+are closed.
+
 The user directed Task 6 implementation before Task 5. The canonical collector
 is `cm07-01-open-ports-protocols-services.sh`.
 
@@ -141,8 +145,11 @@ mismatch, lowercase-`yes` refusal and mixed-scope rejection.
 The three older CM-7 scripts remain legacy references and are not canonical
 evidence sources.
 
-The expanded CM07-01 mock suite passes locally. Require the full GitHub Actions
-repository gate on the exact PR head before merge. Static validation still
+The expanded CM07-01 mock suite passes locally, but mock success did not expose
+the cross-compartment coverage or ICMP restricted-match defects found during
+controlled use and source review. The legacy `cm07-openports.sh` produced useful
+live output; `cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` did not. Use the
+legacy query behavior only as a comparison fixture. Static validation still
 confirms all OCI wrapper sites are restricted to list/get.
 
 
@@ -347,7 +354,13 @@ Task 7 implementation is complete on the local feature branch. Before new
 implementation, publish the branch, run the full GitHub Actions gate on the
 exact head, review the diff and merge only when the user requests it.
 
-The next item in the user's recent Task 6 → Task 7 progression is Task 8 —
+The immediate corrective item is Task 6. Patch CM07-01 according to
+`CM07-CORRECTIVE-REVIEW.md`, extend the mock suite and complete known-object
+compartment and tenancy runs before promoting it again. Do not allow an
+unresolved cross-compartment association to produce `OK` coverage or an
+inactive-container conclusion, and do not apply transport-port overlap to ICMP.
+
+After that corrective gate, the next item in the user's recent Task 6 → Task 7 progression is Task 8 —
 configuration baseline. A partial `cm08-hw-sw-baseline.sh` collector exists but
 does not yet provide the full control workflow. The next implementation should:
 

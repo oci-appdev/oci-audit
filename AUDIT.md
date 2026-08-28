@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-08-28
 
-**Current branch:** `main`
+**Current branch:** `codex/task7-cm11-software-control`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -10,17 +10,34 @@
 
 ## Current audit position
 
-Tasks 1, 2, 3, 6 and 7 now have implementation-complete collector workflows and
+Tasks 1, 2, 3 and 7 now have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
 custody/rotation proof, Task 7 identity/host/manual proof, reviewer
 disposition, evidence-location references and approval records have not been
-produced in this repository.
+produced in this repository. Task 6 has been returned to Partial after a
+controlled-use report and source review identified material CM07-01 defects.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
 Task 5 remains the earliest unimplemented worksheet item. Task 7 was
 implemented next at the user's direction.
+
+### Task 6 corrective status
+
+The operator reported that legacy `cm07-openports.sh` produced useful output,
+while CM07-01 and the legacy PPSM/proof scripts did not work in the target
+environment. Source review confirmed two high-severity correctness defects:
+
+- compartment-scoped collection can miss related subnets or Security Lists in
+  other compartments and can incorrectly label live rules as unattached;
+- portless ICMP rules are modeled as port range `0-65535` and can false-match a
+  narrow port-based restricted entry.
+
+The committed scope helper is present, so the missing-helper concern is not a
+current defect. `CM07-CORRECTIVE-REVIEW.md` records the remaining hardening and
+the live acceptance gate. Mock regression success must not be represented as
+proof that Task 6 works in OCI.
 
 On 2026-08-28 the Task 2 collector was normalized to the canonical
 `sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the

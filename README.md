@@ -7,9 +7,9 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1, 2, 3, 6 and 7: implementation milestones complete;
+- Tasks 1, 2, 3 and 7: implementation milestones complete;
   live/approved evidence is still pending.
-- Tasks 8 and 9: partial collectors exist.
+- Tasks 6, 8 and 9: partial collectors exist. Task 6 has a corrective blocker.
 - Tasks 5, 10–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
@@ -224,6 +224,13 @@ including key-administrator approval, AES-256/HSM validation, rotation Audit
 logs, manual rotation procedure where applicable and reviewer sign-off.
 
 ## Canonical Task 6 workflow
+
+> **Corrective status:** Do not use CM07-01 as complete audit evidence yet.
+> Controlled use found cross-compartment coverage and ICMP restricted-match
+> defects. See
+> [CM07-CORRECTIVE-REVIEW.md](CM07-CORRECTIVE-REVIEW.md) for the findings and
+> acceptance gate. The commands below document the intended interface pending
+> correction and live validation.
 
 `cm07-01-open-ports-protocols-services.sh` is the CM-7/CM-7(1)/PPSM
 collector. It inventories Security List and NSG rules, Security List-to-subnet
