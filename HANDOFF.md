@@ -2,13 +2,13 @@
 
 **Updated:** 2026-08-28
 
-**Working branch:** `codex/task6-open-ports`
+**Working branch:** `codex/task7-cm11-software-control`
 
-**Base commit:** `841ff6fef2833cb3f7c7a30c7d3329a2cd7ce6e0`
+**Base commit:** `882fe0be8f8a708ff0cd24fb9104d6f081ff0fbc`
 
-**Current milestone:** Tasks 1–3 and Task 6 collector implementations complete; live/manual/approval evidence pending
+**Current milestone:** Tasks 1–3, Task 6 and Task 7 collector implementations complete; live/manual/approval evidence pending
 
-**Pull request:** <https://github.com/oci-appdev/oci-audit/pull/2>
+**Pull request:** not opened for the Task 7 branch
 
 ## Mandatory scope-selection standard
 
@@ -20,14 +20,15 @@ tenancy-wide path. The option parser and tests now exercise the real no-scope-
 flag operator command for every canonical collector.
 
 Scripts `cp09-01`, `cp09-02`, `cp09-03`, `sc08-02-in-transit-encryption.sh`,
-`sc28-oci-encryption-at-rest.sh` and `cm07-01-open-ports-protocols-services.sh` now default normal/manual runs to interactive
+`sc28-oci-encryption-at-rest.sh`, `cm07-01-open-ports-protocols-services.sh` and
+`cm11-01-software-installation-control.sh` now default normal/manual runs to interactive
 scope selection; `-i` / `--select-scope` are optional aliases. They discover
 the tenancy and active compartments, display full OCIDs, require an exact
 discovered OCID twice, print the resolved scan plan, and require exact uppercase
 `YES` before workload-service collection. A tenancy selection means root plus
 every active child compartment. Mismatch/refusal exits before the collector
 loop, removes header-only CSVs and has dedicated fail-closed regressions for all
-six collectors.
+seven collectors.
 
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
@@ -36,6 +37,67 @@ Every new or materially redesigned collector must follow
 `SCRIPT-DESIGN-STANDARD.md`. `-c`/`-n` alone are scope selectors, not proof of
 automation approval. New collectors require explicit automation mode, exact
 resolved-OCID confirmation values and exact `YES` approval.
+
+## Latest milestone — Task 7 software installation control
+
+The user directed Task 7 after the Task 6 CM-7 workflow. The canonical
+collector is `cm11-01-software-installation-control.sh`; its evidence and manual
+boundary guide is `TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md`.
+
+The collector is read-only and separates three evidence sources:
+
+- OCI technical facts: candidate IAM installer/provisioner/publisher grants,
+  classic group members, OSMH packages/controls, Compute boot images and
+  Container Registry images/repositories;
+- the signed organizational list of authorized installer principals/users,
+  including manager, request process, technical control and approval;
+- the signed approved software/resource list and current authoritative
+  restricted/prohibited list.
+
+The normal command discovers the tenancy and active compartments, requires the
+exact tenancy or compartment OCID twice, displays the complete plan and starts
+only after exact uppercase `YES`. A manual `-c`/`-n` run confirms every
+resolved OCID twice. Automation requires explicit `--non-interactive`, one
+exact `--confirm-scope-ocid` per resolved target and exact
+`--approve-scan YES`. The region is mandatory.
+
+For a child workload compartment, policy listing includes the tenancy and
+ancestor attachment compartments because parent policies can affect the child;
+the workload inventory still remains within the confirmed target. All calls
+are list/get, response shapes are validated, failed calls produce explicit
+coverage/error evidence and outputs are private, no-clobber and formula-safe.
+
+OCI IAM has no API that returns a fully evaluated effective-policy decision.
+The post-processor in `lib/cm11-01-reconcile.py` preserves every statement and
+labels installation classification as candidate evidence. It recognizes OSMH
+package installation, Compute image/instance provisioning, Container Registry
+publishing and the separately labeled Oracle-documented built-in Administrators
+grant. It expands classic IAM groups to visible members, retains dynamic-group
+rules and causes exit `3` when a referenced identity-domain group remains
+unresolved.
+
+The two-pass workflow first runs `--inventory-only`, then uses the generated
+authorized-installer and approved-software templates plus the organization's
+restricted list. Full reconciliation reports unauthorized candidate
+entitlements, unapproved software drift and restricted/prohibited matches. The
+input-source output records row counts, provider/authority/references/dates and
+SHA-256 hashes.
+
+OSMH installed packages are authoritative only for successfully collected
+managed instances. Compute-to-OSMH ID mismatches are `NOT-VERIFIED`, not proof
+that OSMH is absent. Identity Domains membership, SSH/sudo/local admins,
+break-glass, unmanaged/Windows inventory, Kubernetes/Functions/deployment
+runtimes and installation/change samples remain mandatory manual evidence.
+
+Regression coverage is in
+`tests/test-cm11-01-software-installation-control.sh` using
+`tests/mock-oci-task7`. It covers the full three-source reconciliation,
+prohibited Telnet, authorized entitlement expansion, input hashes, technical
+controls, denied package calls, malformed list responses, formula safety,
+manual/default/tenancy scope paths, refusal/mismatch before collection, strict
+automation and identity-domain gaps. Both the Task 7 test and the full
+repository suite pass on the staged Task 7 tree. Require GitHub Actions on the
+exact published branch head before merge.
 
 ## Latest milestone — Task 6 open ports, protocols and services
 
@@ -281,20 +343,26 @@ this public repository.
 
 ## Next implementation task for Claude
 
-Task 6 implementation was completed at the user's direction. Skip worksheet
-Task 4 because it is N/A, then return to Task 5.
+Task 7 implementation is complete on the local feature branch. Before new
+implementation, publish the branch, run the full GitHub Actions gate on the
+exact head, review the diff and merge only when the user requests it.
 
-Task 5 target — Continuous Monitoring Form review/feedback:
+The next item in the user's recent Task 6 → Task 7 progression is Task 8 —
+configuration baseline. A partial `cm08-hw-sw-baseline.sh` collector exists but
+does not yet provide the full control workflow. The next implementation should:
 
-1. Locate or obtain the current form; do not invent form fields that are not in
-   the source artifact.
-2. Review required monitoring sources, cadence, thresholds, owners,
-   escalation, evidence retention and approval fields.
-3. Add a feedback/disposition log with finding, recommendation, owner, due
-   date, status and approver.
-4. Retain the reviewed form version, reviewer/date and final approval evidence.
-5. Update `MASTER-TASK-LIST.md`, `AUDIT.md` and this handoff when the milestone
-   is done.
+1. identify the controlled configuration items and their owners;
+2. ingest the approved System Design Form/configuration baseline rather than
+   inventing baseline values;
+3. compare live configuration to the signed baseline with change/exception
+   disposition;
+4. define and evidence the monthly review process, reviewer and approval;
+5. adopt the strict OCID/plan/`YES`, failure-ledger, provenance and regression
+   contract from CM07-01 and CM11-01.
+
+Task 5 Continuous Monitoring Form review/feedback remains the earliest
+unimplemented worksheet item because the user chose to advance Tasks 6 and 7
+first. Do not represent it as complete; return to it when the user directs.
 
 ## Resolved Task 6 blocker
 

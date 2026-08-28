@@ -7,10 +7,10 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1, 2, 3 and 6: implementation milestones complete on `main`;
+- Tasks 1, 2, 3, 6 and 7: implementation milestones complete;
   live/approved evidence is still pending.
 - Tasks 8 and 9: partial collectors exist.
-- Tasks 5, 7, 10–14 and 16–18: not yet implemented in this repository.
+- Tasks 5, 10–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
 See [MASTER-TASK-LIST.md](MASTER-TASK-LIST.md) for the control-by-control status
@@ -50,7 +50,7 @@ Scripts 01, 02 and 03 default to interactive scope discovery. They discover
 the authenticated tenancy and active compartments, require the selected OCID
 twice, display the complete resolved scan plan, and require exact uppercase
 `YES` before service collection starts. The same mandatory interface is
-implemented by the Task 2, Task 3 and Task 6 collectors:
+implemented by the Task 2, Task 3, Task 6 and Task 7 collectors:
 
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
@@ -289,6 +289,64 @@ The older `cm07-openports.sh`, `cm07-ppsm.sh` and
 are not canonical evidence collectors because they suppress OCI errors and do
 not enforce the mandatory scope-confirmation boundary.
 
+## Canonical Task 7 workflow
+
+`cm11-01-software-installation-control.sh` is the CM-11/CM-11(1) collector.
+It keeps three evidence questions separate: candidate technical installation
+capability, approved installed/available software resources, and current
+restricted/prohibited software policy.
+
+The read-only inventory includes:
+
+- IAM policies attached to the target and ancestor compartments, classic IAM
+  groups/members, dynamic-group rules and identity-domain boundaries;
+- OS Management Hub managed instances and installed packages;
+- Compute instance boot-image names, versions and exact image OCIDs;
+- Container Registry repositories and images;
+- OSMH software sources, managed-instance groups, lifecycle environments and
+  scheduled jobs as technical-control evidence.
+
+Start with an inventory-only run:
+
+```bash
+bash cm11-01-software-installation-control.sh --selfcheck
+
+bash cm11-01-software-installation-control.sh \
+  -r us-langley-1 \
+  --inventory-only \
+  -o ./evidence/task7-inventory
+```
+
+The normal command discovers the tenancy and active compartments, asks for the
+exact tenancy or compartment OCID twice, displays the complete plan and
+requires exact uppercase `YES`. Manual `-c`/`-n` runs have the same approval
+boundary. Approved automation requires `--non-interactive`, one exact
+`--confirm-scope-ocid` for every resolved target and `--approve-scan YES`.
+Use `-p/--profile` when the approved OCI CLI configuration uses a named
+profile; the selected profile is printed in the plan.
+
+The inventory run generates authorized-installer and approved-software
+templates. Have the responsible system/IAM owners and configuration control
+authority complete them, obtain the current restricted-software list from the
+ISSO/designated policy owner, then run the reconciliation:
+
+```bash
+bash cm11-01-software-installation-control.sh \
+  -r us-langley-1 \
+  -u ./approved/cm11-authorized-installers.csv \
+  -a ./approved/cm11-approved-software.csv \
+  -x ./approved/cm11-restricted-software.csv \
+  -o ./evidence/task7-final
+```
+
+OCI does not provide an API that returns fully evaluated effective IAM
+permissions. The script transparently labels policy parsing as candidate
+entitlement evidence and exits incomplete for referenced identity-domain groups
+whose user membership was not collected. Complete the Identity Domains,
+SSH/sudo/local-admin, break-glass, unmanaged-host and deployment-runtime checks
+in
+[TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md](TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md).
+
 ## Tests
 
 Run the repository regression suite with:
@@ -297,7 +355,8 @@ Run the repository regression suite with:
 bash tests/run.sh
 ```
 
-The suite performs Bash syntax and read-only checks for CP-9, SC-8, SC-28 and CM-7. It
+The suite performs Bash syntax and read-only checks for CP-9, SC-8, SC-28,
+CM-7 and CM-11. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
@@ -312,6 +371,11 @@ compartment and tenancy scans plus fail-closed behavior on a mismatched OCID.
 CM07-01 regressions cover rule/association inventory, input provenance,
 approval reconciliation, restricted-list matches, denied calls, malformed JSON,
 private/formula-safe evidence and exact-OCID/exact-`YES` refusal gates.
+CM11-01 regressions cover IAM entitlement expansion, package/image inventory,
+installer and software approval reconciliation, prohibited-software matches,
+OSMH control coverage, denied/malformed calls, identity-domain gaps,
+private/formula-safe output, tenancy expansion and fail-closed manual/automation
+approval.
 
 ## Evidence handling
 

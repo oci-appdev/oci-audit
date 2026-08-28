@@ -25,7 +25,7 @@
 | 4 | N/A | N/A | None required | None |
 | 5 | Continuous Monitoring Form review/feedback | Not started | None | Add reviewed form, feedback log, owner, disposition and approval |
 | 6 | Ports/protocols/services list, approval proof and restricted list | Implementation complete | Canonical `cm07-01-open-ports-protocols-services.sh`; Security List/NSG rules plus subnet/VNIC association context; default interactive discovery and double-OCID; manual `-c`/`-n` also confirm every OCID twice and require `YES`; explicit fail-closed automation contract; mandatory region; failure-aware inventory; actual service/listener mapping template and reconciliation; approval baseline reconciliation; authoritative restricted-list matching; source/date/SHA-256 provenance; private/formula-safe CSVs; expanded mock gate | Run inventory-only in each scope; have system owners complete and sign the resource/listener/service mapping; obtain signed CCB/PPSM/ISSO approval baseline and current authoritative restricted list; rerun complete reconciliation; disposition unapproved/restricted/internet-wide rows; validate routes, firewall and ZPR controls; store signed evidence package |
-| 7 | Software installation control | Not started | Package inventory is adjacent evidence only | Document authorized installers, approved software list, request/approval process and technical enforcement |
+| 7 | Software installation control | Implementation complete | Canonical `cm11-01-software-installation-control.sh`; default tenancy/compartment discovery, exact double-OCID and final `YES`; strict automation confirmation; explicit region; read-only IAM policy/group evidence; candidate entitlement classification for OSMH package install, Compute image provisioning and Container Registry publish; classic group-member expansion plus identity-domain boundary; OSMH installed packages, Compute boot images, container images; generated authorized-installer/approved-software templates; authoritative installer/approval/restricted-list reconciliation; OSMH/repository/image technical-control evidence; source hashes, private/formula-safe outputs, coverage/error ledgers and mock gate | Run inventory-only in every scope; obtain signed authorized-installer, approved-software and current restricted/prohibited lists; export referenced Identity Domains membership; complete SSH/sudo/local-admin, break-glass, unmanaged-host, Windows, Kubernetes/runtime and request/change-sample evidence; rerun reconciliation; disposition prohibited/restricted/unapproved/unauthorized rows and store the signed package |
 | 8 | Configuration baseline | Partial | `cm08-hw-sw-baseline.sh` captures configuration attributes | Establish CI register, System Design Form, approved baseline, monthly comparison/review process and signed evidence |
 | 9 | Hardware/software inventory baseline | Partial | `cm08-hw-sw-baseline.sh` provides a strong failure-aware inventory collector | Execute monthly, compare to approved baseline, disposition changes, sign and archive evidence |
 | 10 | Vulnerability tracking | Not started | CM-8 collector exposes limited update counts only | Add monthly vulnerability tracker, SLA, remediation owner, exception and follow-up evidence |
@@ -40,9 +40,9 @@
 
 ## Completion snapshot
 
-Excluding the two N/A items, four of sixteen actionable worksheet tasks have
+Excluding the two N/A items, five of sixteen actionable worksheet tasks have
 implementation-complete collector workflows. Two have partial foundations and
-ten are not started. No actionable task should be represented as audit-complete
+nine are not started. No actionable task should be represented as audit-complete
 until its operational evidence and approval records are produced and reviewed.
 
 ## Work order
@@ -54,4 +54,5 @@ Continue in worksheet order:
 3. Execute and close Task 3 operational/manual evidence.
 4. Skip Task 4 as N/A and complete Task 5 form review/feedback.
 5. Execute and close Task 6 operational, approval and restricted-list evidence.
-6. Continue Tasks 7–14, skip Task 15, then complete Tasks 16–18.
+6. Execute and close Task 7 operational, identity, approval and restriction evidence.
+7. Continue Tasks 8–14, skip Task 15, then complete Tasks 16–18.

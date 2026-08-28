@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -u
+
+args="$*"
+[ -z "${MOCK_TASK7_LOG:-}" ] || printf '%s\n' "$args" >> "$MOCK_TASK7_LOG"
+
+TENANCY='ocid1.tenancy.oc1..task7'
+COMP='ocid1.compartment.oc1..app'
+INSTANCE='ocid1.instance.oc1..task7app'
+
+case "$args" in
+  *"iam compartment list"*"--limit 1"*"--raw-output"*)
+    printf '%s\n' "$TENANCY"
+    ;;
+  *"iam compartment list"*"--compartment-id-in-subtree true"*"--query"*)
+    printf '%s\n' '[{"id":"ocid1.compartment.oc1..app","name":"App"}]'
+    ;;
+  *"iam compartment get"*"--compartment-id $TENANCY"*"--raw-output"*)
+    printf '%s\n' 'Task7Tenancy'
+    ;;
+  *"iam compartment get"*"--compartment-id $COMP"*"--raw-output"*)
+    printf '%s\n' 'App'
+    ;;
+  *"iam compartment get"*"--compartment-id $COMP"*)
+    printf '%s\n' '{"data":{"id":"ocid1.compartment.oc1..app","name":"App","compartment-id":"ocid1.tenancy.oc1..task7","lifecycle-state":"ACTIVE"}}'
+    ;;
+  *"iam compartment get"*"--compartment-id $TENANCY"*)
+    printf '%s\n' '{"data":{"id":"ocid1.tenancy.oc1..task7","name":"Task7Tenancy","compartment-id":null,"lifecycle-state":"ACTIVE"}}'
+    ;;
+  *"iam group list-users"*"ocid1.group.oc1..admins"*)
+    printf '%s\n' '{"data":[{"id":"ocid1.user.oc1..admin","name":"TenantAdmin","lifecycle-state":"ACTIVE"}]}'
+    ;;
+  *"iam group list-users"*"ocid1.group.oc1..software"*)
+    printf '%s\n' '{"data":[{"id":"ocid1.user.oc1..alice","name":"AliceInstaller","lifecycle-state":"ACTIVE"}]}'
+    ;;
+  *"iam group list-users"*"ocid1.group.oc1..images"*)
+    printf '%s\n' '{"data":[{"id":"ocid1.user.oc1..bob","name":"BobLauncher","lifecycle-state":"ACTIVE"}]}'
+    ;;
+  *"iam group list"*)
+    printf '%s\n' '{"data":[{"id":"ocid1.group.oc1..admins","name":"Administrators","lifecycle-state":"ACTIVE"},{"id":"ocid1.group.oc1..software","name":"SoftwareAdmins","lifecycle-state":"ACTIVE"},{"id":"ocid1.group.oc1..images","name":"ImageLaunchers","lifecycle-state":"ACTIVE"}]}'
+    ;;
+  *"iam dynamic-group list"*)
+    printf '%s\n' '{"data":[]}'
+    ;;
+  *"iam domain list"*)
+    if [ "${MOCK_TASK7_IDENTITY_DOMAIN:-0}" = "1" ]; then
+      printf '%s\n' '{"data":[{"id":"ocid1.domain.oc1..default","name":"Default","display-name":"Default","lifecycle-state":"ACTIVE"}]}'
+    else
+      printf '%s\n' '{"data":[]}'
+    fi
+    ;;
+  *"iam policy list"*"--compartment-id $TENANCY"*)
+    statements='["Allow group SoftwareAdmins to use osmh-managed-instances in compartment App","Allow group SoftwareAdmins to manage repos in compartment App"]'
+    if [ "${MOCK_TASK7_IDENTITY_DOMAIN:-0}" = "1" ]; then
+      statements='["Allow group SoftwareAdmins to use osmh-managed-instances in compartment App","Allow group SoftwareAdmins to manage repos in compartment App","Allow group Default/DomainInstallers to use osmh-managed-instances in compartment App"]'
+    fi
+    printf '{"data":[{"id":"ocid1.policy.oc1..root","name":"software-admins","lifecycle-state":"ACTIVE","statements":%s}]}\n' "$statements"
+    ;;
+  *"iam policy list"*"--compartment-id $COMP"*)
+    printf '%s\n' '{"data":[{"id":"ocid1.policy.oc1..app","name":"image-launchers","lifecycle-state":"ACTIVE","statements":["Allow group ImageLaunchers to manage instances in compartment App where request.region = '\''us-langley-1'\''"]}]}'
+    ;;
+  *"compute instance list"*)
+    if [ "${MOCK_TASK7_BAD_COMPUTE_SHAPE:-0}" = "1" ]; then
+      printf '%s\n' '{"data":{"unexpected":[]}}'
+    else
+      printf '%s\n' '{"data":[{"id":"ocid1.instance.oc1..task7app","display-name":"app01","image-id":"ocid1.image.oc1..ol9","shape":"VM.Standard.E5.Flex","lifecycle-state":"RUNNING","defined-tags":{},"freeform-tags":{}}]}'
+    fi
+    ;;
+  *"compute image get"*)
+    printf '%s\n' '{"data":{"id":"ocid1.image.oc1..ol9","display-name":"Oracle-Linux-9-STIG","operating-system":"Oracle Linux","operating-system-version":"9.6","lifecycle-state":"AVAILABLE"}}'
+    ;;
+  *"os-management-hub managed-instance list-installed-packages"*)
+    if [ "${MOCK_TASK7_DENY_PACKAGES:-0}" = "1" ]; then
+      printf '%s\n' 'ServiceError: NotAuthorizedOrNotFound (403)' >&2
+      exit 1
+    fi
+    package_name='openssl'
+    [ "${MOCK_TASK7_FORMULA_NAME:-0}" = "1" ] && package_name='=2+3'
+    printf '{"data":{"items":[{"name":"%s","version":"3.0.7-28.0.1.el9_4","architecture":"x86_64","software-source-name":"ol9_baseos_latest","time-installed":"2026-08-01T10:00:00Z"},{"name":"telnet","version":"0.17-85.el9","architecture":"x86_64","software-source-name":"ol9_appstream","time-installed":"2026-08-02T10:00:00Z"}]}}\n' "$package_name"
+    ;;
+  *"os-management-hub managed-instance list"*)
+    if [ "${MOCK_TASK7_NO_OSMH:-0}" = "1" ]; then
+      printf '%s\n' '{"data":{"items":[]}}'
+    else
+      printf '%s\n' '{"data":{"items":[{"id":"ocid1.instance.oc1..task7app","display-name":"app01","status":"NORMAL","os-family":"ORACLE_LINUX_9","architecture-type":"X86_64","location":"OCI_COMPUTE","software-source-ids":["ocid1.osmhsoftwaresource.oc1..baseos"]}]}}'
+    fi
+    ;;
+  *"os-management-hub software-source list"*)
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.osmhsoftwaresource.oc1..baseos","display-name":"ol9_baseos_latest","lifecycle-state":"ACTIVE","software-source-type":"VENDOR"}]}}'
+    ;;
+  *"os-management-hub managed-instance-group list"*)
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.osmhmanagedinstancegroup.oc1..prod","display-name":"prod-patch-group","lifecycle-state":"ACTIVE"}]}}'
+    ;;
+  *"os-management-hub lifecycle-environment list"*)
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.osmhlifecycleenvironment.oc1..prod","display-name":"approved-lifecycle","lifecycle-state":"ACTIVE"}]}}'
+    ;;
+  *"os-management-hub scheduled-job list"*)
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.osmhscheduledjob.oc1..monthly","display-name":"monthly-approved-updates","lifecycle-state":"ACTIVE","operation-type":"UPDATE_ALL"}]}}'
+    ;;
+  *"artifacts container repository list"*)
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.containerrepo.oc1..app","display-name":"ocs/app","lifecycle-state":"AVAILABLE","is-public":false,"image-count":1,"layers-size-in-bytes":12345}]}}'
+    ;;
+  *"artifacts container image list"*)
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.containerimage.oc1..appv1","repository-id":"ocid1.containerrepo.oc1..app","repository-name":"ocs/app","display-name":"ocs/app:1.0.0","version":"1.0.0","digest":"sha256:task7","lifecycle-state":"AVAILABLE","time-created":"2026-08-03T10:00:00Z"}]}}'
+    ;;
+  *)
+    printf 'mock-oci-task7: unsupported command: %s\n' "$args" >&2
+    exit 2
+    ;;
+esac

@@ -10,21 +10,85 @@
 
 ## Current audit position
 
-Tasks 1, 2, 3 and 6 now have implementation-complete collector workflows and
+Tasks 1, 2, 3, 6 and 7 now have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
-custody/rotation proof, reviewer
+custody/rotation proof, Task 7 identity/host/manual proof, reviewer
 disposition, evidence-location references and approval records have not been
 produced in this repository.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
-Task 5 is the next implementation target.
+Task 5 remains the earliest unimplemented worksheet item. Task 7 was
+implemented next at the user's direction.
 
 On 2026-08-28 the Task 2 collector was normalized to the canonical
 `sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
 `sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
 removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+---
+
+## 2026-08-28 — Task 7 CM-11 software installation control workflow
+
+The existing `cm08-hw-sw-baseline.sh` package inventory was adjacent CM-8/CM-2
+evidence, but it could not answer who was authorized to install software,
+whether live software was approved, or whether it matched an authoritative
+restricted list. It also predated the mandatory scope approval contract.
+
+`cm11-01-software-installation-control.sh` is now the canonical Task 7
+collector. It:
+
+- defaults manual runs to discovered tenancy/compartment selection, requires
+  the exact selected OCID twice, prints the complete plan and requires exact
+  uppercase `YES` before IAM policy/identity or workload collection;
+- requires manual `-c`/`-n` runs to confirm every resolved OCID twice and
+  requires explicit `--non-interactive`, matching confirmation OCIDs and exact
+  `--approve-scan YES` for automation;
+- requires an explicit OCI region and limits cloud calls to list/get;
+- includes policies attached to a selected compartment's ancestors because
+  parent IAM policies can affect the child without expanding the confirmed
+  workload inventory scope;
+- preserves every IAM statement and transparently classifies only candidate
+  package-install, Compute-provisioning and container-image-publish
+  capabilities;
+- expands classic IAM group principals to visible group members, records
+  dynamic-group matching rules and fails incomplete when a referenced
+  identity-domain group cannot be resolved to users;
+- inventories OSMH installed packages, Compute boot images and Container
+  Registry images/resources;
+- records OSMH managed instances, software sources, groups, lifecycle
+  environments, scheduled jobs, repository posture and image pinning as
+  technical-control evidence;
+- generates authorized-installer and approved-software templates, then
+  reconciles live evidence to signed installer, approved software and
+  restricted/prohibited software inputs;
+- validates approval/effective dates and required authority/process fields;
+- records input provenance and SHA-256, uses private/formula-safe outputs and
+  retains failed coverage/error evidence with exit code `3`;
+- explicitly labels the documented built-in Administrators grant separately
+  from OCI API-returned policies.
+
+No output is represented as an effective-permissions calculation. OCI's policy
+list documentation states that the API does not automatically determine which
+policies apply to a group or compartment. Conditions, policy combinations,
+inheritance, deny/cross-tenancy statements and identity-domain membership need
+IAM review.
+
+The collector also cannot see host SSH/sudo/local administrators, break-glass
+paths, packages installed outside the authoritative management platform,
+Windows installed applications, or Kubernetes/Functions/deployment-runtime
+permissions. Those required evidence boundaries and the controlled two-pass
+workflow are documented in
+`TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md`.
+
+Regression coverage in
+`tests/test-cm11-01-software-installation-control.sh` exercises successful
+inventory/reconciliation, authorization expansion, a prohibited Telnet match,
+input hashes, OSMH control coverage, denied packages, malformed JSON,
+formula-safe output, manual and default interactive selection, tenancy
+expansion, mismatch/refusal before collection, strict automation and a
+referenced identity-domain membership gap.
 
 ---
 
