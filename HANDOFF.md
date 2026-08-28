@@ -33,8 +33,9 @@ The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
 
 Every new or materially redesigned collector must follow
-`SCRIPT-DESIGN-STANDARD.md`. Preserve `-c`/`-n` for approved non-interactive
-automation, but do not create a different interactive selection workflow.
+`SCRIPT-DESIGN-STANDARD.md`. `-c`/`-n` alone are scope selectors, not proof of
+automation approval. New collectors require explicit automation mode, exact
+resolved-OCID confirmation values and exact `YES` approval.
 
 ## Latest milestone — Task 6 open ports, protocols and services
 
@@ -43,39 +44,44 @@ is `cm07-01-open-ports-protocols-services.sh`.
 
 It inventories Security Lists, NSGs, their rules and their subnet/VNIC
 associations. It defaults to tenancy/compartment discovery, exact double-OCID
-confirmation, a complete pre-scan summary and exact uppercase `YES`. A
-mismatch or refusal reaches no Networking command and leaves no evidence CSV.
+confirmation, a complete pre-scan summary and exact uppercase `YES`. Manual
+`-c`/`-n` runs also confirm every resolved OCID twice and require `YES`.
+Automation must explicitly provide `--non-interactive`, every resolved OCID and
+`--approve-scan YES`. A mismatch or refusal reaches no Networking command and
+leaves no evidence CSV. The region is mandatory evidence provenance.
 
 The evidence workflow separates OCI facts from organizational attestations:
 
 - OCI Network/Cloud Operations runs the live inventory.
-- System/application owners supply the actual service function and
-  justification.
+- System/application owners complete the generated mapping for the actual OCI
+  resource, listener status/address/port/protocol, service, function and
+  justification, with verifier/date/evidence references.
 - The designated CCB/PPSM/ISSO authority approves the exact rule baseline.
 - The designated PPSM/security-policy owner supplies the restricted list.
 - Input-source evidence records provider, authority, reference, dates and file
   SHA-256.
 
-The collector emits failure-aware inventory, approval template/reconciliation,
-restricted findings, source provenance, coverage and a retained error ledger.
-Missing authoritative inputs cause exit `3` unless `--inventory-only` was
-explicitly selected.
+The collector emits failure-aware inventory, actual-service mapping template
+and reconciliation, approval template/reconciliation, restricted findings,
+source provenance, coverage and a retained error ledger. Missing service
+mapping, approval or restricted inputs cause exit `3` unless
+`--inventory-only` was explicitly selected. Future approval/verification dates,
+reversed date ranges and incomplete live-rule service mappings fail closed.
 
 Regression coverage is in `tests/test-cm07-01-open-ports.sh` with
 `tests/mock-oci-task6`. It covers successful inventory/reconciliation,
-restricted SSH, missing inputs, denied NSG rules, malformed JSON, formula-safe
-CSV, compartment/tenancy expansion, double-OCID mismatch, lowercase-`yes`
-refusal and mixed-scope rejection.
+restricted SSH, actual-service verification, missing/incomplete mappings,
+future/reversed approval dates, both OCI list shapes, missing inputs, denied
+NSG rules, malformed JSON, formula-safe CSV, compartment/tenancy expansion,
+manual flag-based confirmation, explicit automation refusal, double-OCID
+mismatch, lowercase-`yes` refusal and mixed-scope rejection.
 
 The three older CM-7 scripts remain legacy references and are not canonical
 evidence sources.
 
-GitHub Actions run 33132296803 completed successfully against commit
-`29d78fe751a010fdf5a0d12bde247a9d606bdfb4`. The full repository gate ran
-Bash syntax checks, read-only self-checks, the prior CP-9/SC-8/SC-28 regressions
-and the new CM07-01 mock suite. Static source validation also confirmed 12 OCI
-wrapper sites, all restricted to list/get, plus the required selector,
-double-OCID and exact-YES paths.
+The expanded CM07-01 mock suite passes locally. Require the full GitHub Actions
+repository gate on the exact PR head before merge. Static validation still
+confirms all OCI wrapper sites are restricted to list/get.
 
 
 ## Prior safety hardening — SC-8

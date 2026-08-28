@@ -228,8 +228,9 @@ logs, manual rotation procedure where applicable and reviewer sign-off.
 `cm07-01-open-ports-protocols-services.sh` is the CM-7/CM-7(1)/PPSM
 collector. It inventories Security List and NSG rules, Security List-to-subnet
 associations and NSG-to-VNIC membership. It records OCI packet-filter facts,
-common-service inference, approval reconciliation, restricted-list matches,
-input provenance and collection coverage.
+common-service inference, accountable actual-service/listener verification,
+approval reconciliation, restricted-list matches, input provenance and
+collection coverage.
 
 The normal command discovers the tenancy and active compartments, asks for the
 exact tenancy or compartment OCID twice, prints the resolved plan and requires
@@ -244,17 +245,36 @@ bash cm07-01-open-ports-protocols-services.sh \
   -o ./evidence/task6-inventory
 ```
 
-Use the generated approval template to obtain the organization's CCB/PPSM/ISSO
-approval. Obtain the restricted PPS list from the authoritative PPSM or
-enterprise security-policy owner. Then run the complete reconciliation:
+Use the generated service-mapping template to have system/application owners
+verify each actual resource, listener, service, function and justification. Use
+the approval template to obtain the organization's CCB/PPSM/ISSO approval, and
+obtain the restricted PPS list from the authoritative PPSM or enterprise
+security-policy owner. Then run the complete reconciliation:
 
 ```bash
 bash cm07-01-open-ports-protocols-services.sh \
   -r us-langley-1 \
   -a ./approved/cm07-approved-ports.csv \
   -x ./approved/cm07-restricted-ports.csv \
+  -s ./approved/cm07-verified-services.csv \
   -o ./evidence/task6-final
 ```
+
+Supplying `-c` or `-n` manually still requires every resolved OCID twice and
+exact uppercase `YES`. Approved automation is explicit:
+
+```bash
+bash cm07-01-open-ports-protocols-services.sh \
+  -c ocid1.compartment... \
+  --non-interactive \
+  --confirm-scope-ocid ocid1.compartment... \
+  --approve-scan YES \
+  -r us-langley-1 \
+  --inventory-only \
+  -o ./evidence/task6-inventory
+```
+
+The script requires `-r`; it will not record an unresolved CLI-default region.
 
 The collector does not ship a static list that could be mistaken for current
 organizational policy. Both source CSVs record the authority, provider, source

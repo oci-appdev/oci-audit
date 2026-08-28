@@ -44,6 +44,12 @@ collector. It:
 - defaults manual runs to discovered tenancy/compartment selection, requires the
   exact selected OCID twice, prints every target/input/output and requires exact
   uppercase `YES` before the first Networking call;
+- does not let `-c` or `-n` silently bypass authorization: manual flag-based
+  runs confirm every resolved OCID twice, while automation requires explicit
+  `--non-interactive`, matching confirmation OCIDs and exact
+  `--approve-scan YES`;
+- requires an explicit OCI region so the evidence package never records an
+  unresolved CLI default;
 - uses only OCI list/get operations and has a source-level read-only self-check;
 - inventories Security List and NSG rules, Security List-to-subnet associations
   and NSG-to-VNIC membership;
@@ -54,6 +60,12 @@ collector. It:
 - requires approval authority, approver, approval ID/date, business function,
   justification and source reference before an approved match is accepted;
 - matches live rules to an externally supplied authoritative restricted list;
+- generates and reconciles a system-owner service/listener mapping so packet
+  permissions are not represented as proof of an actual service;
+- rejects future approval/verification dates and reversed approval or policy
+  effective/expiration ranges;
+- preserves subnet associations for both OCI CLI list shapes, `.data[]` and
+  `.data.items[]`;
 - records who supplied both lists, their authority/source/dates and SHA-256
   hashes;
 - creates private, no-clobber, spreadsheet-formula-safe evidence;

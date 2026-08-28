@@ -35,7 +35,12 @@
 #   bash cm07-01-open-ports-protocols-services.sh -d ingress
 #   bash cm07-01-open-ports-protocols-services.sh -o ./evidence
 #   bash cm07-01-open-ports-protocols-services.sh \
-#       -a approved_ports.csv -x restricted_ports.csv
+#       -a approved_ports.csv -x restricted_ports.csv \
+#       -s verified_services.csv
+#   bash cm07-01-open-ports-protocols-services.sh \
+#       -c <compartment-ocid> --non-interactive \
+#       --confirm-scope-ocid <same-compartment-ocid> \
+#       --approve-scan YES -r us-langley-1 --inventory-only
 #   bash cm07-01-open-ports-protocols-services.sh --inventory-only
 #   bash cm07-01-open-ports-protocols-services.sh --selfcheck
 #
@@ -49,6 +54,15 @@
 #       Authoritative organization/PPSM restricted list. The script intentionally
 #       has no built-in list that could be mistaken for current policy.
 #
+#   -s, --service-mapping FILE
+#       System-owner verification of the actual resource, listener, service,
+#       function and justification associated with each live rule.
+#
+#   --non-interactive
+#       Explicit automation mode. Requires -c or -n, one
+#       --confirm-scope-ocid for every resolved compartment, and exact
+#       --approve-scan YES. Merely supplying -c or -n does not bypass prompts.
+#
 #   --inventory-only
 #       Initial discovery mode. Produces inventory and an approval template
 #       without requiring approval/restricted inputs. It cannot prove approval.
@@ -58,6 +72,8 @@
 #   cm07-01_approval_baseline_template_<ts>.csv
 #   cm07-01_approval_reconciliation_<ts>.csv
 #   cm07-01_restricted_findings_<ts>.csv
+#   cm07-01_service_mapping_template_<ts>.csv
+#   cm07-01_service_mapping_reconciliation_<ts>.csv
 #   cm07-01_input_sources_<ts>.csv
 #   cm07-01_coverage_<ts>.csv
 #   cm07-01_collection_errors_<ts>.csv (failed calls only)
@@ -119,8 +135,12 @@ OUTDIR="."
 DIRECTION="both"
 APPROVAL_FILE=""
 RESTRICTED_FILE=""
+SERVICE_MAPPING_FILE=""
 INVENTORY_ONLY=0
 SELECT_SCOPE=0
+NON_INTERACTIVE=0
+APPROVE_SCAN=""
+CONFIRM_SCOPE_OCIDS=()
 
 need_value() {
   [ "$#" -ge 2 ] && [ -n "$2" ] || {
@@ -139,6 +159,10 @@ while [ "$#" -gt 0 ]; do
     -o|--output-dir) need_value "$@"; OUTDIR="$2"; shift 2 ;;
     -a|--approval-baseline) need_value "$@"; APPROVAL_FILE="$2"; shift 2 ;;
     -x|--restricted-list) need_value "$@"; RESTRICTED_FILE="$2"; shift 2 ;;
+    -s|--service-mapping) need_value "$@"; SERVICE_MAPPING_FILE="$2"; shift 2 ;;
+    --non-interactive) NON_INTERACTIVE=1; shift ;;
+    --confirm-scope-ocid) need_value "$@"; CONFIRM_SCOPE_OCIDS+=("$2"); shift 2 ;;
+    --approve-scan) need_value "$@"; APPROVE_SCAN="$2"; shift 2 ;;
     --inventory-only) INVENTORY_ONLY=1; shift ;;
     --selfcheck)
       echo "ERROR: --selfcheck must be used by itself." >&2
@@ -151,6 +175,18 @@ done
 
 if [ "$SELECT_SCOPE" -eq 1 ] && { [ -n "$SINGLE_COMP" ] || [ -n "$COMP_NAMES_FILTER" ]; }; then
   echo "ERROR: --select-scope/-i cannot be combined with -c or -n." >&2
+  exit 1
+fi
+if [ "$NON_INTERACTIVE" -eq 1 ] && [ "$SELECT_SCOPE" -eq 1 ]; then
+  echo "ERROR: --non-interactive cannot be combined with -i/--select-scope." >&2
+  exit 1
+fi
+if [ "$NON_INTERACTIVE" -eq 1 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
+  echo "ERROR: --non-interactive requires an explicit -c or -n scope." >&2
+  exit 1
+fi
+if [ "$NON_INTERACTIVE" -eq 0 ] && { [ "${#CONFIRM_SCOPE_OCIDS[@]}" -gt 0 ] || [ -n "$APPROVE_SCAN" ]; }; then
+  echo "ERROR: --confirm-scope-ocid and --approve-scan require --non-interactive." >&2
   exit 1
 fi
 if [ -n "$SINGLE_COMP" ] && [ -n "$COMP_NAMES_FILTER" ]; then
@@ -167,8 +203,8 @@ case "$DIRECTION" in
   both|ingress|egress) ;;
   *) echo "ERROR: direction must be ingress, egress or both." >&2; exit 1 ;;
 esac
-if [ "$INVENTORY_ONLY" -eq 1 ] && { [ -n "$APPROVAL_FILE" ] || [ -n "$RESTRICTED_FILE" ]; }; then
-  echo "ERROR: --inventory-only cannot be combined with approval/restricted inputs." >&2
+if [ "$INVENTORY_ONLY" -eq 1 ] && { [ -n "$APPROVAL_FILE" ] || [ -n "$RESTRICTED_FILE" ] || [ -n "$SERVICE_MAPPING_FILE" ]; }; then
+  echo "ERROR: --inventory-only cannot be combined with approval/restricted/service inputs." >&2
   exit 1
 fi
 if [ -n "$APPROVAL_FILE" ] && [ ! -r "$APPROVAL_FILE" ]; then
@@ -177,6 +213,14 @@ if [ -n "$APPROVAL_FILE" ] && [ ! -r "$APPROVAL_FILE" ]; then
 fi
 if [ -n "$RESTRICTED_FILE" ] && [ ! -r "$RESTRICTED_FILE" ]; then
   echo "ERROR: restricted list is not readable: $RESTRICTED_FILE" >&2
+  exit 1
+fi
+if [ -n "$SERVICE_MAPPING_FILE" ] && [ ! -r "$SERVICE_MAPPING_FILE" ]; then
+  echo "ERROR: service mapping is not readable: $SERVICE_MAPPING_FILE" >&2
+  exit 1
+fi
+if [ -z "$REGION_OVERRIDE" ]; then
+  echo "ERROR: -r/--region is required so the evidence records the exact OCI region." >&2
   exit 1
 fi
 
@@ -201,11 +245,14 @@ OUT="$OUTDIR/cm07-01_open_pps_inventory_${TS}.csv"
 BASELINE_TEMPLATE="$OUTDIR/cm07-01_approval_baseline_template_${TS}.csv"
 APPROVAL_OUT="$OUTDIR/cm07-01_approval_reconciliation_${TS}.csv"
 RESTRICTED_OUT="$OUTDIR/cm07-01_restricted_findings_${TS}.csv"
+SERVICE_TEMPLATE="$OUTDIR/cm07-01_service_mapping_template_${TS}.csv"
+SERVICE_OUT="$OUTDIR/cm07-01_service_mapping_reconciliation_${TS}.csv"
 SOURCES_OUT="$OUTDIR/cm07-01_input_sources_${TS}.csv"
 COVERAGE="$OUTDIR/cm07-01_coverage_${TS}.csv"
 ERROUT="$OUTDIR/cm07-01_collection_errors_${TS}.csv"
 
 for candidate in "$OUT" "$BASELINE_TEMPLATE" "$APPROVAL_OUT" "$RESTRICTED_OUT" \
+  "$SERVICE_TEMPLATE" "$SERVICE_OUT" \
   "$SOURCES_OUT" "$COVERAGE" "$ERROUT"; do
   [ ! -e "$candidate" ] || {
     echo "ERROR: refusing to overwrite existing output: $candidate" >&2
@@ -354,6 +401,49 @@ abort_before_scan() {
   exit 1
 }
 
+confirm_resolved_targets_interactive() {
+  local targets="$1" cid cname first second
+  echo
+  echo "Resolved command-line scope requires interactive OCID confirmation."
+  while IFS=$'\t' read -r cid cname <&3; do
+    [ -n "$cid" ] || continue
+    echo
+    echo "Target: ${cname:-<unknown>}"
+    echo "OCID  : $cid"
+    echo "Enter this exact OCID to select the target."
+    IFS= read -r first || abort_before_scan "scope OCID was not provided"
+    first="$(oci_scope_trim "$first")"
+    [ "$first" = "$cid" ] || abort_before_scan "scope OCID did not match $cid"
+    echo "Re-enter the exact same OCID to confirm the target."
+    IFS= read -r second || abort_before_scan "scope confirmation was not provided"
+    second="$(oci_scope_trim "$second")"
+    [ "$second" = "$cid" ] || abort_before_scan "scope confirmation did not match $cid"
+  done 3<<< "$targets"
+  echo
+  echo "All resolved target OCIDs were confirmed twice."
+}
+
+validate_automation_authorization() {
+  local targets="$1" cid cname index=0 expected_count actual_count
+  expected_count="$(printf '%s\n' "$targets" | grep -c . || true)"
+  actual_count="${#CONFIRM_SCOPE_OCIDS[@]}"
+  [ "$actual_count" -eq "$expected_count" ] || {
+    abort_before_scan "automation supplied $actual_count scope confirmations; expected $expected_count"
+  }
+  while IFS=$'\t' read -r cid cname; do
+    [ -n "$cid" ] || continue
+    [ "${CONFIRM_SCOPE_OCIDS[$index]}" = "$cid" ] || {
+      abort_before_scan "automation confirmation $((index+1)) did not match resolved OCID $cid"
+    }
+    index=$((index+1))
+  done <<< "$targets"
+  [ "$APPROVE_SCAN" = "YES" ] || {
+    abort_before_scan "automation did not supply exact --approve-scan YES"
+  }
+  echo "AUTOMATION APPROVED: every resolved OCID matched and --approve-scan was exact YES."
+  echo
+}
+
 validate_csv_header() {
   local kind="$1" path="$2"
   python3 - "$kind" "$path" <<'PY'
@@ -376,6 +466,13 @@ required = {
         "category", "service", "function", "authority", "provided_by",
         "source_reference", "effective_date", "expiration_date", "notes",
     },
+    "service": {
+        "mapping_id", "rule_key", "resource_ocid", "resource_type",
+        "resource_name", "listener_status", "listener_address",
+        "listener_port", "listener_protocol", "service_name",
+        "business_function", "justification", "system_owner", "verified_by",
+        "verification_date", "evidence_reference", "source_reference",
+    },
 }[kind]
 with open(path, newline="", encoding="utf-8-sig") as handle:
     reader = csv.reader(handle)
@@ -395,6 +492,9 @@ if [ -n "$APPROVAL_FILE" ]; then
 fi
 if [ -n "$RESTRICTED_FILE" ]; then
   validate_csv_header restricted "$RESTRICTED_FILE" || exit 1
+fi
+if [ -n "$SERVICE_MAPPING_FILE" ]; then
+  validate_csv_header service "$SERVICE_MAPPING_FILE" || exit 1
 fi
 
 retain_startup_error() {
@@ -419,7 +519,7 @@ fi
 COMP_NAME["$TENANCY_ID"]="root"
 CUR_COMP="$TENANCY_ID"
 
-echo "Region : ${REGION_OVERRIDE:-<cloud-shell-default>}"
+echo "Region : $REGION_OVERRIDE"
 echo "Tenancy: $TENANCY_ID"
 echo "Scope  : $([ "$SELECT_SCOPE" -eq 1 ] && printf 'interactive discovery + OCID confirmation' || printf 'approved command-line automation')"
 echo
@@ -528,33 +628,51 @@ if [ "$SELECT_SCOPE" -eq 1 ]; then
   SCOPE_NAME="$OCI_SCOPE_SELECTED_NAME"
   SCOPE_OCID="$OCI_SCOPE_SELECTED_OCID"
 elif [ -n "$SINGLE_COMP" ]; then
-  SCOPE_TYPE="AUTOMATION-COMPARTMENT"
+  if [ "$NON_INTERACTIVE" -eq 1 ]; then
+    SCOPE_TYPE="AUTOMATION-COMPARTMENT"
+  else
+    SCOPE_TYPE="MANUAL-COMPARTMENT"
+  fi
   SCOPE_NAME="${COMP_NAME[$SINGLE_COMP]:-<unknown>}"
   SCOPE_OCID="$SINGLE_COMP"
 else
-  SCOPE_TYPE="AUTOMATION-NAME-FILTER"
+  if [ "$NON_INTERACTIVE" -eq 1 ]; then
+    SCOPE_TYPE="AUTOMATION-NAME-FILTER"
+  else
+    SCOPE_TYPE="MANUAL-NAME-FILTER"
+  fi
   SCOPE_NAME="$COMP_NAMES_FILTER"
   SCOPE_OCID="multiple resolved compartment OCIDs"
 fi
 
+if [ "$SELECT_SCOPE" -eq 0 ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
+  confirm_resolved_targets_interactive "$TARGET_CATALOG"
+fi
+
 APPROVAL_INPUT_LABEL="NOT PROVIDED — approval cannot be proven"
 RESTRICTED_INPUT_LABEL="NOT PROVIDED — restricted-list evaluation cannot be completed"
+SERVICE_INPUT_LABEL="NOT PROVIDED — actual services/listeners cannot be verified"
 [ -n "$APPROVAL_FILE" ] && APPROVAL_INPUT_LABEL="$APPROVAL_FILE"
 [ -n "$RESTRICTED_FILE" ] && RESTRICTED_INPUT_LABEL="$RESTRICTED_FILE"
+[ -n "$SERVICE_MAPPING_FILE" ] && SERVICE_INPUT_LABEL="$SERVICE_MAPPING_FILE"
 [ "$INVENTORY_ONLY" -eq 1 ] && {
   APPROVAL_INPUT_LABEL="intentionally skipped in inventory-only mode"
   RESTRICTED_INPUT_LABEL="intentionally skipped in inventory-only mode"
+  SERVICE_INPUT_LABEL="intentionally skipped in inventory-only mode"
 }
 
 WORK_ITEMS="Security Lists, ingress/egress rules and subnet associations
 Network Security Groups, ingress/egress rules and VNIC associations
 Direction filter: $DIRECTION
 Approval baseline: $APPROVAL_INPUT_LABEL
-Restricted list: $RESTRICTED_INPUT_LABEL"
+Restricted list: $RESTRICTED_INPUT_LABEL
+Actual service/listener mapping: $SERVICE_INPUT_LABEL"
 OUTPUT_FILES="$OUT
 $BASELINE_TEMPLATE
 $APPROVAL_OUT
 $RESTRICTED_OUT
+$SERVICE_TEMPLATE
+$SERVICE_OUT
 $SOURCES_OUT
 $COVERAGE
 $ERROUT (retained only when OCI calls or post-processing fail)"
@@ -563,14 +681,16 @@ oci_scope_print_scan_plan \
   "CM-7 OPEN PPS" \
   "cm07-01-open-ports-protocols-services.sh" \
   "CM-7 / CM-7(1) / PPSM" \
-  "${REGION_OVERRIDE:-<cloud-shell-default>}" \
+  "$REGION_OVERRIDE" \
   "$SCOPE_TYPE" "$SCOPE_NAME" "$SCOPE_OCID" "$COMP_COUNT" \
   "$TARGET_CATALOG" \
   "Requested evidence work" "$WORK_ITEMS" \
   "$OUTPUT_FILES" \
   "OCIDs, CIDRs, NSG relationships, security rules, tags, approval metadata and restricted-list provenance"
 
-if ! oci_scope_require_final_approval "$SELECT_SCOPE"; then
+if [ "$NON_INTERACTIVE" -eq 1 ]; then
+  validate_automation_authorization "$TARGET_CATALOG"
+elif ! oci_scope_require_final_approval 1; then
   abort_before_scan "${OCI_SCOPE_APPROVAL_ERROR:-final approval failed}"
 fi
 
@@ -731,7 +851,7 @@ emit_rule() {
 collect_security_lists() {
   local comp="$1" vcn_id="$2" vcn_name="$3" subnets_json="$4"
   local subnet_status="$5" lists_json count sl sl_id sl_name defined_tags freeform_tags
-  local applies attachment_count rule_count=0 direction rule
+  local applies attachment_count rule_count=0 direction rule association_error
 
   oci_capture "Security List list [$vcn_name]" network security-list list \
     --compartment-id "$comp" --vcn-id "$vcn_id" --all
@@ -755,13 +875,28 @@ collect_security_lists() {
     freeform_tags="$(printf '%s' "$sl" | jq -c '."freeform-tags" // {}')"
 
     if [ "$subnet_status" = "OK" ]; then
+      association_error=""
       applies="$(printf '%s' "$subnets_json" | jq -r --arg id "$sl_id" '
-        [(.data // [])[]? | select((.["security-list-ids"] // []) | index($id)) |
+        [if (.data|type)=="object" then ((.data.items // []) | .[])
+         elif (.data|type)=="array" then .data[] else empty end |
+         select((.["security-list-ids"] // []) | index($id)) |
           ((.["display-name"] // "<unnamed-subnet>") + " (" + (.id // "<unknown>") + ")")]
         | if length == 0 then "<none>" else join("; ") end
-      ')"
-      attachment_count="$(printf '%s' "$subnets_json" | jq --arg id "$sl_id" \
-        '[.data[]? | select((.["security-list-ids"] // []) | index($id))] | length')"
+      ' 2>/dev/null)" || association_error="jq could not normalize subnet associations"
+      attachment_count="$(printf '%s' "$subnets_json" | jq --arg id "$sl_id" '
+        [if (.data|type)=="object" then ((.data.items // []) | .[])
+         elif (.data|type)=="array" then .data[] else empty end |
+         select((.["security-list-ids"] // []) | index($id))] | length
+      ' 2>/dev/null)" || association_error="jq could not count subnet associations"
+      if [ -n "$association_error" ]; then
+        INCOMPLETE=1
+        applies="UNKNOWN — subnet association normalization failed"
+        attachment_count="UNKNOWN"
+        coverage_row "$comp" "SecurityListAssociation" "$sl_id" "$sl_name" \
+          "UNKNOWN" "ERROR" "$association_error"
+        collection_failure_row "$comp" "SecurityListAssociation" "$sl_id" "$sl_name" \
+          "ERROR" "$association_error"
+      fi
     else
       applies="UNKNOWN — subnet association collection failed"
       attachment_count="UNKNOWN"
@@ -915,13 +1050,16 @@ TMP_OUT="$WORKDIR/inventory.csv"
 TMP_BASELINE="$WORKDIR/approval_template.csv"
 TMP_APPROVAL="$WORKDIR/approval_reconciliation.csv"
 TMP_RESTRICTED="$WORKDIR/restricted_findings.csv"
+TMP_SERVICE_TEMPLATE="$WORKDIR/service_mapping_template.csv"
+TMP_SERVICE="$WORKDIR/service_mapping_reconciliation.csv"
 TMP_SOURCES="$WORKDIR/input_sources.csv"
 POST_ERROR="$WORKDIR/postprocess.error"
 
 if ! python3 - \
   "$RAW" "$TMP_OUT" "$TMP_BASELINE" "$TMP_APPROVAL" "$TMP_RESTRICTED" \
-  "$TMP_SOURCES" "$TMP_SUMMARY" "$APPROVAL_FILE" "$RESTRICTED_FILE" \
-  "$INVENTORY_ONLY" "$TS" "${REGION_OVERRIDE:-<cloud-shell-default>}" \
+  "$TMP_SERVICE_TEMPLATE" "$TMP_SERVICE" "$TMP_SOURCES" "$TMP_SUMMARY" \
+  "$APPROVAL_FILE" "$RESTRICTED_FILE" "$SERVICE_MAPPING_FILE" \
+  "$INVENTORY_ONLY" "$TS" "$REGION_OVERRIDE" \
   2>"$POST_ERROR" <<'PY'
 import csv
 import hashlib
@@ -936,14 +1074,17 @@ from datetime import date, datetime
     template_path,
     approval_path,
     restricted_path,
+    service_template_path,
+    service_path,
     sources_path,
     summary_path,
     approval_input,
     restricted_input,
+    service_input,
     inventory_only_raw,
     timestamp,
     region,
-) = sys.argv[1:13]
+) = sys.argv[1:16]
 inventory_only = inventory_only_raw == "1"
 today = datetime.utcnow().date()
 
@@ -1036,8 +1177,12 @@ for index, row in enumerate(approval_rows, start=2):
     status = normalized(row.get("approval_status")).upper()
     if status not in {"APPROVED", "DENIED", "PENDING-REVIEW", "EXPIRED", ""}:
         raise ValueError(f"approval row {index}: unsupported approval_status {status!r}")
-    parse_date(row.get("approval_date"), "approval_date", f"approval row {index}")
-    parse_date(row.get("expiration_date"), "expiration_date", f"approval row {index}")
+    approval_date = parse_date(row.get("approval_date"), "approval_date", f"approval row {index}")
+    expiration_date = parse_date(row.get("expiration_date"), "expiration_date", f"approval row {index}")
+    if approval_date and approval_date > today:
+        raise ValueError(f"approval row {index}: approval_date cannot be in the future")
+    if approval_date and expiration_date and expiration_date < approval_date:
+        raise ValueError(f"approval row {index}: expiration_date precedes approval_date")
 
 restricted_rows = read_csv(restricted_input) if restricted_input else []
 if restricted_input and not restricted_rows:
@@ -1093,6 +1238,8 @@ for index, row in enumerate(restricted_rows, start=2):
         raise ValueError(f"{context}: restricted entry is not effective until {effective}")
     if expiration and expiration < today:
         raise ValueError(f"{context}: restricted entry expired on {expiration}")
+    if effective and expiration and expiration < effective:
+        raise ValueError(f"{context}: expiration_date precedes effective_date")
 
     enriched = dict(row)
     enriched.update(
@@ -1105,6 +1252,78 @@ for index, row in enumerate(restricted_rows, start=2):
         }
     )
     restricted_entries.append(enriched)
+
+service_rows = read_csv(service_input) if service_input else []
+service_by_key = {}
+seen_mapping_ids = set()
+for index, row in enumerate(service_rows, start=2):
+    context = f"service mapping row {index}"
+    mapping_id = normalized(row.get("mapping_id"))
+    rule_key = normalized(row.get("rule_key"))
+    if not mapping_id:
+        raise ValueError(f"{context}: mapping_id is required")
+    if mapping_id in seen_mapping_ids:
+        raise ValueError(f"{context}: duplicate mapping_id {mapping_id!r}")
+    seen_mapping_ids.add(mapping_id)
+    if len(rule_key) != 64 or any(char not in "0123456789abcdefABCDEF" for char in rule_key):
+        raise ValueError(f"{context}: rule_key must be the generated 64-character SHA-256 key")
+
+    listener_status = normalized(row.get("listener_status")).upper()
+    if listener_status not in {"LISTENING", "NOT-LISTENING", "NOT-APPLICABLE", "UNKNOWN"}:
+        raise ValueError(
+            f"{context}: listener_status must be LISTENING, NOT-LISTENING, "
+            "NOT-APPLICABLE or UNKNOWN"
+        )
+    listener_port = normalized(row.get("listener_port"))
+    if listener_port:
+        parse_port(listener_port, 0, context)
+    verification_date = parse_date(row.get("verification_date"), "verification_date", context)
+    if verification_date and verification_date > today:
+        raise ValueError(f"{context}: verification_date cannot be in the future")
+
+    enriched = dict(row)
+    enriched["listener_status"] = listener_status
+    service_by_key.setdefault(rule_key.lower(), []).append(enriched)
+
+def complete_service_mapping(row, rule):
+    required = [
+        "resource_ocid",
+        "resource_type",
+        "resource_name",
+        "listener_status",
+        "service_name",
+        "business_function",
+        "justification",
+        "system_owner",
+        "verified_by",
+        "verification_date",
+        "evidence_reference",
+        "source_reference",
+    ]
+    missing = [field for field in required if not normalized(row.get(field))]
+    listener_status = normalized(row.get("listener_status")).upper()
+    if listener_status == "LISTENING":
+        for field in ("listener_address", "listener_port", "listener_protocol"):
+            if not normalized(row.get(field)):
+                missing.append(field)
+    if missing:
+        return False, "missing " + ", ".join(sorted(set(missing)))
+    if not normalized(row.get("resource_ocid")).startswith("ocid1."):
+        return False, "resource_ocid is not an OCI OCID"
+    if listener_status == "UNKNOWN":
+        return False, "listener status remains UNKNOWN"
+    if listener_status == "NOT-APPLICABLE" and normalized(rule.get("attachment_count")) != "0":
+        return False, "NOT-APPLICABLE is only valid for an unattached rule container"
+    if listener_status == "LISTENING":
+        listener_port = int(normalized(row.get("listener_port")))
+        rule_min, rule_max = rule_port_range(rule)
+        if not rule_min <= listener_port <= rule_max:
+            return False, f"listener port {listener_port} is outside live rule range {rule_min}-{rule_max}"
+        listener_protocol = normalized(row.get("listener_protocol")).upper()
+        rule_protocol = normalized(rule.get("protocol")).upper()
+        if rule_protocol != "ANY" and listener_protocol != rule_protocol:
+            return False, f"listener protocol {listener_protocol} does not match live rule protocol {rule_protocol}"
+    return True, ""
 
 def complete_approval(row):
     required = [
@@ -1202,6 +1421,10 @@ inventory_fields = [
     "restricted_categories",
     "restricted_authorities",
     "restricted_providers",
+    "service_mapping_status",
+    "mapped_resources",
+    "actual_services",
+    "listener_statuses",
     "review_result",
     "collection_status",
     "collection_error",
@@ -1261,6 +1484,42 @@ restricted_output_fields = [
     "notes",
 ]
 
+service_mapping_fields = [
+    "mapping_status",
+    "mapping_id",
+    "rule_key",
+    "compartment_id",
+    "compartment_name",
+    "vcn_id",
+    "vcn_name",
+    "container_id",
+    "container_name",
+    "container_type",
+    "direction",
+    "protocol",
+    "source_or_dest",
+    "destination_port_min",
+    "destination_port_max",
+    "resource_ocid",
+    "resource_type",
+    "resource_name",
+    "listener_status",
+    "listener_address",
+    "listener_port",
+    "listener_protocol",
+    "service_name",
+    "business_function",
+    "justification",
+    "system_owner",
+    "verified_by",
+    "verification_date",
+    "evidence_reference",
+    "source_reference",
+    "note",
+]
+
+service_template_fields = [field for field in service_mapping_fields if field not in {"mapping_status", "note"}]
+
 template_fields = [
     "rule_key",
     "compartment_id",
@@ -1297,6 +1556,8 @@ template_fields = [
 inventory_rows = []
 approval_output = []
 restricted_output = []
+service_output = []
+service_template_rows = []
 template_rows = []
 seen_live_keys = set()
 counts = {
@@ -1307,6 +1568,8 @@ counts = {
     "prohibited": 0,
     "internet_wide": 0,
     "inactive": 0,
+    "service_verified": 0,
+    "service_incomplete": 0,
 }
 
 for rule in raw_rows:
@@ -1316,6 +1579,7 @@ for rule in raw_rows:
             {
                 "approval_status": "NOT-EVALUATED",
                 "restricted_status": "NOT-EVALUATED",
+                "service_mapping_status": "NOT-EVALUATED",
                 "review_result": "COLLECTION-FAILED",
             }
         )
@@ -1326,6 +1590,26 @@ for rule in raw_rows:
     seen_live_keys.add(rule["rule_key"])
     approval_status, approval, approval_note = match_approval(rule)
     matches = restricted_matches(rule)
+    mappings = service_by_key.get(rule["rule_key"].lower(), [])
+    mapping_notes = []
+    if inventory_only:
+        service_status = "SKIPPED-INVENTORY-ONLY"
+    elif not service_input:
+        service_status = "SERVICE-MAPPING-NOT-PROVIDED"
+        mapping_notes.append("No actual service/listener mapping was supplied")
+    elif not mappings:
+        service_status = "SERVICE-MAPPING-MISSING"
+        mapping_notes.append("No service mapping row matches this live rule")
+    else:
+        for mapping in mappings:
+            complete, note = complete_service_mapping(mapping, rule)
+            if not complete:
+                mapping_notes.append(f"{normalized(mapping.get('mapping_id'))}: {note}")
+        service_status = "SERVICE-VERIFIED" if not mapping_notes else "SERVICE-MAPPING-INCOMPLETE"
+    if service_status == "SERVICE-VERIFIED":
+        counts["service_verified"] += 1
+    elif not inventory_only:
+        counts["service_incomplete"] += 1
     categories = {entry["_category"] for entry in matches}
     if "PROHIBITED" in categories:
         restricted_status = "PROHIBITED-MATCH"
@@ -1351,6 +1635,8 @@ for rule in raw_rows:
         review_result = "PROHIBITED-PORT-OR-PROTOCOL"
     elif restricted_status == "RESTRICTED-MATCH":
         review_result = "RESTRICTED-PORT-OR-PROTOCOL"
+    elif service_status != "SERVICE-VERIFIED" and not inventory_only:
+        review_result = service_status
     elif approval_status != "APPROVED" and not inventory_only:
         review_result = approval_status
     elif rule.get("exposure_flag") == "INTERNET-WIDE":
@@ -1373,6 +1659,10 @@ for rule in raw_rows:
             "restricted_categories": "; ".join(sorted(categories)),
             "restricted_authorities": unique_values(matches, "authority"),
             "restricted_providers": unique_values(matches, "provided_by"),
+            "service_mapping_status": service_status,
+            "mapped_resources": unique_values(mappings, "resource_ocid"),
+            "actual_services": unique_values(mappings, "service_name"),
+            "listener_statuses": unique_values(mappings, "listener_status"),
             "review_result": review_result,
         }
     )
@@ -1400,6 +1690,43 @@ for rule in raw_rows:
         }
     )
     template_rows.append(template)
+
+    service_template = {field: rule.get(field, "") for field in service_template_fields}
+    service_template.update(
+        {
+            "mapping_id": "",
+            "resource_ocid": "",
+            "resource_type": "",
+            "resource_name": "",
+            "listener_status": "UNKNOWN",
+            "listener_address": "",
+            "listener_port": "",
+            "listener_protocol": "",
+            "service_name": "",
+            "business_function": "",
+            "justification": "",
+            "system_owner": "",
+            "verified_by": "",
+            "verification_date": "",
+            "evidence_reference": "",
+            "source_reference": "",
+        }
+    )
+    service_template_rows.append(service_template)
+
+    if mappings:
+        for mapping in mappings:
+            complete, note = complete_service_mapping(mapping, rule)
+            service_record = {field: rule.get(field, "") for field in service_mapping_fields}
+            service_record.update(mapping)
+            service_record["mapping_status"] = "SERVICE-VERIFIED" if complete else "SERVICE-MAPPING-INCOMPLETE"
+            service_record["note"] = note
+            service_output.append(service_record)
+    elif not inventory_only:
+        service_record = {field: rule.get(field, "") for field in service_mapping_fields}
+        service_record["mapping_status"] = service_status
+        service_record["note"] = "; ".join(mapping_notes)
+        service_output.append(service_record)
 
     for entry in matches:
         if entry["_category"] == "PROHIBITED" and rule.get("exposure_flag") == "INTERNET-WIDE":
@@ -1444,10 +1771,23 @@ for key, candidates in approval_by_key.items():
         missing["note"] = "Approved baseline rule was not found in live OCI configuration"
         approval_output.append(missing)
 
+# Service mappings that no longer correspond to a live rule remain visible so
+# stale attestations cannot silently survive a configuration change.
+for key, mappings in service_by_key.items():
+    if key in {value.lower() for value in seen_live_keys}:
+        continue
+    for mapping in mappings:
+        stale = dict(mapping)
+        stale["mapping_status"] = "SERVICE-MAPPING-NOT-LIVE"
+        stale["note"] = "Mapped rule was not found in live OCI configuration"
+        service_output.append(stale)
+
 write_rows(inventory_path, inventory_fields, inventory_rows)
 write_rows(template_path, template_fields, template_rows)
 write_rows(approval_path, approval_output_fields, approval_output)
 write_rows(restricted_path, restricted_output_fields, restricted_output)
+write_rows(service_template_path, service_template_fields, service_template_rows)
+write_rows(service_path, service_mapping_fields, service_output)
 
 source_fields = [
     "input_type",
@@ -1482,6 +1822,12 @@ def source_row(kind, path, rows, authority_field, provider_field):
         }
     with open(path, "rb") as handle:
         digest = hashlib.sha256(handle.read()).hexdigest()
+    if kind == "RESTRICTED-LIST":
+        date_field = "effective_date"
+    elif kind == "SERVICE-MAPPING":
+        date_field = "verification_date"
+    else:
+        date_field = "approval_date"
     return {
         "input_type": kind,
         "status": "PROVIDED",
@@ -1491,7 +1837,7 @@ def source_row(kind, path, rows, authority_field, provider_field):
         "authority": unique_values(rows, authority_field),
         "provided_by": unique_values(rows, provider_field),
         "source_reference": unique_values(rows, "source_reference"),
-        "effective_dates": unique_values(rows, "effective_date" if kind == "RESTRICTED-LIST" else "approval_date"),
+        "effective_dates": unique_values(rows, date_field),
         "expiration_dates": unique_values(rows, "expiration_date"),
         "collector_timestamp": timestamp,
         "region": region,
@@ -1503,6 +1849,9 @@ source_rows.append(
 source_rows.append(
     source_row("RESTRICTED-LIST", restricted_input, restricted_rows, "authority", "provided_by")
 )
+source_rows.append(
+    source_row("SERVICE-MAPPING", service_input, service_rows, "system_owner", "verified_by")
+)
 write_rows(sources_path, source_fields, source_rows)
 
 with open(summary_path, "w", encoding="utf-8") as handle:
@@ -1510,6 +1859,7 @@ with open(summary_path, "w", encoding="utf-8") as handle:
         handle.write(f"{key}={value}\n")
     handle.write(f"approval_input={'PROVIDED' if approval_input else ('SKIPPED' if inventory_only else 'NOT-PROVIDED')}\n")
     handle.write(f"restricted_input={'PROVIDED' if restricted_input else ('SKIPPED' if inventory_only else 'NOT-PROVIDED')}\n")
+    handle.write(f"service_input={'PROVIDED' if service_input else ('SKIPPED' if inventory_only else 'NOT-PROVIDED')}\n")
 PY
 then
   POST_MESSAGE="$(tr '\n\r' '  ' < "$POST_ERROR" | sed 's/  */ /g' | cut -c1-800)"
@@ -1525,6 +1875,8 @@ then
   printf '%s,%s\n' "$(csv_escape "POSTPROCESS-FAILED")" "$(csv_escape "$POST_MESSAGE")" >> "$TMP_BASELINE"
   cp -- "$TMP_BASELINE" "$TMP_APPROVAL"
   cp -- "$TMP_BASELINE" "$TMP_RESTRICTED"
+  cp -- "$TMP_BASELINE" "$TMP_SERVICE_TEMPLATE"
+  cp -- "$TMP_BASELINE" "$TMP_SERVICE"
   cp -- "$TMP_BASELINE" "$TMP_SOURCES"
   printf '%s\n' 'rules=UNKNOWN' > "$TMP_SUMMARY"
 fi
@@ -1538,6 +1890,16 @@ if [ "$INVENTORY_ONLY" -eq 0 ]; then
     INCOMPLETE=1
     echo "WARNING: no authoritative restricted list supplied; restricted-list evaluation is incomplete." >&2
   fi
+  if [ -z "$SERVICE_MAPPING_FILE" ]; then
+    INCOMPLETE=1
+    echo "WARNING: no actual service/listener mapping supplied; service proof is incomplete." >&2
+  fi
+fi
+
+SERVICE_GAPS="$(awk -F= '$1 == "service_incomplete" {print $2}' "$TMP_SUMMARY" 2>/dev/null | tail -n 1)"
+if [ -n "$SERVICE_GAPS" ] && [ "$SERVICE_GAPS" -gt 0 ] 2>/dev/null; then
+  INCOMPLETE=1
+  echo "WARNING: $SERVICE_GAPS live rule(s) lack complete actual-service/listener verification." >&2
 fi
 
 for pair in \
@@ -1545,6 +1907,8 @@ for pair in \
   "$TMP_BASELINE|$BASELINE_TEMPLATE" \
   "$TMP_APPROVAL|$APPROVAL_OUT" \
   "$TMP_RESTRICTED|$RESTRICTED_OUT" \
+  "$TMP_SERVICE_TEMPLATE|$SERVICE_TEMPLATE" \
+  "$TMP_SERVICE|$SERVICE_OUT" \
   "$TMP_SOURCES|$SOURCES_OUT" \
   "$TMP_COVERAGE|$COVERAGE"; do
   src="${pair%%|*}"
@@ -1582,8 +1946,11 @@ if [ -r "$TMP_SUMMARY" ]; then
       prohibited) echo "Prohibited-list matches        : $value" ;;
       internet_wide) echo "Internet-wide ingress rules    : $value" ;;
       inactive) echo "Rules in unattached containers : $value" ;;
+      service_verified) echo "Rules with verified services  : $value" ;;
+      service_incomplete) echo "Rules missing service proof    : $value" ;;
       approval_input) echo "Approval baseline              : $value" ;;
       restricted_input) echo "Restricted list                : $value" ;;
+      service_input) echo "Service/listener mapping       : $value" ;;
     esac
   done < "$TMP_SUMMARY"
 fi
@@ -1592,6 +1959,8 @@ echo "Inventory                    : $OUT"
 echo "Approval template            : $BASELINE_TEMPLATE"
 echo "Approval reconciliation      : $APPROVAL_OUT"
 echo "Restricted findings          : $RESTRICTED_OUT"
+echo "Service mapping template     : $SERVICE_TEMPLATE"
+echo "Service mapping results      : $SERVICE_OUT"
 echo "Input-source provenance      : $SOURCES_OUT"
 echo "Coverage                     : $COVERAGE"
 [ ! -e "$ERROUT" ] || echo "Collection errors            : $ERROUT"
