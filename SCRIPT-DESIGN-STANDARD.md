@@ -74,8 +74,10 @@ The shared double-OCID implementation and regression examples are:
 - `cp09-03-backup-replication-check.sh`
 - `sc08-02-in-transit-encryption.sh`
 - `sc28-oci-encryption-at-rest.sh`
+- `cm07-01-open-ports-protocols-services.sh`
 - `tests/test-scope-selection.sh`
+- `tests/test-cm07-01-open-ports.sh`
 
-All five canonical Task 1–3 collectors now default manual runs to this shared
+All six canonical Task 1–3 and Task 6 collectors now default manual runs to this shared
 interactive workflow and implement the pre-scan summary plus exact-`YES` gate.
 Future collectors must adopt the full boundary when first introduced.

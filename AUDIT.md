@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-08-28
 
-**Current branch:** `codex/task1-audit-hardening`
+**Current branch:** `main`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -10,7 +10,7 @@
 
 ## Current audit position
 
-Tasks 1, 2 and 3 now have implementation-complete collector workflows and
+Tasks 1, 2, 3 and 6 now have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
 custody/rotation proof, reviewer
@@ -25,6 +25,50 @@ On 2026-08-28 the Task 2 collector was normalized to the canonical
 `sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
 `sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
 removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+---
+
+## 2026-08-28 — Task 6 CM-7/PPSM open-port evidence workflow
+
+The three older CM-7 scripts collected useful rule data, but each suppressed
+OCI stderr. A denied VCN, Security List or NSG call could therefore look like
+an empty network surface. They also lacked the mandatory tenancy/compartment
+OCID confirmation and used separate inventory, restricted-list and approval
+paths. The approval script had a confirmed stdin collision: a pipeline supplied
+the baseline CSV while a Python here-document simultaneously occupied stdin,
+so no baseline rows reached the CSV reader.
+
+`cm07-01-open-ports-protocols-services.sh` is now the canonical Task 6
+collector. It:
+
+- defaults manual runs to discovered tenancy/compartment selection, requires the
+  exact selected OCID twice, prints every target/input/output and requires exact
+  uppercase `YES` before the first Networking call;
+- uses only OCI list/get operations and has a source-level read-only self-check;
+- inventories Security List and NSG rules, Security List-to-subnet associations
+  and NSG-to-VNIC membership;
+- validates successful JSON response shapes and turns denied/failed calls into
+  failed coverage, explicit inventory gaps, an error ledger and exit code `3`;
+- produces a normalized approval template and reconciles live rules to signed
+  approval rows without the prior stdin collision;
+- requires approval authority, approver, approval ID/date, business function,
+  justification and source reference before an approved match is accepted;
+- matches live rules to an externally supplied authoritative restricted list;
+- records who supplied both lists, their authority/source/dates and SHA-256
+  hashes;
+- creates private, no-clobber, spreadsheet-formula-safe evidence;
+- labels missing approval/restricted inputs as incomplete unless the operator
+  explicitly selected inventory-only mode.
+
+No built-in restricted list is treated as authoritative. The designated
+PPSM/security-policy owner must provide the current list, and the designated
+CCB/PPSM/ISSO authority must approve the exact live-rule baseline.
+
+The collector records OCI packet-filter permissions, not actual listening
+processes or end-to-end reachability. Routes, IP addressing, OCI Network
+Firewall, ZPR, load-balancer listeners, host firewalls and application
+configuration remain manual reconciliation boundaries documented in
+`TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md`.
 
 ---
 

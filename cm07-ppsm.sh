@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 #
+# LEGACY REFERENCE: superseded by cm07-01-open-ports-protocols-services.sh.
+# Do not use this file as the canonical Task 6 evidence collector.
+#
 # oci_restricted_ppsm_scan.sh
 #
 # CM-7 / PPSM RESTRICTED & PROHIBITED PORTS SCAN

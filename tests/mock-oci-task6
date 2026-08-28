@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+args=("$@")
+if [ "${args[0]:-}" = "--region" ]; then
+  args=("${args[@]:2}")
+fi
+cmd="${args[*]}"
+[ -z "${MOCK_TASK6_LOG:-}" ] || printf '%s\n' "$cmd" >> "$MOCK_TASK6_LOG"
+
+TENANCY='ocid1.tenancy.oc1..task6'
+COMP='ocid1.compartment.oc1..vcn'
+SHARED='ocid1.compartment.oc1..shared'
+VCN='ocid1.vcn.oc1..task6'
+SL='ocid1.securitylist.oc1..task6'
+NSG='ocid1.networksecuritygroup.oc1..task6'
+
+case "$cmd" in
+  "iam compartment list --access-level ANY --limit 1 --query "*)
+    printf '%s\n' "$TENANCY"
+    ;;
+  "iam compartment list --compartment-id $TENANCY --compartment-id-in-subtree true --access-level ANY --lifecycle-state ACTIVE --all --query "*)
+    printf '%s\n' "[{\"id\":\"$COMP\",\"name\":\"VCN\"},{\"id\":\"$SHARED\",\"name\":\"Shared Services\"}]"
+    ;;
+  "iam compartment get --compartment-id $TENANCY --query data.name --raw-output")
+    printf '%s\n' 'OCS-Tenancy'
+    ;;
+  "iam compartment get --compartment-id $COMP --query data.name --raw-output")
+    printf '%s\n' 'VCN'
+    ;;
+  "iam compartment get --compartment-id $SHARED --query data.name --raw-output")
+    printf '%s\n' 'Shared Services'
+    ;;
+  "network vcn list --compartment-id $COMP --all")
+    if [ "${MOCK_TASK6_BAD_VCN_SHAPE:-0}" = "1" ]; then
+      printf '%s\n' '{"unexpected":[]}'
+    elif [ "${MOCK_TASK6_FORMULA_NAME:-0}" = "1" ]; then
+      printf '%s\n' "{\"data\":[{\"id\":\"$VCN\",\"display-name\":\"=2+3\"}]}"
+    else
+      printf '%s\n' "{\"data\":[{\"id\":\"$VCN\",\"display-name\":\"audit-vcn\"}]}"
+    fi
+    ;;
+  "network vcn list --compartment-id $TENANCY --all"|"network vcn list --compartment-id $SHARED --all")
+    printf '%s\n' '{"data":[]}'
+    ;;
+  "network subnet list --compartment-id $COMP --vcn-id $VCN --all")
+    printf '%s\n' "{\"data\":[{\"id\":\"ocid1.subnet.oc1..task6\",\"display-name\":\"app-subnet\",\"security-list-ids\":[\"$SL\"]}]}"
+    ;;
+  "network security-list list --compartment-id $COMP --vcn-id $VCN --all")
+    printf '%s\n' "{\"data\":[{\"id\":\"$SL\",\"display-name\":\"app-security-list\",\"defined-tags\":{\"PPSM\":{\"Owner\":\"NetworkTeam\"}},\"freeform-tags\":{},\"ingress-security-rules\":[{\"protocol\":\"6\",\"source\":\"0.0.0.0/0\",\"source-type\":\"CIDR_BLOCK\",\"is-stateless\":false,\"description\":\"public TLS\",\"tcp-options\":{\"destination-port-range\":{\"min\":443,\"max\":443}}}],\"egress-security-rules\":[{\"protocol\":\"all\",\"destination\":\"0.0.0.0/0\",\"destination-type\":\"CIDR_BLOCK\",\"is-stateless\":false,\"description\":\"default egress\"}]}]}"
+    ;;
+  "network nsg list --compartment-id $COMP --vcn-id $VCN --all")
+    printf '%s\n' "{\"data\":[{\"id\":\"$NSG\",\"display-name\":\"admin-nsg\",\"defined-tags\":{},\"freeform-tags\":{\"Approval\":\"review\"}}]}"
+    ;;
+  "network nsg vnics list --nsg-id $NSG --all")
+    printf '%s\n' '{"data":[{"vnic-id":"ocid1.vnic.oc1..task6","time-associated":"2026-08-28T00:00:00Z"}]}'
+    ;;
+  "network nsg rules list --nsg-id $NSG --all")
+    if [ "${MOCK_TASK6_DENY_NSG_RULES:-0}" = "1" ]; then
+      echo 'ServiceError: Authorization failed. status: 403' >&2
+      exit 1
+    fi
+    printf '%s\n' '{"data":[{"id":"rule-ssh","direction":"INGRESS","protocol":"6","source":"0.0.0.0/0","source-type":"CIDR_BLOCK","is-stateless":false,"description":"temporary admin","tcp-options":{"destination-port-range":{"min":22,"max":22}}},{"id":"rule-db","direction":"INGRESS","protocol":"6","source":"10.0.0.0/24","source-type":"CIDR_BLOCK","is-stateless":false,"description":"application to database","tcp-options":{"destination-port-range":{"min":1521,"max":1521}}}]}'
+    ;;
+  *)
+    echo "mock-oci-task6: unsupported command: $cmd" >&2
+    exit 64
+    ;;
+esac
