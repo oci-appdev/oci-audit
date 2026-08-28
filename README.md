@@ -7,9 +7,9 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1, 2 and 3: implementation milestones complete on
-  `codex/task1-audit-hardening`; live OCI evidence is still pending.
-- Tasks 6, 8 and 9: partial collectors exist.
+- Tasks 1, 2, 3 and 6: implementation milestones complete on `main`;
+  live/approved evidence is still pending.
+- Tasks 8 and 9: partial collectors exist.
 - Tasks 5, 7, 10–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
@@ -50,7 +50,7 @@ Scripts 01, 02 and 03 default to interactive scope discovery. They discover
 the authenticated tenancy and active compartments, require the selected OCID
 twice, display the complete resolved scan plan, and require exact uppercase
 `YES` before service collection starts. The same mandatory interface is
-implemented by the Task 2 and Task 3 collectors:
+implemented by the Task 2, Task 3 and Task 6 collectors:
 
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
@@ -223,6 +223,72 @@ Complete the API evidence with
 including key-administrator approval, AES-256/HSM validation, rotation Audit
 logs, manual rotation procedure where applicable and reviewer sign-off.
 
+## Canonical Task 6 workflow
+
+`cm07-01-open-ports-protocols-services.sh` is the CM-7/CM-7(1)/PPSM
+collector. It inventories Security List and NSG rules, Security List-to-subnet
+associations and NSG-to-VNIC membership. It records OCI packet-filter facts,
+common-service inference, accountable actual-service/listener verification,
+approval reconciliation, restricted-list matches, input provenance and
+collection coverage.
+
+The normal command discovers the tenancy and active compartments, asks for the
+exact tenancy or compartment OCID twice, prints the resolved plan and requires
+exact uppercase `YES` before the first Networking service call:
+
+```bash
+bash cm07-01-open-ports-protocols-services.sh --selfcheck
+
+bash cm07-01-open-ports-protocols-services.sh \
+  -r us-langley-1 \
+  --inventory-only \
+  -o ./evidence/task6-inventory
+```
+
+Use the generated service-mapping template to have system/application owners
+verify each actual resource, listener, service, function and justification. Use
+the approval template to obtain the organization's CCB/PPSM/ISSO approval, and
+obtain the restricted PPS list from the authoritative PPSM or enterprise
+security-policy owner. Then run the complete reconciliation:
+
+```bash
+bash cm07-01-open-ports-protocols-services.sh \
+  -r us-langley-1 \
+  -a ./approved/cm07-approved-ports.csv \
+  -x ./approved/cm07-restricted-ports.csv \
+  -s ./approved/cm07-verified-services.csv \
+  -o ./evidence/task6-final
+```
+
+Supplying `-c` or `-n` manually still requires every resolved OCID twice and
+exact uppercase `YES`. Approved automation is explicit:
+
+```bash
+bash cm07-01-open-ports-protocols-services.sh \
+  -c ocid1.compartment... \
+  --non-interactive \
+  --confirm-scope-ocid ocid1.compartment... \
+  --approve-scan YES \
+  -r us-langley-1 \
+  --inventory-only \
+  -o ./evidence/task6-inventory
+```
+
+The script requires `-r`; it will not record an unresolved CLI-default region.
+
+The collector does not ship a static list that could be mistaken for current
+organizational policy. Both source CSVs record the authority, provider, source
+reference and dates; the evidence package records their SHA-256 hashes.
+
+An OCI rule permits traffic but does not prove that a host process is listening
+or that the path is reachable. Complete the layered-control and actual-listener
+checks in [TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md](TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md).
+
+The older `cm07-openports.sh`, `cm07-ppsm.sh` and
+`cm07-proof-opened-ports.sh` files are retained as legacy references. They
+are not canonical evidence collectors because they suppress OCI errors and do
+not enforce the mandatory scope-confirmation boundary.
+
 ## Tests
 
 Run the repository regression suite with:
@@ -231,7 +297,7 @@ Run the repository regression suite with:
 bash tests/run.sh
 ```
 
-The suite performs Bash syntax and read-only checks for CP-9, SC-8 and SC-28. It
+The suite performs Bash syntax and read-only checks for CP-9, SC-8, SC-28 and CM-7. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
@@ -243,6 +309,9 @@ incomplete-pair finding. Denied-call regressions prove that unavailable replica,
 IPSec tunnel or KMS key data becomes an incomplete row and exit code `3`, never
 a fabricated negative finding. Scope-selection regressions prove confirmed
 compartment and tenancy scans plus fail-closed behavior on a mismatched OCID.
+CM07-01 regressions cover rule/association inventory, input provenance,
+approval reconciliation, restricted-list matches, denied calls, malformed JSON,
+private/formula-safe evidence and exact-OCID/exact-`YES` refusal gates.
 
 ## Evidence handling
 

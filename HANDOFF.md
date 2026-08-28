@@ -2,13 +2,13 @@
 
 **Updated:** 2026-08-28
 
-**Working branch:** `codex/task1-audit-hardening`
+**Working branch:** `codex/task6-open-ports`
 
-**Base commit:** `b196f45f43d95add1480da2cc50aa852762ecba7`
+**Base commit:** `841ff6fef2833cb3f7c7a30c7d3329a2cd7ce6e0`
 
-**Current milestone:** Tasks 1–3 collector implementations complete; live/manual evidence pending
+**Current milestone:** Tasks 1–3 and Task 6 collector implementations complete; live/manual/approval evidence pending
 
-**Draft PR:** <https://github.com/oci-appdev/oci-audit/pull/1>
+**Pull request:** <https://github.com/oci-appdev/oci-audit/pull/2>
 
 ## Mandatory scope-selection standard
 
@@ -19,24 +19,72 @@ normal command containing only region/output options silently used the old
 tenancy-wide path. The option parser and tests now exercise the real no-scope-
 flag operator command for every canonical collector.
 
-Scripts `cp09-01`, `cp09-02`, `cp09-03`, `sc08-02-in-transit-encryption.sh` and
-`sc28-oci-encryption-at-rest.sh` now default normal/manual runs to interactive
+Scripts `cp09-01`, `cp09-02`, `cp09-03`, `sc08-02-in-transit-encryption.sh`,
+`sc28-oci-encryption-at-rest.sh` and `cm07-01-open-ports-protocols-services.sh` now default normal/manual runs to interactive
 scope selection; `-i` / `--select-scope` are optional aliases. They discover
 the tenancy and active compartments, display full OCIDs, require an exact
 discovered OCID twice, print the resolved scan plan, and require exact uppercase
 `YES` before workload-service collection. A tenancy selection means root plus
 every active child compartment. Mismatch/refusal exits before the collector
 loop, removes header-only CSVs and has dedicated fail-closed regressions for all
-five collectors.
+six collectors.
 
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
 
 Every new or materially redesigned collector must follow
-`SCRIPT-DESIGN-STANDARD.md`. Preserve `-c`/`-n` for approved non-interactive
-automation, but do not create a different interactive selection workflow.
+`SCRIPT-DESIGN-STANDARD.md`. `-c`/`-n` alone are scope selectors, not proof of
+automation approval. New collectors require explicit automation mode, exact
+resolved-OCID confirmation values and exact `YES` approval.
 
-## Latest safety hardening — SC-8
+## Latest milestone — Task 6 open ports, protocols and services
+
+The user directed Task 6 implementation before Task 5. The canonical collector
+is `cm07-01-open-ports-protocols-services.sh`.
+
+It inventories Security Lists, NSGs, their rules and their subnet/VNIC
+associations. It defaults to tenancy/compartment discovery, exact double-OCID
+confirmation, a complete pre-scan summary and exact uppercase `YES`. Manual
+`-c`/`-n` runs also confirm every resolved OCID twice and require `YES`.
+Automation must explicitly provide `--non-interactive`, every resolved OCID and
+`--approve-scan YES`. A mismatch or refusal reaches no Networking command and
+leaves no evidence CSV. The region is mandatory evidence provenance.
+
+The evidence workflow separates OCI facts from organizational attestations:
+
+- OCI Network/Cloud Operations runs the live inventory.
+- System/application owners complete the generated mapping for the actual OCI
+  resource, listener status/address/port/protocol, service, function and
+  justification, with verifier/date/evidence references.
+- The designated CCB/PPSM/ISSO authority approves the exact rule baseline.
+- The designated PPSM/security-policy owner supplies the restricted list.
+- Input-source evidence records provider, authority, reference, dates and file
+  SHA-256.
+
+The collector emits failure-aware inventory, actual-service mapping template
+and reconciliation, approval template/reconciliation, restricted findings,
+source provenance, coverage and a retained error ledger. Missing service
+mapping, approval or restricted inputs cause exit `3` unless
+`--inventory-only` was explicitly selected. Future approval/verification dates,
+reversed date ranges and incomplete live-rule service mappings fail closed.
+
+Regression coverage is in `tests/test-cm07-01-open-ports.sh` with
+`tests/mock-oci-task6`. It covers successful inventory/reconciliation,
+restricted SSH, actual-service verification, missing/incomplete mappings,
+future/reversed approval dates, both OCI list shapes, missing inputs, denied
+NSG rules, malformed JSON, formula-safe CSV, compartment/tenancy expansion,
+manual flag-based confirmation, explicit automation refusal, double-OCID
+mismatch, lowercase-`yes` refusal and mixed-scope rejection.
+
+The three older CM-7 scripts remain legacy references and are not canonical
+evidence sources.
+
+The expanded CM07-01 mock suite passes locally. Require the full GitHub Actions
+repository gate on the exact PR head before merge. Static validation still
+confirms all OCI wrapper sites are restricted to list/get.
+
+
+## Prior safety hardening — SC-8
 
 `SC08-SAFETY-REVIEW.md` records a second source-level review of
 `sc08-02-in-transit-encryption.sh`:
@@ -233,8 +281,8 @@ this public repository.
 
 ## Next implementation task for Claude
 
-Skip worksheet Task 4 because it is N/A, then continue with Task 5. Do not skip
-ahead to Task 6.
+Task 6 implementation was completed at the user's direction. Skip worksheet
+Task 4 because it is N/A, then return to Task 5.
 
 Task 5 target — Continuous Monitoring Form review/feedback:
 
@@ -248,9 +296,9 @@ Task 5 target — Continuous Monitoring Form review/feedback:
 5. Update `MASTER-TASK-LIST.md`, `AUDIT.md` and this handoff when the milestone
    is done.
 
-## Known later blocker
+## Resolved Task 6 blocker
 
-Task 6 has a confirmed baseline-ingestion defect in
-`cm07-proof-opened-ports.sh`: the approved CSV is piped to `python3 -` while a
-here-document simultaneously occupies Python's standard input. The CSV reader
-therefore receives no baseline rows. Fix it during Task 6, not before Tasks 2–5.
+The legacy `cm07-proof-opened-ports.sh` stdin collision is superseded by the
+canonical CM07-01 collector. Its post-processor receives the baseline path as
+an argument and opens the CSV directly, while the embedded Python program alone
+uses standard input.

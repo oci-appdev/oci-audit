@@ -11,8 +11,8 @@ Every collector must support both of these modes:
 
 1. **Interactive:** the default manual/no-scope-flag path, plus explicit `-i`
    and `--select-scope`
-2. **Non-interactive:** explicit compartment OCID/name flags for controlled
-   automation
+2. **Non-interactive:** an explicit automation mode plus compartment
+   OCID/name flags, resolved-OCID confirmations and an exact approval value
 
 Interactive mode must use `lib/oci-scope-selector.sh` and follow this sequence:
 
@@ -42,8 +42,16 @@ child compartment**. The script must display that warning before confirmation.
 - Interactive selection cannot be combined with `-c` or `-n`.
 - A no-argument/manual run should default to interactive selection. It must not
   silently expand into a whole-tenancy service scan.
-- Scheduled/non-interactive runs may continue to use explicit `-c` or `-n`
-  scope flags; those values must be supplied by the approved job definition.
+- Supplying `-c` or `-n` alone must not bypass confirmation. A manual run using
+  those flags must confirm every resolved OCID twice and require exact uppercase
+  `YES` after the plan.
+- Scheduled runs must explicitly opt into `--non-interactive`, provide one
+  exact `--confirm-scope-ocid` for every resolved target, and provide exact
+  `--approve-scan YES`. These values must be part of the approved job
+  definition and validated only after the plan is printed.
+- Evidence collectors must require an explicit region or resolve and record the
+  effective CLI region. A placeholder such as `default` is not acceptable
+  evidence provenance.
 - Scope discovery and validation must use only read-only list/get calls.
 - Selection does not prove full visibility. Coverage ledgers and failed-call
   status remain mandatory so an IAM denial cannot look like an empty scope.
@@ -66,6 +74,9 @@ Each collector integration must prove:
   local outputs and sensitive evidence;
 - interactive and non-interactive scope flags cannot be combined;
 - the read-only self-check and normal non-interactive interface still pass.
+- a normal `-c`/`-n` run cannot silently become non-interactive;
+- explicit automation fails closed for a missing/mismatched resolved OCID or
+  any approval value other than exact uppercase `YES`.
 
 The shared double-OCID implementation and regression examples are:
 
@@ -74,8 +85,12 @@ The shared double-OCID implementation and regression examples are:
 - `cp09-03-backup-replication-check.sh`
 - `sc08-02-in-transit-encryption.sh`
 - `sc28-oci-encryption-at-rest.sh`
+- `cm07-01-open-ports-protocols-services.sh`
 - `tests/test-scope-selection.sh`
+- `tests/test-cm07-01-open-ports.sh`
 
-All five canonical Task 1–3 collectors now default manual runs to this shared
-interactive workflow and implement the pre-scan summary plus exact-`YES` gate.
-Future collectors must adopt the full boundary when first introduced.
+All six canonical Task 1–3 and Task 6 collectors default no-scope manual runs to
+the shared interactive workflow and implement the pre-scan summary plus
+exact-`YES` gate. CM07-01 also implements the stricter explicit automation
+contract above. Retrofit the earlier collectors before their next material
+change; every future collector must use the strict contract when introduced.

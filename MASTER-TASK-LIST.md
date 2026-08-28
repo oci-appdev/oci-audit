@@ -24,7 +24,7 @@
 | 3 | Encryption at rest | Implementation complete | Failure-aware `sc28-oci-encryption-at-rest.sh`; default interactive tenancy/compartment discovery, double-OCID, resolved plan and exact-`YES` gate; storage/database key custody; current MySQL/PostgreSQL handling; Vault type/lifecycle/deletion; KMS HSM, AES key shape, automatic rotation and key-version evidence; refusal/no-workload-call, denied-call and rotation regressions; manual evidence checklist | Run in every in-scope region/compartment; retain the approved scan plan; reconcile CMK data stores to keys; resolve non-OK rows and CMK/HSM/rotation findings; complete key-admin, Audit-log, procedure and reviewer evidence; store signed package |
 | 4 | N/A | N/A | None required | None |
 | 5 | Continuous Monitoring Form review/feedback | Not started | None | Add reviewed form, feedback log, owner, disposition and approval |
-| 6 | Ports/protocols/services list, approval proof and restricted list | Partial | Three CM-7/PPSM collectors exist | Fix approval-baseline ingestion and reconciliation identity; add failure ledger; use authoritative PPSM CAL; obtain CCB/PPSM approval and reconciliation evidence |
+| 6 | Ports/protocols/services list, approval proof and restricted list | Implementation complete | Canonical `cm07-01-open-ports-protocols-services.sh`; Security List/NSG rules plus subnet/VNIC association context; default interactive discovery and double-OCID; manual `-c`/`-n` also confirm every OCID twice and require `YES`; explicit fail-closed automation contract; mandatory region; failure-aware inventory; actual service/listener mapping template and reconciliation; approval baseline reconciliation; authoritative restricted-list matching; source/date/SHA-256 provenance; private/formula-safe CSVs; expanded mock gate | Run inventory-only in each scope; have system owners complete and sign the resource/listener/service mapping; obtain signed CCB/PPSM/ISSO approval baseline and current authoritative restricted list; rerun complete reconciliation; disposition unapproved/restricted/internet-wide rows; validate routes, firewall and ZPR controls; store signed evidence package |
 | 7 | Software installation control | Not started | Package inventory is adjacent evidence only | Document authorized installers, approved software list, request/approval process and technical enforcement |
 | 8 | Configuration baseline | Partial | `cm08-hw-sw-baseline.sh` captures configuration attributes | Establish CI register, System Design Form, approved baseline, monthly comparison/review process and signed evidence |
 | 9 | Hardware/software inventory baseline | Partial | `cm08-hw-sw-baseline.sh` provides a strong failure-aware inventory collector | Execute monthly, compare to approved baseline, disposition changes, sign and archive evidence |
@@ -40,8 +40,8 @@
 
 ## Completion snapshot
 
-Excluding the two N/A items, three of sixteen actionable worksheet tasks have
-implementation-complete collector workflows. Three have partial foundations and
+Excluding the two N/A items, four of sixteen actionable worksheet tasks have
+implementation-complete collector workflows. Two have partial foundations and
 ten are not started. No actionable task should be represented as audit-complete
 until its operational evidence and approval records are produced and reviewed.
 
@@ -53,5 +53,5 @@ Continue in worksheet order:
 2. Execute and close Task 2 operational/manual evidence.
 3. Execute and close Task 3 operational/manual evidence.
 4. Skip Task 4 as N/A and complete Task 5 form review/feedback.
-5. Repair and operationalize Task 6.
+5. Execute and close Task 6 operational, approval and restricted-list evidence.
 6. Continue Tasks 7–14, skip Task 15, then complete Tasks 16–18.
