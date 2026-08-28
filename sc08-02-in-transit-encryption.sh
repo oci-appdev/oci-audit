@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# in-transit-encryption.sh
+# sc08-02-in-transit-encryption.sh
+# Collector ID: SC08-02
 #
 # SC-8 / SC-8(1) / SC-13 EVIDENCE — Encryption in transit
 #
@@ -23,15 +24,15 @@
 # pre-shared key. Nothing is created, modified, attached, detached or deleted.
 #
 # Usage:
-#   bash in-transit-encryption.sh                         # interactive by default
-#   bash in-transit-encryption.sh --select-scope
-#   bash in-transit-encryption.sh -i
-#   bash in-transit-encryption.sh -c <compartment-ocid>   # approved automation
-#   bash in-transit-encryption.sh -n 'VCN,Shared Services,CD3' # approved automation
-#   bash in-transit-encryption.sh -r us-langley-1
-#   bash in-transit-encryption.sh -s 'lb ipsec'
-#   bash in-transit-encryption.sh -o ./evidence
-#   bash in-transit-encryption.sh --selfcheck
+#   bash sc08-02-in-transit-encryption.sh                         # interactive by default
+#   bash sc08-02-in-transit-encryption.sh --select-scope
+#   bash sc08-02-in-transit-encryption.sh -i
+#   bash sc08-02-in-transit-encryption.sh -c <compartment-ocid>   # approved automation
+#   bash sc08-02-in-transit-encryption.sh -n 'VCN,Shared Services,CD3' # approved automation
+#   bash sc08-02-in-transit-encryption.sh -r us-langley-1
+#   bash sc08-02-in-transit-encryption.sh -s 'lb ipsec'
+#   bash sc08-02-in-transit-encryption.sh -o ./evidence
+#   bash sc08-02-in-transit-encryption.sh --selfcheck
 #
 # Interactive runs:
 #   1. Discover the tenancy and active compartments.
@@ -42,9 +43,9 @@
 #      YES. Any other response aborts before the first service API call.
 #
 # Output:
-#   oci_intransit_encryption_<ts>.csv
-#   oci_intransit_encryption_coverage_<ts>.csv
-#   oci_intransit_encryption_collection_errors_<ts>.csv (failed calls only)
+#   sc08-02_intransit_encryption_<ts>.csv
+#   sc08-02_intransit_encryption_coverage_<ts>.csv
+#   sc08-02_intransit_encryption_collection_errors_<ts>.csv (failed calls only)
 #
 # Exit codes:
 #   0  collection completed; findings still require review
@@ -84,7 +85,7 @@ readonly_selfcheck() {                                          # selfcheck-exem
 
 if [ "${1:-}" = "--selfcheck" ]; then
   if readonly_selfcheck; then
-    echo "READ-ONLY/NO-SECRET SELF-CHECK: PASSED (in-transit-encryption)"
+    echo "READ-ONLY/NO-SECRET SELF-CHECK: PASSED (sc08-02-in-transit-encryption)"
     echo "All OCI calls in $SCRIPT_PATH are list/get operations; ip-sec-psk get is prohibited."
     exit 0
   fi
@@ -166,9 +167,9 @@ mkdir -p -- "$OUTDIR" 2>/dev/null || { echo "ERROR: cannot create output directo
 readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT="$OUTDIR/oci_intransit_encryption_${TS}.csv"
-COVERAGE="$OUTDIR/oci_intransit_encryption_coverage_${TS}.csv"
-ERROUT="$OUTDIR/oci_intransit_encryption_collection_errors_${TS}.csv"
+OUT="$OUTDIR/sc08-02_intransit_encryption_${TS}.csv"
+COVERAGE="$OUTDIR/sc08-02_intransit_encryption_coverage_${TS}.csv"
+ERROUT="$OUTDIR/sc08-02_intransit_encryption_collection_errors_${TS}.csv"
 
 init_output_file() {
   local path="$1" header="$2"
@@ -359,7 +360,7 @@ confirm_sc8_scan_plan() {
   echo "======================================================================"
   echo "SC-8 PRE-SCAN SAFETY SUMMARY"
   echo "======================================================================"
-  echo "Collector       : in-transit-encryption.sh"
+  echo "Collector       : sc08-02-in-transit-encryption.sh"
   echo "Controls        : SC-8 / SC-8(1) / SC-13"
   echo "Region          : ${REGION_OVERRIDE:-<cloud-shell-default>}"
   echo "Scope type      : $scope_type"

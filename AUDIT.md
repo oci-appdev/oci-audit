@@ -1,6 +1,6 @@
 # OCI Audit Implementation Review
 
-**Last updated:** 2026-08-27
+**Last updated:** 2026-08-28
 
 **Current branch:** `codex/task1-audit-hardening`
 
@@ -21,11 +21,16 @@ The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
 Task 5 is the next implementation target.
 
+On 2026-08-28 the Task 2 collector was normalized to the canonical
+`sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
+`sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
+removed; the collector's read-only and no-secret safety boundary is unchanged.
+
 ---
 
 ## 2026-08-27 — SC-8 pre-scan authorization and safety review
 
-A second source-level safety review of `in-transit-encryption.sh` verified 27
+A second source-level safety review of `sc08-02-in-transit-encryption.sh` verified 27
 OCI wrapper call sites. All are `list`/`get`, and none retrieves the separate
 IPSec shared-secret object. The review also found that the previous
 no-argument path immediately expanded to a tenancy scan and that the original
@@ -99,7 +104,7 @@ it is forbidden from reporting the result as no keys.
 
 ## 2026-08-27 — Task 2 SC-8 collection integrity and IPSec coverage
 
-The original `in-transit-encryption.sh` discarded stderr for every OCI call.
+The original `sc08-02-in-transit-encryption.sh` discarded stderr for every OCI call.
 A permission denial therefore looked exactly like an empty service. It also
 claimed Load Balancer backend coverage without collecting backend sets and had
 no Site-to-Site VPN evidence.

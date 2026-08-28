@@ -1,7 +1,7 @@
 # SC-8 In-Transit Encryption Collector Safety Review
 
-**Reviewed:** 2026-08-27  
-**Collector:** `in-transit-encryption.sh`  
+**Reviewed:** 2026-08-28  
+**Collector:** `sc08-02-in-transit-encryption.sh`  
 **Controls:** SC-8, SC-8(1), SC-13  
 **Review scope:** source safety, OCI command inventory, scope authorization,
 secret handling, collection integrity, local evidence handling and regression
@@ -27,7 +27,7 @@ A no-argument invocation now enters interactive mode. It no longer defaults to
 an immediate whole-tenancy service sweep.
 
 ```bash
-bash in-transit-encryption.sh -r us-langley-1 -o ./evidence
+bash sc08-02-in-transit-encryption.sh -r us-langley-1 -o ./evidence
 ```
 
 The operator must complete these gates in order:

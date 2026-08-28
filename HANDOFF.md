@@ -1,6 +1,6 @@
 # Implementation Handoff
 
-**Updated:** 2026-08-27
+**Updated:** 2026-08-28
 
 **Working branch:** `codex/task1-audit-hardening`
 
@@ -19,7 +19,7 @@ normal command containing only region/output options silently used the old
 tenancy-wide path. The option parser and tests now exercise the real no-scope-
 flag operator command for every canonical collector.
 
-Scripts `cp09-01`, `cp09-02`, `cp09-03`, `in-transit-encryption.sh` and
+Scripts `cp09-01`, `cp09-02`, `cp09-03`, `sc08-02-in-transit-encryption.sh` and
 `sc28-oci-encryption-at-rest.sh` now default normal/manual runs to interactive
 scope selection; `-i` / `--select-scope` are optional aliases. They discover
 the tenancy and active compartments, display full OCIDs, require an exact
@@ -39,7 +39,11 @@ automation, but do not create a different interactive selection workflow.
 ## Latest safety hardening — SC-8
 
 `SC08-SAFETY-REVIEW.md` records a second source-level review of
-`in-transit-encryption.sh`:
+`sc08-02-in-transit-encryption.sh`:
+
+The collector now uses the canonical `SC08-02` filename and `sc08-02_...`
+evidence prefix. The obsolete unprefixed script and regression-test paths were
+removed from this branch.
 
 - 27 OCI wrapper call sites parsed and restricted to `list`/`get`;
 - `network ip-sec-psk get` explicitly prohibited and injection-tested;
@@ -52,7 +56,7 @@ automation, but do not create a different interactive selection workflow.
 - backend TLS peer-verification disabled is an explicit review finding.
 
 Tests are in `tests/test-sc8-safety.sh`,
-`tests/test-in-transit-encryption.sh` and `tests/test-scope-selection.sh`.
+`tests/test-sc08-02-in-transit-encryption.sh` and `tests/test-scope-selection.sh`.
 Static/mock review passed; live OCI evidence remains pending.
 
 ## Prior milestone — Task 3
@@ -94,7 +98,7 @@ coverage; it cannot produce a fake no-keys result.
 
 ## Prior milestone — Task 2
 
-### `in-transit-encryption.sh`
+### `sc08-02-in-transit-encryption.sh`
 
 - Replaced discarded stderr with current-shell captured calls.
 - Added `collection_status` and `collection_error` to evidence rows.
@@ -118,7 +122,7 @@ evidence handling and reviewer sign-off.
 
 ### Task 2 regression gate
 
-Added `tests/mock-oci-task2` and `tests/test-in-transit-encryption.sh`. The
+Added `tests/mock-oci-task2` and `tests/test-sc08-02-in-transit-encryption.sh`. The
 success path exercises every Task 2 service and requires two independent IPSec
 tunnel rows. A one-tunnel fixture must produce the incomplete-pair finding. The
 denied path injects a 403 on the IPSec tunnel list and requires exit `3`, an
@@ -164,7 +168,7 @@ Latest local result:
 READ-ONLY SELF-CHECK: PASSED (cp09-01)
 READ-ONLY SELF-CHECK: PASSED (cp09-02)
 READ-ONLY SELF-CHECK: PASSED (cp09-03)
-READ-ONLY/NO-SECRET SELF-CHECK: PASSED (in-transit-encryption)
+READ-ONLY/NO-SECRET SELF-CHECK: PASSED (sc08-02-in-transit-encryption)
 READ-ONLY SELF-CHECK: PASSED (sc28-oci-encryption-at-rest)
 PASS: cp09-03 success and denied-collection regressions
 Verified 27 SC-8 OCI wrapper calls: list/get only; no PSK retrieval

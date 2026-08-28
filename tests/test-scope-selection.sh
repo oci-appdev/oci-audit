@@ -61,7 +61,7 @@ grep -q 'compartment-id-in-subtree true' "$TMP/cp03.log"
 # scan-plan summary and exact uppercase YES before service collection.
 printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'YES' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/sc08.log" \
-  bash "$ROOT/in-transit-encryption.sh" \
+  bash "$ROOT/sc08-02-in-transit-encryption.sh" \
     -r us-langley-1 -s '' -o "$TMP/sc08" > "$TMP/sc08.out"
 
 grep -q 'Confirmed scope: COMPARTMENT — VCN' "$TMP/sc08.out"
@@ -75,7 +75,7 @@ grep -q 'compartment-id-in-subtree true' "$TMP/sc08.log"
 # SC-8 tenancy selection must expand to root plus both active children.
 printf '%s\n%s\n%s\n' "$TENANCY" "$TENANCY" 'YES' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/sc08-tenancy.log" \
-  bash "$ROOT/in-transit-encryption.sh" \
+  bash "$ROOT/sc08-02-in-transit-encryption.sh" \
     -i -r us-langley-1 -s '' -o "$TMP/sc08-tenancy" > "$TMP/sc08-tenancy.out"
 
 grep -q 'WARNING: this selection scans the tenancy root and every active child compartment.' "$TMP/sc08-tenancy.out"
@@ -142,7 +142,7 @@ fi
 # SC-8 must also fail closed before any encryption or IPSec collection begins.
 set +e
 printf '%s\n%s\n' "$COMPARTMENT" "$TENANCY" | \
-  PATH="$TMP/bin:$PATH" bash "$ROOT/in-transit-encryption.sh" \
+  PATH="$TMP/bin:$PATH" bash "$ROOT/sc08-02-in-transit-encryption.sh" \
     -i -r us-langley-1 -s '' -o "$TMP/mismatch08" > "$TMP/mismatch08.out" 2>&1
 rc=$?
 set -e
@@ -159,7 +159,7 @@ fi
 set +e
 printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'yes' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/refuse08.log" \
-  bash "$ROOT/in-transit-encryption.sh" \
+  bash "$ROOT/sc08-02-in-transit-encryption.sh" \
     -i -r us-langley-1 -s ipsec -o "$TMP/refuse08" > "$TMP/refuse08.out" 2>&1
 rc=$?
 set -e
@@ -258,7 +258,7 @@ set -e
 grep -q 'cannot be combined with -c or -n' "$TMP/conflict.out"
 
 set +e
-PATH="$TMP/bin:$PATH" bash "$ROOT/in-transit-encryption.sh" \
+PATH="$TMP/bin:$PATH" bash "$ROOT/sc08-02-in-transit-encryption.sh" \
   --select-scope -c "$COMPARTMENT" -s '' -o "$TMP/conflict08" > "$TMP/conflict08.out" 2>&1
 rc=$?
 set -e

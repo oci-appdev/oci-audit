@@ -8,7 +8,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
 ln -s "$ROOT/tests/mock-oci-scope" "$TMP/bin/oci"
 
-python3 - "$ROOT/in-transit-encryption.sh" <<'PY'
+python3 - "$ROOT/sc08-02-in-transit-encryption.sh" <<'PY'
 import re
 import shlex
 import sys
@@ -81,21 +81,21 @@ PY
 # mutating OCI call or the read-only-but-secret ip-sec-psk get operation.
 for fixture in mutation secret; do
   mkdir -p "$TMP/$fixture/lib"
-  cp "$ROOT/in-transit-encryption.sh" "$TMP/$fixture/in-transit-encryption.sh"
+  cp "$ROOT/sc08-02-in-transit-encryption.sh" "$TMP/$fixture/sc08-02-in-transit-encryption.sh"
   cp "$ROOT/lib/oci-scope-selector.sh" "$TMP/$fixture/lib/oci-scope-selector.sh"
 done
 
-sed -i '0,/iam compartment list/s//iam compartment delete/' "$TMP/mutation/in-transit-encryption.sh"
+sed -i '0,/iam compartment list/s//iam compartment delete/' "$TMP/mutation/sc08-02-in-transit-encryption.sh"
 set +e
-bash "$TMP/mutation/in-transit-encryption.sh" --selfcheck > "$TMP/mutation.out" 2>&1
+bash "$TMP/mutation/sc08-02-in-transit-encryption.sh" --selfcheck > "$TMP/mutation.out" 2>&1
 mutation_rc=$?
 set -e
 [ "$mutation_rc" -eq 1 ]
 grep -q 'SELF-CHECK: FAILED' "$TMP/mutation.out"
 
-sed -i '0,/iam compartment list/s//network ip-sec-psk get/' "$TMP/secret/in-transit-encryption.sh"
+sed -i '0,/iam compartment list/s//network ip-sec-psk get/' "$TMP/secret/sc08-02-in-transit-encryption.sh"
 set +e
-bash "$TMP/secret/in-transit-encryption.sh" --selfcheck > "$TMP/secret.out" 2>&1
+bash "$TMP/secret/sc08-02-in-transit-encryption.sh" --selfcheck > "$TMP/secret.out" 2>&1
 secret_rc=$?
 set -e
 [ "$secret_rc" -eq 1 ]
@@ -104,7 +104,7 @@ grep -q 'SELF-CHECK: FAILED' "$TMP/secret.out"
 # Invalid selectors fail before the first OCI call.
 set +e
 PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/unknown-service.log" \
-  bash "$ROOT/in-transit-encryption.sh" -c ocid1.compartment.oc1..vcn \
+  bash "$ROOT/sc08-02-in-transit-encryption.sh" -c ocid1.compartment.oc1..vcn \
     -s 'ipsec destroy' -o "$TMP/unknown-service" > "$TMP/unknown-service.out" 2>&1
 unknown_rc=$?
 set -e
@@ -114,7 +114,7 @@ grep -q 'unknown service selector: destroy' "$TMP/unknown-service.out"
 
 set +e
 PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/tenancy-c.log" \
-  bash "$ROOT/in-transit-encryption.sh" -c ocid1.tenancy.oc1..scope \
+  bash "$ROOT/sc08-02-in-transit-encryption.sh" -c ocid1.tenancy.oc1..scope \
     -s ipsec -o "$TMP/tenancy-c" > "$TMP/tenancy-c.out" 2>&1
 tenancy_c_rc=$?
 set -e
@@ -126,7 +126,7 @@ grep -q -- '-c requires a compartment OCID' "$TMP/tenancy-c.out"
 # validation lookup and never reaches a service endpoint.
 set +e
 PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/bad-compartment.log" \
-  bash "$ROOT/in-transit-encryption.sh" -c ocid1.compartment.oc1..vcn \
+  bash "$ROOT/sc08-02-in-transit-encryption.sh" -c ocid1.compartment.oc1..vcn \
     -s ipsec -o "$TMP/bad-compartment" > "$TMP/bad-compartment.out" 2>&1
 bad_compartment_rc=$?
 set -e

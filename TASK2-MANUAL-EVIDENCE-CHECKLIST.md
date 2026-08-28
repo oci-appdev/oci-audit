@@ -27,7 +27,7 @@ location and record only its controlled reference in the audit worksheet.
 
 ## Automated integrity gate
 
-- [ ] `bash in-transit-encryption.sh --selfcheck` reported the
+- [ ] `bash sc08-02-in-transit-encryption.sh --selfcheck` reported the
       read-only/no-secret check as passed.
 - [ ] The operator run used default interactive mode, `-i` or
       `--select-scope`; the exact discovered OCID was confirmed twice; the

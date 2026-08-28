@@ -110,7 +110,7 @@ tenancy passed the control. Review the findings and evidence rows separately.
 
 ## Canonical Task 2 workflow
 
-`in-transit-encryption.sh` is the SC-8/SC-8(1)/SC-13 collector. It covers Load
+`sc08-02-in-transit-encryption.sh` is the canonical SC08-02 SC-8/SC-8(1)/SC-13 collector. It covers Load
 Balancer frontend and backend TLS, NLB passthrough, Autonomous and Base
 databases, Object Storage, volume attachments, FSS, API Gateway, OKE and the
 Site-to-Site VPN chain (CPE, IPSec connection, tunnels and DRG attachment/route
@@ -124,7 +124,7 @@ pre-shared key. The full source and evidence-handling review is in
 Run the read-only check:
 
 ```bash
-bash in-transit-encryption.sh --selfcheck
+bash sc08-02-in-transit-encryption.sh --selfcheck
 ```
 
 No-argument execution is interactive by default. It discovers the tenancy and
@@ -133,7 +133,7 @@ complete scan plan and starts service collection only after exact uppercase
 `YES`:
 
 ```bash
-bash in-transit-encryption.sh \
+bash sc08-02-in-transit-encryption.sh \
   -r us-langley-1 -o ./evidence
 ```
 
@@ -152,7 +152,7 @@ EVIDENCE_DIR="./evidence/${REGION}/${RUN_ID}"
 
 mkdir -p "$EVIDENCE_DIR"
 
-bash in-transit-encryption.sh \
+bash sc08-02-in-transit-encryption.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 ```
 
