@@ -1,0 +1,27 @@
+name: OCI audit collector regression tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify test dependencies
+        run: |
+          bash --version
+          jq --version
+          python3 --version
+
+      - name: Run read-only and mock regression suite
+        run: bash tests/run.sh
