@@ -2,6 +2,14 @@
 #
 # oci_backup_audit.sh
 #
+# DEPRECATED — compatibility/reference collector only.
+# The canonical CP-9 evidence workflow is:
+#   cp09-01-backup-type-config-frequency.sh
+#   cp09-02-backup-access-files-check.sh
+#   cp09-03-backup-replication-check.sh
+# This file suppresses OCI stderr and has no collection-status ledger, so it
+# must not be used as the sole audit evidence source.
+#
 # Tenancy-wide backup / snapshot posture audit for OCI.
 # Designed to run in OCI Cloud Shell, where the CLI is already authenticated
 # with your delegation token (same auth that makes `oci iam compartment list`

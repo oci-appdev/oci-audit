@@ -1,8 +1,177 @@
-# OCI Backup Audit Script — Read-Only Posture Review
+# OCI Audit Implementation Review
 
-**Script:** `oci_backup_audit.py`  
-**Date:** 2026-07-14  
-**Reviewer:** Copilot Audit Agent
+**Last updated:** 2026-08-28
+
+**Current branch:** `codex/task1-audit-hardening`
+
+**Master tracker:** `MASTER-TASK-LIST.md`
+
+**Continuation notes:** `HANDOFF.md`
+
+## Current audit position
+
+Tasks 1, 2 and 3 now have implementation-complete collector workflows and
+reproducible mock gates ready for controlled OCI runs. None is
+audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
+custody/rotation proof, reviewer
+disposition, evidence-location references and approval records have not been
+produced in this repository.
+
+The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
+in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
+Task 5 is the next implementation target.
+
+On 2026-08-28 the Task 2 collector was normalized to the canonical
+`sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
+`sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
+removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+---
+
+## 2026-08-27 — SC-8 pre-scan authorization and safety review
+
+A second source-level safety review of `sc08-02-in-transit-encryption.sh` verified 27
+OCI wrapper call sites. All are `list`/`get`, and none retrieves the separate
+IPSec shared-secret object. The review also found that the previous
+no-argument path immediately expanded to a tenancy scan and that the original
+self-check could miss a mutating command introduced through `oci_capture`.
+
+The SC-8 collector now:
+
+- defaults no-argument/manual runs to interactive discovery;
+- requires exact discovered tenancy/compartment OCID entry twice;
+- displays region, selected scope, every target compartment, requested
+  services, local outputs and evidence sensitivity before service collection;
+- requires exact uppercase `YES` after that summary and removes header-only
+  outputs on refusal;
+- retains explicit `-c`/`-n` for approved non-interactive jobs and prints the
+  resolved plan to their logs;
+- rejects invalid compartment OCIDs, ambiguous `-c`/`-n` combinations and
+  unknown service tokens before collection;
+- validates successful list/get JSON response shapes so malformed output cannot
+  become a false zero-resource result;
+- explicitly prohibits `network ip-sec-psk get` in both the self-check and an
+  injection regression;
+- uses secure temporary files, private output permissions, no-clobber output
+  creation and CSV formula neutralization;
+- reports missing volume encryption fields as unknown/review rather than
+  fabricating a disabled result;
+- reports backend TLS with peer verification disabled as a review finding.
+
+`SC08-SAFETY-REVIEW.md` records the complete review, command inventory,
+resolved findings, local-write boundary and remaining manual evidence.
+
+---
+
+## 2026-08-27 — Task 3 SC-28 encryption-at-rest integrity and KMS evidence
+
+The original `sc28-oci-encryption-at-rest.sh` discarded stderr for every OCI
+call. A permission denial therefore looked like an empty service or absent key.
+It also used obsolete/nonexistent MySQL and PostgreSQL key paths and listed KMS
+keys without collecting the full key or version metadata needed to prove
+protection and rotation posture.
+
+The collector now:
+
+- performs a source-level read-only self-check and uses only list/get calls;
+- implements the mandatory tenancy/compartment discovery and double-OCID
+  confirmation boundary;
+- records row-level collection status/error, compartment/service coverage and
+  a retained failed-call ledger, exiting `3` when collection is incomplete;
+- covers Block/Boot Volumes, Object Storage, FSS, Autonomous DB, Base DB,
+  MySQL, OCI Database with PostgreSQL, Vaults and KMS keys;
+- reads MySQL custody from `encrypt-data.key-generation-type/key-id`;
+- records PostgreSQL platform encryption and a manual custody boundary because
+  the current DB-system API does not expose an equivalent customer-key field;
+- records Vault type, lifecycle, deletion schedule and management endpoint;
+- calls KMS key `get` plus key-version `list` and records HSM/software
+  protection, algorithm/length, lifecycle/deletion, automatic rotation
+  interval/last/next/status and version history;
+- treats pending deletion, disabled/unexpected key state, software keys,
+  non-AES-256 shape and failed/unconfirmed rotation as explicit findings;
+- never retrieves key material, secrets or protected configuration values.
+
+`TASK3-MANUAL-EVIDENCE-CHECKLIST.md` defines the required CMK reconciliation,
+key administrator approval, HSM/AES-256 review, OCI Audit rotation proof,
+manual rotation procedure, evidence integrity and sign-off package.
+
+The Task 3 mock suite exercises every service path, automatic rotation success
+and failure, and a 403 on KMS key listing. The denied case must exit `3`, retain
+the error ledger and produce `DENIED/COLLECTION-FAILED` evidence and coverage;
+it is forbidden from reporting the result as no keys.
+
+---
+
+## 2026-08-27 — Task 2 SC-8 collection integrity and IPSec coverage
+
+The original `sc08-02-in-transit-encryption.sh` discarded stderr for every OCI call.
+A permission denial therefore looked exactly like an empty service. It also
+claimed Load Balancer backend coverage without collecting backend sets and had
+no Site-to-Site VPN evidence.
+
+The collector now:
+
+- performs a source-level read-only self-check and uses only list/get calls;
+- records `collection_status` and `collection_error` on every evidence row;
+- produces a compartment-by-service coverage ledger and failed-call ledger;
+- exits `3` when collection is incomplete;
+- distinguishes missing data from a verified zero-resource result;
+- collects Load Balancer listeners and backend-set SSL independently;
+- covers CPEs, IPSec connections, tunnel lifecycle/status, IKE version,
+  routing/BGP state, negotiated phase-one/phase-two parameters and PFS;
+- collects both OCI tunnel objects independently and flags any connection that
+  does not return exactly two tunnels as `IPSEC-TUNNEL-PAIR-INCOMPLETE`;
+- records DRG attachment, route-table and attached-network context;
+- never requests or exposes an IPSec pre-shared key;
+- retains manual-evidence boundaries for NLB backend TLS, Base DB `sqlnet.ora`
+  and FSS encrypted client mounts.
+
+`TASK2-MANUAL-EVIDENCE-CHECKLIST.md` defines the screenshot/config package and
+review sign-off required to close those boundaries.
+
+The regression suite exercises every Task 2 service path. A denied tunnel-list
+call must yield exit `3`, a `DENIED/COLLECTION-FAILED` IPSec tunnel row, denied
+coverage and a retained error ledger. It is forbidden from producing
+`TUNNEL-DOWN`, `NO-IPSEC` or `NO-VPN`.
+
+---
+
+## 2026-08-27 — default interactive OCI scope and final approval standard
+
+Follow-up testing found that CP-9 scripts 01–03 and SC-28 previously entered
+interactive mode only when `-i`/`--select-scope` was supplied. Their tests
+supplied the same flag, so they did not detect that a normal region/output-only
+operator command bypassed the prompt. This was a real implementation and test
+gap, not an operator error.
+
+All three CP-9 collectors plus the SC-8 and SC-28 encryption collectors now
+default normal/manual runs to interactive discovery. `-i` / `--select-scope`
+remain explicit aliases. The scripts discover the authenticated tenancy and
+active subtree compartments, show the full name/OCID catalog, require an exact
+discovered OCID twice, display the resolved targets/work/output plan, then
+require exact uppercase `YES`. Selecting the tenancy explicitly means root plus
+all active child compartments.
+
+The selector rejects unknown OCIDs, mismatched confirmation and combinations
+with `-c` or `-n`. Regression coverage proves every collector refuses lowercase
+`yes` before any workload call and removes header-only CSVs. Existing explicit
+`-c`/`-n` scope flags remain available for approved automation and print the
+resolved plan to the job log without prompting.
+
+`SCRIPT-DESIGN-STANDARD.md` makes this interface mandatory for every new or
+materially redesigned collector. The shared behavior lives in
+`lib/oci-scope-selector.sh` so future scripts do not invent a different prompt
+or confirmation boundary.
+
+---
+
+## Original SDK collector review
+
+**Script:** `oci_backup_audit.py`
+
+**Original review date:** 2026-07-14
+
+**Original reviewer:** Copilot Audit Agent
 
 ---
 
@@ -68,13 +237,13 @@ The script's **stated purpose and design are read-only**. To confirm fully, revi
 
 | Script | Dimension | Status |
 |---|---|---|
-| `cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | rewritten 2026-08-27, blockers fixed |
-| `cp09-02-backup-access-files-check.sh` | who can access the backup files | new 2026-08-27 |
-| `cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | collection-failure reporting fixed 2026-08-27 |
+| `cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | implementation complete; OCI evidence pending |
+| `cp09-02-backup-access-files-check.sh` | who can access the backup files | implementation complete; OCI evidence pending |
+| `cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | row-level failure attribution and coverage complete; OCI evidence pending |
 
 All three are read-only, record compartment names, and refuse to let a failed
-collection look like a clean result. `cp09-01` and `cp09-02` carry a
-`--selfcheck` flag that proves read-only-ness against their own source.
+collection look like a clean result. All three carry a `--selfcheck` flag that
+proves read-only-ness against their own source.
 
 Together these cover the evidence line item *"Backup type/frequency, access,
 replication — all OCS assets (VCN, Shared Services, CD3)"*.
@@ -118,15 +287,34 @@ Patching the individual bugs would have left the architecture intact, and the ar
 
 ---
 
-## 2026-08-27 — cp09-03 collection-failure reporting
+## 2026-08-27 — cp09-03 row-level collection integrity
 
 `cp09-03` had the same defect as the retired access scripts: `o() { oci ... 2>/dev/null; }` discarded all stderr. For a replication control this is the worst possible failure mode — a 403 on `bv block-volume-replica list` returns nothing, and nothing is then reported as `NO-REPLICA`. An auditor would read a permissions problem as proof that no DR copy exists.
 
-The wrapper now captures stderr, classifies the failure (DENIED / CLI_UNSUPPORTED / NOTFOUND / ERROR), writes it to a companion `oci_backup_dr_collection_errors_<ts>.csv`, prints a prominent warning, and exits 3.
+The first repair captured errors in a separate file, but status assignments made
+inside command substitutions could not reach the caller. That made it
+impossible to attribute incomplete collection to the affected evidence row.
 
-**Subtlety worth remembering:** most call sites invoke `o()` inside `$( ... )`, which is a subshell, so an `INCOMPLETE=1` set inside it never reaches the parent scope. The verdict is therefore derived from the error file's row count — file appends survive the subshell, variable assignments do not. The first version of this fix deleted the error file precisely because it trusted the variable.
+The collector now uses explicit captured calls in the current shell. Every row
+has `collection_status` and `collection_error`. Each compartment/service also
+has a coverage row, and a failed primary collection produces a synthetic
+`COLLECTION-FAILED` evidence row. Failed replica lookups produce
+`replicated=UNKNOWN`; they can no longer produce a false `NO-REPLICA` finding.
 
-Still outstanding for `cp09-03`: per-row `collection_status`. Attributing a status to each row means threading it through all seven check functions; the current fix makes failures impossible to miss but does not yet mark *which* row is affected.
+Other changes:
+
+- Added `--selfcheck`, `-n` compartment-name filtering and `-o` output routing.
+- Reduced repeated API calls by caching replica lists per compartment or AD.
+- Added support for both `.data[]` and `.data.items[]` response shapes.
+- Added mock coverage for all seven service paths.
+- Added a denied-call regression that requires exit `3`, a `DENIED` asset row,
+  a `DENIED` coverage row and a retained failed-call ledger.
+
+Regression command:
+
+```bash
+bash tests/run.sh
+```
 
 ---
 
@@ -139,7 +327,10 @@ Added to fill the empty slot between `cp09-01` (type/frequency) and `cp09-03` (r
 - `oci-backup-audit.sh` — older duplicate of `backup-storage.sh`
 - `backup-storage-access.sh` — fully superseded by `cp09-02`
 
-**Kept:** `backup-storage.sh` — its Base DB / ADB / MySQL / PostgreSQL backup-posture coverage (configured? schedule? retention?) is not yet provided anywhere else in this repo.
+**Later status:** `cp09-01` now covers Base DB, ADB, MySQL and PostgreSQL with
+failure-aware rows and a coverage ledger. `backup-storage.sh` and
+`oci_backup_audit.py` are therefore deprecated compatibility/reference
+collectors and are not canonical audit evidence sources.
 
 ### Gaps closed vs. the scripts it replaces
 

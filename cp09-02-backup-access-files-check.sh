@@ -30,7 +30,9 @@
 #       `oci iam compartment list` work). Outside Cloud Shell pass -p PROFILE.
 #
 # Usage:
-#   ./cp09-02-backup-access-files-check.sh                  # whole tenancy
+#   ./cp09-02-backup-access-files-check.sh                  # interactive scope + approval
+#   ./cp09-02-backup-access-files-check.sh --select-scope   # discover + confirm scope
+#   ./cp09-02-backup-access-files-check.sh -i               # short form
 #   ./cp09-02-backup-access-files-check.sh -c <ocid>        # one compartment
 #   ./cp09-02-backup-access-files-check.sh -n VCN,CD3       # by compartment NAME
 #   ./cp09-02-backup-access-files-check.sh -r us-langley-1  # region override
@@ -54,6 +56,8 @@
 set -uo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+SCOPE_HELPER="$SCRIPT_DIR/lib/oci-scope-selector.sh"
 
 # ---------------------------------------------------------------------------
 # Read-only self-verification
@@ -63,16 +67,18 @@ SCRIPT_PATH="${BASH_SOURCE[0]}"
 # ---------------------------------------------------------------------------
 readonly_selfcheck() {                                          # selfcheck-exempt
   local deny hits                                               # selfcheck-exempt
+  local -a check_paths=("$SCRIPT_PATH" "$SCOPE_HELPER")         # selfcheck-exempt
+  [ -r "$SCOPE_HELPER" ] || { echo "READ-ONLY SELF-CHECK: FAILED — missing $SCOPE_HELPER" >&2; return 1; }  # selfcheck-exempt
   deny='oci[[:space:]]+([a-z0-9-]+[[:space:]]+)*(create|update|delete|change|move|restore|enable|disable|rotate|assign|attach|detach|terminate|reboot|import|export|upload|bulk-upload|bulk-delete|reset|activate|deactivate|cancel)([[:space:]]|$)'  # selfcheck-exempt
-  hits="$(grep -nE "$deny" "$SCRIPT_PATH" 2>/dev/null \
+  hits="$(grep -nE "$deny" "${check_paths[@]}" 2>/dev/null \
           | grep -v 'selfcheck-exempt' \
-          | grep -vE '^[0-9]+:[[:space:]]*#' || true)"          # selfcheck-exempt
+          | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"      # selfcheck-exempt
   local raw rawpat                                              # selfcheck-exempt
   rawpat="raw""-request"   # split literal so this line is not its own match
-  raw="$(grep -nE "$rawpat" "$SCRIPT_PATH" 2>/dev/null \
+  raw="$(grep -nE "$rawpat" "${check_paths[@]}" 2>/dev/null \
          | grep -viE 'http-method[[:space:]=]+GET' \
          | grep -v 'selfcheck-exempt' \
-         | grep -vE '^[0-9]+:[[:space:]]*#' || true)"           # selfcheck-exempt
+         | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"       # selfcheck-exempt
   if [ -n "$hits" ] || [ -n "$raw" ]; then                      # selfcheck-exempt
     echo "READ-ONLY SELF-CHECK: FAILED — mutating call found:" >&2
     printf '%s\n%s\n' "$hits" "$raw" >&2
@@ -97,6 +103,10 @@ fi
 command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found." >&2; exit 1; }
 command -v jq  >/dev/null 2>&1 || { echo "ERROR: jq not found." >&2; exit 1; }
 
+[ -r "$SCOPE_HELPER" ] || { echo "ERROR: scope selector not found: $SCOPE_HELPER" >&2; exit 1; }
+# shellcheck source=lib/oci-scope-selector.sh
+source "$SCOPE_HELPER"
+
 # ---------------------------------------------------------------------------
 # Options
 # ---------------------------------------------------------------------------
@@ -106,9 +116,21 @@ REGION_OVERRIDE=""
 PROFILE=""
 OUTDIR="."
 PHASES="artifacts grants principals exposure keys"
+SELECT_SCOPE=0
 
-while getopts "c:n:r:p:o:s:h" opt; do
+# Normalize the readable long option before getopts handles short options.
+NORMALIZED_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --select-scope) SELECT_SCOPE=1 ;;
+    *) NORMALIZED_ARGS+=("$arg") ;;
+  esac
+done
+set -- "${NORMALIZED_ARGS[@]}"
+
+while getopts "ic:n:r:p:o:s:h" opt; do
   case "$opt" in
+    i) SELECT_SCOPE=1 ;;
     c) SINGLE_COMP="$OPTARG" ;;
     n) COMP_NAMES_FILTER="$OPTARG" ;;
     r) REGION_OVERRIDE="$OPTARG" ;;
@@ -119,6 +141,29 @@ while getopts "c:n:r:p:o:s:h" opt; do
     *) echo "Use -h for help" >&2; exit 1 ;;
   esac
 done
+
+if [ "$SELECT_SCOPE" -eq 1 ] && { [ -n "$SINGLE_COMP" ] || [ -n "$COMP_NAMES_FILTER" ]; }; then
+  echo "ERROR: --select-scope/-i cannot be combined with -c or -n." >&2
+  exit 1
+fi
+
+if [ -n "$SINGLE_COMP" ] && [ -n "$COMP_NAMES_FILTER" ]; then
+  echo "ERROR: -c and -n are mutually exclusive scope modes." >&2
+  exit 1
+fi
+
+if [ -n "$SINGLE_COMP" ]; then
+  case "$SINGLE_COMP" in
+    ocid1.compartment.*) ;;
+    *) echo "ERROR: -c requires a compartment OCID. Use interactive mode to select the tenancy." >&2; exit 1 ;;
+  esac
+fi
+
+# A normal operator run always discovers the tenancy/compartments and asks for
+# the exact OCID. Explicit -c/-n remain the approved automation path.
+if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
+  SELECT_SCOPE=1
+fi
 
 has_phase() { case " $PHASES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
@@ -217,6 +262,13 @@ printf '%s\n' 'principal_type,principal_name,principal_id,via_grantee,strongest_
 printf '%s\n' 'compartment_id,compartment_name,vector,bucket_or_resource,detail,access_type,expires,is_active,severity,collection_status,collection_error' > "$EXPO_CSV"
 printf '%s\n' 'severity,category,compartment_id,compartment_name,resource,detail,recommendation' > "$FIND_CSV"
 
+abort_before_scan() {
+  local reason="$1"
+  rm -f -- "$ART_CSV" "$GRANT_CSV" "$PRIN_CSV" "$EXPO_CSV" "$FIND_CSV" 2>/dev/null
+  echo "SCAN NOT STARTED: $reason" >&2
+  exit 1
+}
+
 # ---------------------------------------------------------------------------
 # Backup-bearing IAM resource vocabulary
 #
@@ -243,6 +295,7 @@ echo "======================================================================"
 echo " read-only : verified against own source (--selfcheck to reproduce)"
 echo " region    : ${REGION_OVERRIDE:-<cloud-shell / config default>}"
 echo " auth      : ${PROFILE:-<delegation token / DEFAULT>}"
+echo " scope     : $([ "$SELECT_SCOPE" -eq 1 ] && printf 'interactive discovery + OCID confirmation' || printf 'command-line/default')"
 echo " phases    : $PHASES"
 echo " output    : $OUTDIR"
 echo "======================================================================"
@@ -265,7 +318,41 @@ fi
 echo "Tenancy: $TENANCY_ID"
 
 COMPS=""
-if [ -n "$SINGLE_COMP" ]; then
+if [ "$SELECT_SCOPE" -eq 1 ]; then
+  oci_try iam compartment list --compartment-id "$TENANCY_ID" --compartment-id-in-subtree true \
+          --access-level ANY --lifecycle-state ACTIVE --all
+  if [ "$OCI_STATUS" != "OK" ]; then
+    echo "ERROR: compartment discovery failed ($OCI_STATUS): $OCI_ERR" >&2
+    exit 1
+  fi
+
+  scope_json="$OCI_OUT"
+  scope_catalog="$(printf '%s' "$scope_json" | jq -r '.data[]? | [.id, .name] | @tsv' 2>/dev/null | tr -d '\r' | sort -f -k2)"
+  discovered_comps=""
+  while IFS=$'\t' read -r cid cname; do
+    [ -z "$cid" ] && continue
+    COMP_NAME["$cid"]="$cname"
+    discovered_comps="${discovered_comps}${cid}"$'\n'
+  done <<< "$scope_catalog"
+
+  oci_try iam compartment get --compartment-id "$TENANCY_ID" --query 'data.name' --raw-output
+  if [ "$OCI_STATUS" != "OK" ]; then
+    echo "ERROR: tenancy name lookup failed ($OCI_STATUS): $OCI_ERR" >&2
+    exit 1
+  fi
+  COMP_NAME["$TENANCY_ID"]="${OCI_OUT:-root}"
+
+  if ! oci_scope_select_interactive "$TENANCY_ID" "${COMP_NAME[$TENANCY_ID]}" "$scope_catalog"; then
+    abort_before_scan "scope selection or OCID confirmation failed"
+  fi
+
+  if [ "$OCI_SCOPE_SELECTED_KIND" = "TENANCY" ]; then
+    COMPS="$TENANCY_ID"$'\n'"$discovered_comps"
+  else
+    SINGLE_COMP="$OCI_SCOPE_SELECTED_OCID"
+    COMPS="$SINGLE_COMP"
+  fi
+elif [ -n "$SINGLE_COMP" ]; then
   COMPS="$SINGLE_COMP"
   oci_try iam compartment get --compartment-id "$SINGLE_COMP" --query 'data.name' --raw-output
   COMP_NAME["$SINGLE_COMP"]="${OCI_OUT:-<unknown>}"
@@ -315,9 +402,42 @@ fi
 
 COMP_COUNT="$(printf '%s\n' "$COMPS" | grep -c . || true)"
 COMP_COUNT="$(num "$COMP_COUNT")"
-[ "$COMP_COUNT" -eq 0 ] && { echo "ERROR: no compartments enumerated." >&2; exit 1; }
+[ "$COMP_COUNT" -eq 0 ] && abort_before_scan "no compartments matched the requested scope"
 echo "Scope  : $COMP_COUNT compartment(s)"
 echo
+
+if [ "$SELECT_SCOPE" -eq 1 ]; then
+  PLAN_SCOPE_TYPE="$OCI_SCOPE_SELECTED_KIND"
+  PLAN_SCOPE_NAME="$OCI_SCOPE_SELECTED_NAME"
+  PLAN_SCOPE_OCID="$OCI_SCOPE_SELECTED_OCID"
+elif [ -n "$SINGLE_COMP" ]; then
+  PLAN_SCOPE_TYPE="AUTOMATION-COMPARTMENT"
+  PLAN_SCOPE_NAME="${COMP_NAME[$SINGLE_COMP]:-<unknown>}"
+  PLAN_SCOPE_OCID="$SINGLE_COMP"
+else
+  PLAN_SCOPE_TYPE="AUTOMATION-NAME-FILTER"
+  PLAN_SCOPE_NAME="$COMP_NAMES_FILTER"
+  PLAN_SCOPE_OCID="multiple resolved compartment OCIDs"
+fi
+
+PLAN_TARGETS=""
+while IFS= read -r cid; do
+  [ -z "$cid" ] && continue
+  PLAN_TARGETS+="${cid}"$'\t'"${COMP_NAME[$cid]:-<unknown>}"$'\n'
+done <<< "$COMPS"
+PLAN_WORK=""
+for phase in $PHASES; do PLAN_WORK+="${phase}"$'\n'; done
+
+oci_scope_print_scan_plan \
+  "CP-9 BACKUP ACCESS" "cp09-02-backup-access-files-check.sh" \
+  "CP-9 / AC-3 / AC-6 / SC-12" "${REGION_OVERRIDE:-<cloud-shell / config default>}" \
+  "$PLAN_SCOPE_TYPE" "$PLAN_SCOPE_NAME" "$PLAN_SCOPE_OCID" "$COMP_COUNT" \
+  "$PLAN_TARGETS" "Requested evidence phases" "$PLAN_WORK" \
+  "$ART_CSV"$'\n'"$GRANT_CSV"$'\n'"$PRIN_CSV"$'\n'"$EXPO_CSV"$'\n'"$FIND_CSV" \
+  "resource/principal OCIDs, IAM grants, key custody, PARs and exposure details"
+if ! oci_scope_require_final_approval "$SELECT_SCOPE"; then
+  abort_before_scan "$OCI_SCOPE_APPROVAL_ERROR"
+fi
 
 # Object Storage namespace — one call for the whole run, not one per compartment
 OS_NS=""

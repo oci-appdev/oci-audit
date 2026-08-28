@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+args=("$@")
+if [ "${args[0]:-}" = "--region" ]; then
+  args=("${args[@]:2}")
+fi
+cmd="${args[*]}"
+
+case "$cmd" in
+  "iam compartment list --access-level ANY --limit 1 --query "*)
+    printf '%s\n' 'ocid1.tenancy.oc1..test'
+    ;;
+  "iam compartment get --compartment-id ocid1.compartment.oc1..test "*)
+    printf '%s\n' 'VCN'
+    ;;
+  "bv volume list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.volume.oc1..volumea","display-name":"volume-a"}]}'
+    ;;
+  "bv block-volume-replica list --compartment-id ocid1.compartment.oc1..test --all")
+    if [ "${MOCK_DENY_REPLICA:-0}" = "1" ]; then
+      echo 'ServiceError: NotAuthorizedOrNotFound. status: 403' >&2
+      exit 1
+    fi
+    printf '%s\n' '{"data":[{"block-volume-id":"ocid1.volume.oc1..volumea","availability-domain":"AD-2"}]}'
+    ;;
+  "os ns get --raw-output --query data")
+    printf '%s\n' 'testns'
+    ;;
+  "os bucket list --compartment-id ocid1.compartment.oc1..test --namespace-name testns --all")
+    printf '%s\n' '{"data":[{"name":"backup-bucket"}]}'
+    ;;
+  "os replication list-replication-policies --bucket-name backup-bucket --namespace-name testns")
+    printf '%s\n' '{"data":[{"destination-region-name":"us-gov-phoenix-1","destination-bucket-name":"backup-bucket-dr"}]}'
+    ;;
+  "os bucket get --bucket-name backup-bucket --namespace-name testns")
+    printf '%s\n' '{"data":{"versioning":"Enabled"}}'
+    ;;
+  "os retention-rule list --bucket-name backup-bucket --namespace-name testns")
+    printf '%s\n' '{"data":{"items":[{"time-rule-locked":"2026-01-01T00:00:00Z","duration":{"time-amount":30,"time-unit":"DAYS"}}]}}'
+    ;;
+  "iam availability-domain list --compartment-id ocid1.compartment.oc1..test")
+    printf '%s\n' '{"data":[{"name":"AD-1"}]}'
+    ;;
+  "bv boot-volume list --compartment-id ocid1.compartment.oc1..test --availability-domain AD-1 --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.bootvolume.oc1..boota","display-name":"boot-a"}]}'
+    ;;
+  "bv boot-volume-replica list --compartment-id ocid1.compartment.oc1..test --availability-domain AD-1 --all")
+    printf '%s\n' '{"data":[{"boot-volume-id":"ocid1.bootvolume.oc1..boota","availability-domain":"AD-2"}]}'
+    ;;
+  "bv backup list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"display-name":"volume-backup-a","expiration-time":"2026-12-31T00:00:00Z"}]}'
+    ;;
+  "bv boot-volume-backup list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"display-name":"boot-backup-a","source-boot-volume-backup-id":"ocid1.bootvolumebackup.oc1..source","expiration-time":"2026-12-31T00:00:00Z"}]}'
+    ;;
+  "fs file-system list --compartment-id ocid1.compartment.oc1..test --availability-domain AD-1 --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.filesystem.oc1..fsa","display-name":"fss-a"}]}'
+    ;;
+  "fs replication list --compartment-id ocid1.compartment.oc1..test --availability-domain AD-1 --all")
+    printf '%s\n' '{"data":[{"source-id":"ocid1.filesystem.oc1..fsa","target-id":"ocid1.replicationtarget.oc1..target"}]}'
+    ;;
+  "db autonomous-database list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"db-name":"ADB1","backup-retention-period-in-days":60,"peer-db-ids":["ocid1.autonomousdatabase.oc1..peer"]}]}'
+    ;;
+  "db system list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.dbsystem.oc1..systema"}]}'
+    ;;
+  "db database list --compartment-id ocid1.compartment.oc1..test --db-system-id ocid1.dbsystem.oc1..systema --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.database.oc1..dba","db-name":"DB1","db-backup-config":{"recovery-window-in-days":30}}]}'
+    ;;
+  "db data-guard-association list --database-id ocid1.database.oc1..dba --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.dataguardassociation.oc1..dga"}]}'
+    ;;
+  *)
+    echo "mock-oci: unsupported command: $cmd" >&2
+    exit 64
+    ;;
+esac

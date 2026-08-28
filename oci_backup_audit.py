@@ -2,6 +2,10 @@
 """
 oci_backup_audit.py
 
+DEPRECATED — compatibility/reference collector only. Use the canonical
+cp09-01, cp09-02 and cp09-03 shell collectors for audit evidence. This SDK
+version does not provide the same per-row collection-status guarantees.
+
 Tenancy-wide backup / snapshot posture audit for OCI.
 Designed to run in OCI Cloud Shell (uses the pre-configured CLI auth token).
 
