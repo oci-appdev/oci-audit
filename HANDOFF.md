@@ -8,7 +8,7 @@
 
 **Current milestone:** Tasks 1–3 and Task 6 collector implementations complete; live/manual/approval evidence pending
 
-**Draft PR:** pending for `codex/task6-open-ports`
+**Draft PR:** <https://github.com/oci-appdev/oci-audit/pull/2>
 
 ## Mandatory scope-selection standard
 
