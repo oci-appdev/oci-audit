@@ -1,6 +1,6 @@
 # OCS Audit Master Task List
 
-**Last reviewed:** 2026-08-28
+**Last reviewed:** 2026-08-31
 
 **Tracking basis:** repository implementation plus evidence artifacts visible in this repository
 
@@ -27,7 +27,7 @@
 | 6 | Ports/protocols/services list, approval proof and restricted list | Partial | `cm07-01-open-ports-protocols-services.sh` has the scope-confirmation, evidence-separation and reconciliation foundation, but controlled use found material cross-compartment coverage and ICMP restricted-match defects; the legacy `cm07-openports.sh` produced useful output while `cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` did not; see `CM07-CORRECTIVE-REVIEW.md` | Patch cross-compartment resolution and portless-protocol matching; add profile support, semantic rule identity and packaged summary; extend regressions; complete known-object compartment and tenancy validation before collecting approval/restricted-list evidence |
 | 7 | Software installation control | Implementation complete | Canonical `cm11-01-software-installation-control.sh`; default tenancy/compartment discovery, exact double-OCID and final `YES`; strict automation confirmation; explicit region; read-only IAM policy/group evidence; candidate entitlement classification for OSMH package install, Compute image provisioning and Container Registry publish; classic group-member expansion plus identity-domain boundary; OSMH installed packages, Compute boot images, container images; generated authorized-installer/approved-software templates; authoritative installer/approval/restricted-list reconciliation; OSMH/repository/image technical-control evidence; source hashes, private/formula-safe outputs, coverage/error ledgers and mock gate | Run inventory-only in every scope; obtain signed authorized-installer, approved-software and current restricted/prohibited lists; export referenced Identity Domains membership; complete SSH/sudo/local-admin, break-glass, unmanaged-host, Windows, Kubernetes/runtime and request/change-sample evidence; rerun reconciliation; disposition prohibited/restricted/unapproved/unauthorized rows and store the signed package |
 | 8 | Configuration baseline | Implementation complete | Canonical `cm02-01-configuration-baseline.sh`; mandatory tenancy/compartment double-OCID, complete plan and exact `YES`; strict automation and named-profile support; broad CM08 read-only inventory invoked only after approval; normalized CI/attribute fingerprints; generated CI register, approved System Design Form/baseline and monthly-review templates; exact baseline reconciliation with change/exception references; input SHA-256; private/formula-safe raw and canonical evidence; failure/coverage ledgers and mock gate | Run inventory-only in every exact region/scope; have the system/configuration authority approve the CI register and System Design Form baseline; execute reconciliation; review drift/change/exception rows; complete and approve the current monthly review; rerun to exit `0`; store the signed package and in-guest/rule-level manual evidence |
-| 9 | Hardware/software inventory baseline | Partial | `cm08-hw-sw-baseline.sh` provides a strong failure-aware inventory collector | Execute monthly, compare to approved baseline, disposition changes, sign and archive evidence |
+| 9 | Hardware/software inventory baseline | Implementation complete | Canonical `cm08-01-component-inventory-baseline.sh`; mandatory tenancy/compartment double-OCID, complete plan, package-volume disclosure and exact `YES`; strict automation, explicit region and named-profile support; corrected failure-aware CM08 engine; stable component keys/fingerprints; generated approved-inventory, change-disposition and count-bound monthly-review templates; `UNCHANGED`/`ADDED`/`REMOVED`/`CHANGED` reconciliation; authoritative ownership/approval and exact disposition validation; unmanaged/in-guest/provider coverage-gap ledger; input SHA-256; private/formula-safe raw and canonical evidence; mock gate | Run inventory-only in every exact region/scope; resolve guest/package/OKE/digest/provider-boundary gaps; approve the inventory; compare to the prior approved month; disposition every addition/removal/change; complete and approve the count-bound monthly review; rerun to exit `0`; sign/archive the package and promote the current snapshot for the next month |
 | 10 | Vulnerability tracking | Not started | CM-8 collector exposes limited update counts only | Add monthly vulnerability tracker, SLA, remediation owner, exception and follow-up evidence |
 | 11 | Configuration change tracking | Not started | None | Add Remedy CRQ/SO approval process and approved change samples |
 | 12 | Account management | Not started | CP-9 access collector is limited to backup access and is not an account-management review | Add lifecycle procedures, manager/approver ownership, inactivity removal, group/privilege baseline, review template and completed approvals |
@@ -40,8 +40,8 @@
 
 ## Completion snapshot
 
-Excluding the two N/A items, five of sixteen actionable worksheet tasks have
-implementation-complete collector workflows. Two have partial foundations and
+Excluding the two N/A items, six of sixteen actionable worksheet tasks have
+implementation-complete collector workflows. One has a partial foundation and
 nine are not started. No actionable task should be represented as audit-complete
 until its operational evidence and approval records are produced and reviewed.
 
@@ -56,4 +56,5 @@ Continue in worksheet order:
 5. Correct and live-validate Task 6, then close its operational, approval and restricted-list evidence.
 6. Execute and close Task 7 operational, identity, approval and restriction evidence.
 7. Execute and close Task 8 configuration-baseline and monthly-review evidence.
-8. Continue Tasks 9–14, skip Task 15, then complete Tasks 16–18.
+8. Execute and close Task 9 component-inventory and monthly-review evidence.
+9. Continue Tasks 10–14, skip Task 15, then complete Tasks 16–18.

@@ -1,14 +1,14 @@
 # Implementation Handoff
 
-**Updated:** 2026-08-28
+**Updated:** 2026-08-31
 
-**Working branch:** `codex/task8-configuration-baseline`
+**Working branch:** `codex/task9-component-inventory`
 
-**Base commit:** `8133adc7bbd79006227931bb121a7543bc2da1c6`
+**Base commit:** `f0deba5a0498469ed529780fdf71bb02b329cc12` (verified Task 8 CM02 commit)
 
-**Current milestone:** Tasks 1–3, Task 7 and Task 8 collector implementations complete; Task 6 corrective patch required; live/manual/approval evidence pending
+**Current milestone:** Tasks 1–3 and Tasks 7–9 collector implementations complete; Task 6 corrective patch required; live/manual/approval evidence pending
 
-**Pull request:** not opened for the Task 8 branch
+**Delivery:** user authorized publishing CM02 followed by CM08 directly to `main` after the full local gate; verify the exact remote head in Git history
 
 ## Mandatory scope-selection standard
 
@@ -22,14 +22,15 @@ flag operator command for every canonical collector.
 Scripts `cp09-01`, `cp09-02`, `cp09-03`, `sc08-02-in-transit-encryption.sh`,
 `sc28-oci-encryption-at-rest.sh`, `cm07-01-open-ports-protocols-services.sh` and
 `cm11-01-software-installation-control.sh` and
-`cm02-01-configuration-baseline.sh` now default normal/manual runs to interactive
+`cm02-01-configuration-baseline.sh` and
+`cm08-01-component-inventory-baseline.sh` now default normal/manual runs to interactive
 scope selection; `-i` / `--select-scope` are optional aliases. They discover
 the tenancy and active compartments, display full OCIDs, require an exact
 discovered OCID twice, print the resolved scan plan, and require exact uppercase
 `YES` before workload-service collection. A tenancy selection means root plus
 every active child compartment. Mismatch/refusal exits before the collector
 loop, removes header-only CSVs and has dedicated fail-closed regressions for all
-eight collectors.
+nine collectors.
 
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
@@ -38,6 +39,59 @@ Every new or materially redesigned collector must follow
 `SCRIPT-DESIGN-STANDARD.md`. `-c`/`-n` alone are scope selectors, not proof of
 automation approval. New collectors require explicit automation mode, exact
 resolved-OCID confirmation values and exact `YES` approval.
+
+## Latest milestone — Task 9 hardware/software component inventory
+
+The canonical workflow is `cm08-01-component-inventory-baseline.sh`; the guide
+is `TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md`. The existing
+`cm08-hw-sw-baseline.sh` remains the broad raw collector, now invoked only after
+CM08-01 completes the scope and final approval boundary. It refuses direct
+execution unless CM02-01 or CM08-01 supplies the exact approved caller, scope
+and region handshake; wrapper discovery and raw calls also use a runtime
+positive allowlist of list/get action variants.
+
+CM08-01 requires the exact tenancy or every resolved compartment OCID twice,
+prints the complete scope/profile/work/output plan, discloses that installed
+package collection can be high volume and requires exact uppercase `YES`.
+Automation requires `--non-interactive`, every exact confirmation OCID and
+`--approve-scan YES`. One explicit region is mandatory; `-p/--profile` is
+passed to IAM discovery and the raw inventory engine.
+
+The workflow separates current technical facts from three governance records:
+
+- approved prior component inventory: system/technical owner, environment,
+  criticality, inventory status, baseline version and approval provenance;
+- exact disposition of every monthly `ADDED`, `REMOVED` or `CHANGED` event,
+  bound to both prior and current fingerprints;
+- current count-bound monthly review: exact scope, unchanged/add/remove/change
+  and coverage-gap totals, corrective action, reviewer and approver.
+
+Stable component keys exclude mutable inventory state. Installed-package keys
+exclude package version, so an upgrade becomes `CHANGED` instead of a false
+removal/addition pair. Generated approval templates remain `PENDING-REVIEW`.
+Supplied governance inputs receive SHA-256 provenance.
+
+CM08-01 also publishes an explicit unmanaged/visibility gap ledger: compute
+guest inventory without an authoritative agent join, package summaries without
+detail, configured OKE pools without running-node inventory, mutable
+Function/container image references, missing compartment OCIDs and the
+provider-managed physical-hardware responsibility boundary. A valid review
+must acknowledge the exact current gap count; the collector never hides these
+limitations behind a successful API exit.
+
+Task 9 work corrected the raw CM08 schemas so volume/boot attachments, FSS
+exports, OKE node pools, containers, Functions, databases, OS-managed
+instances and installed packages retain their compartment OCIDs. This extends
+the Task 8 engine fixes without merging CM-2 configuration approvals into CM-8
+inventory assertions.
+
+Regression coverage is in `tests/test-cm08-01-component-inventory.sh` using
+`tests/mock-oci-task8`. It covers inventory/template generation, stable keys,
+unchanged matching, undispositioned and fully dispositioned changes,
+count-bound review, package/profile propagation, coverage gaps, denied calls,
+formula safety, manual/default/tenancy selection, strict automation and
+refusal before workload collection. The focused gate and full repository suite
+must pass on the exact commit published to `main`.
 
 ## Latest milestone — Task 8 configuration baseline
 
@@ -394,28 +448,24 @@ this public repository.
 
 ## Next implementation task for Claude
 
-Task 8 implementation is complete on the local feature branch. Before new
-implementation, publish the branch, run the full GitHub Actions gate on the
-exact head, review the diff and merge only when the user requests it.
+Task 9 implementation is complete. Confirm the published `origin/main` head
+contains the CM02 commit followed by the CM08 commit and confirm GitHub Actions
+on that exact head before using either workflow for controlled OCI evidence.
 
-The immediate corrective item is Task 6. Patch CM07-01 according to
+The outstanding corrective item is Task 6. Patch CM07-01 according to
 `CM07-CORRECTIVE-REVIEW.md`, extend the mock suite and complete known-object
 compartment and tenancy runs before promoting it again. Do not allow an
 unresolved cross-compartment association to produce `OK` coverage or an
 inactive-container conclusion, and do not apply transport-port overlap to ICMP.
 
-After the Task 6 corrective gate, the next worksheet item in the user's chosen
-Task 7 → Task 8 progression is Task 9 — hardware/software inventory baseline.
-The corrected `cm08-hw-sw-baseline.sh` is a strong technical foundation. Task 9
-still needs the monthly inventory-baseline control workflow: approved component
-inventory ownership, month-over-month addition/removal/change reconciliation,
-unmanaged/in-guest coverage gaps, review/approval, corrective action and
-retained evidence provenance. Reuse CM02-01's strict scope approval and monthly
-review patterns without merging CM-2 baseline decisions into CM-8 inventory
-assertions.
+In the user's Task 7 → Task 8 → Task 9 progression, the next worksheet item is
+Task 10 — vulnerability tracking: monthly tracker, remediation SLA/owner,
+follow-up, exception and closure evidence. CM08 package/update counts are only
+technical inputs and must not be represented as the vulnerability tracker or
+proof of remediation.
 
 Task 5 Continuous Monitoring Form review/feedback remains the earliest
-unimplemented worksheet item because the user chose to advance Tasks 6–8
+unimplemented worksheet item because the user chose to advance Tasks 6–9
 first. Do not represent it as complete; return to it when the user directs.
 
 ## Resolved Task 6 blocker

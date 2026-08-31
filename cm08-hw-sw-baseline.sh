@@ -25,9 +25,10 @@
 #   READ-ONLY. Only list/get operations are issued.
 #
 # CANONICAL USE
-#   This broad CM-8 inventory engine is also invoked by the guarded CM-2
-#   configuration-baseline workflow. Run cm02-01-configuration-baseline.sh for
-#   Task 8 so scope is confirmed before workload-service collection. The
+#   This is an internal raw engine. It refuses direct execution unless the
+#   guarded CM02-01 or CM08-01 workflow passes the approved caller, exact scope
+#   and region handshake. Run cm02-01-configuration-baseline.sh for Task 8 or
+#   cm08-01-component-inventory-baseline.sh for Task 9. The
 #   internal OCI_AUDIT_EXACT_SCOPE_ONLY=1 setting prevents child-compartment
 #   expansion when that workflow approved one exact compartment.
 #
@@ -79,6 +80,26 @@ while getopts ":r:c:o:a:pnh" opt; do
     :)  echo "Option -$OPTARG requires an argument" >&2; exit 2 ;;
   esac
 done
+
+# This engine intentionally has no independent operator approval UI. Its two
+# canonical wrappers complete discovery, double-OCID confirmation, plan display
+# and exact-YES approval first, then pass this narrow internal handshake.
+case "${OCI_AUDIT_APPROVED_CALLER:-}" in
+  CM02-01|CM08-01) ;;
+  *)
+    echo "ERROR: cm08-hw-sw-baseline.sh is an internal raw engine." >&2
+    echo "Run cm02-01-configuration-baseline.sh or cm08-01-component-inventory-baseline.sh." >&2
+    exit 2
+    ;;
+esac
+if [[ -z "$SCOPE_COMPARTMENT" || "${OCI_AUDIT_APPROVED_SCOPE_OCID:-}" != "$SCOPE_COMPARTMENT" ]]; then
+  echo "ERROR: internal approved scope handshake is missing or does not match -c." >&2
+  exit 2
+fi
+if [[ -z "$REGIONS_ARG" || "${OCI_AUDIT_APPROVED_REGION:-}" != "$REGIONS_ARG" ]]; then
+  echo "ERROR: internal approved region handshake is missing or does not match -r." >&2
+  exit 2
+fi
 
 command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found." >&2; exit 2; }
 command -v jq  >/dev/null 2>&1 || { echo "ERROR: jq not found." >&2; exit 2; }
@@ -136,6 +157,18 @@ categorize() {
   fi
 }
 
+readonly_action_allowed() {
+  local token action=""
+  for token in "$@"; do
+    [[ "$token" == --* ]] && break
+    action="$token"
+  done
+  case "$action" in
+    list|get|list-vnics|list-packages|list-installed-packages) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # ledger <status> <rc> <category> <label> <oci args...>
 ledger() {
   local st="$1" rc="$2" cat="$3" label="$4"; shift 4
@@ -157,6 +190,13 @@ oci_q() {
   local label="$1"; shift
   local out rc ecat n
   : > "$CALLERR"
+  if ! readonly_action_allowed "$@"; then
+    printf 'PROHIBITED: OCI action is not an approved read-only list/get operation: oci %s\n' "$*" > "$CALLERR"
+    { echo "=== BLOCKED [$label] rc=97 cat=PROHIBITED_ACTION :: oci $*"; cat "$CALLERR"; } >> "$ERRLOG"
+    ledger FAILED 97 PROHIBITED_ACTION "$label" "$@"
+    printf '{"data":[],"_collection_status":"FAILED"}'
+    return 0
+  fi
   out="$(oci "${OCI_ARGS[@]+"${OCI_ARGS[@]}"}" "$@" 2>"$CALLERR" </dev/null)"; rc=$?
 
   if (( rc != 0 )); then
@@ -187,6 +227,14 @@ oci_capture() {
   local ov="$1" rv="$2" label="$3"; shift 3
   local result rc ecat
   : > "$CALLERR"
+  if ! readonly_action_allowed "$@"; then
+    printf 'PROHIBITED: OCI action is not an approved read-only list/get operation: oci %s\n' "$*" > "$CALLERR"
+    { echo "=== BLOCKED [$label] rc=97 cat=PROHIBITED_ACTION :: oci $*"; cat "$CALLERR"; } >> "$ERRLOG"
+    ledger FAILED 97 PROHIBITED_ACTION "$label" "$@"
+    printf -v "$ov" '%s' '{"data":[],"_collection_status":"FAILED"}'
+    printf -v "$rv" '%s' 97
+    return 0
+  fi
   result="$(oci "${OCI_ARGS[@]+"${OCI_ARGS[@]}"}" "$@" 2>"$CALLERR" </dev/null)"; rc=$?
   if (( rc != 0 )); then
     ecat="$(categorize "$CALLERR")"
@@ -267,11 +315,11 @@ hdr dedicated_vm_hosts.csv 'region,compartment_name,compartment_ocid,host_name,h
 # --- block storage -----------------------------------------------------------
 hdr block_volumes.csv     'region,compartment_name,compartment_ocid,volume_name,volume_ocid,lifecycle_state,size_gb,vpus_per_gb,availability_domain,kms_key_ocid,auto_tune_enabled,time_created'
 hdr boot_volumes.csv      'region,compartment_name,compartment_ocid,volume_name,volume_ocid,lifecycle_state,size_gb,vpus_per_gb,availability_domain,image_ocid,kms_key_ocid,time_created'
-hdr volume_attachments.csv 'region,compartment_name,attachment_type,instance_ocid,volume_ocid,lifecycle_state,attachment_mode,is_read_only,is_shareable,pv_encryption_in_transit,time_created'
+hdr volume_attachments.csv 'region,compartment_name,compartment_ocid,attachment_type,instance_ocid,volume_ocid,lifecycle_state,attachment_mode,is_read_only,is_shareable,pv_encryption_in_transit,time_created'
 # --- file storage ------------------------------------------------------------
 hdr fss_file_systems.csv  'region,compartment_name,compartment_ocid,fs_name,fs_ocid,lifecycle_state,availability_domain,metered_bytes,kms_key_ocid,is_clone,source_snapshot_ocid,is_targetable,replication_target_ocid,time_created'
 hdr fss_mount_targets.csv 'region,compartment_name,compartment_ocid,mt_name,mt_ocid,lifecycle_state,availability_domain,subnet_ocid,export_set_ocid,private_ip_count,nsg_count,requested_throughput,time_created'
-hdr fss_exports.csv       'region,compartment_name,export_ocid,lifecycle_state,export_set_ocid,file_system_ocid,path,export_option_count,is_idmap_groups_for_sys_auth,time_created'
+hdr fss_exports.csv       'region,compartment_name,compartment_ocid,export_ocid,lifecycle_state,export_set_ocid,file_system_ocid,path,export_option_count,is_idmap_groups_for_sys_auth,time_created'
 # --- object storage ----------------------------------------------------------
 hdr object_storage_buckets.csv 'region,compartment_name,compartment_ocid,namespace,bucket_name,storage_tier,public_access_type,versioning,object_events_enabled,replication_enabled,auto_tiering,kms_key_ocid,retention_rule_count,approximate_object_count,approximate_size_bytes,time_created'
 # --- network -----------------------------------------------------------------
@@ -285,15 +333,15 @@ hdr network_firewalls.csv 'region,compartment_name,compartment_ocid,nfw_name,nfw
 hdr load_balancers.csv    'region,compartment_name,compartment_ocid,lb_type,lb_name,lb_ocid,lifecycle_state,shape,min_bandwidth_mbps,max_bandwidth_mbps,is_private,ip_addresses,time_created'
 # --- kubernetes / containers -------------------------------------------------
 hdr oke_clusters.csv      'region,compartment_name,compartment_ocid,cluster_name,cluster_ocid,lifecycle_state,cluster_type,kubernetes_version,vcn_ocid,is_public_endpoint,pod_network,time_created'
-hdr oke_node_pools.csv    'region,compartment_name,cluster_ocid,node_pool_name,node_pool_ocid,lifecycle_state,kubernetes_version,node_shape,node_ocpus,node_memory_gb,configured_node_count,node_image_name,node_image_ocid,cni_type'
-hdr oke_virtual_node_pools.csv 'region,compartment_name,cluster_ocid,vnp_name,vnp_ocid,lifecycle_state,kubernetes_version,configured_size,pod_shape,taint_count,time_created'
+hdr oke_node_pools.csv    'region,compartment_name,compartment_ocid,cluster_ocid,node_pool_name,node_pool_ocid,lifecycle_state,kubernetes_version,node_shape,node_ocpus,node_memory_gb,configured_node_count,node_image_name,node_image_ocid,cni_type'
+hdr oke_virtual_node_pools.csv 'region,compartment_name,compartment_ocid,cluster_ocid,vnp_name,vnp_ocid,lifecycle_state,kubernetes_version,configured_size,pod_shape,taint_count,time_created'
 hdr container_instances.csv 'region,compartment_name,compartment_ocid,ci_name,ci_ocid,lifecycle_state,shape,ocpus,memory_gb,container_count,availability_domain,time_created'
-hdr containers.csv        'region,compartment_name,container_instance_ocid,container_name,container_ocid,lifecycle_state,image_url,availability_domain,fault_domain,time_created'
-hdr functions.csv         'region,compartment_name,application_name,application_ocid,function_name,function_ocid,lifecycle_state,image,image_digest,memory_mb,timeout_seconds,shape,time_created'
+hdr containers.csv        'region,compartment_name,compartment_ocid,container_instance_ocid,container_name,container_ocid,lifecycle_state,image_url,availability_domain,fault_domain,time_created'
+hdr functions.csv         'region,compartment_name,compartment_ocid,application_name,application_ocid,function_name,function_ocid,lifecycle_state,image,image_digest,memory_mb,timeout_seconds,shape,time_created'
 # --- database ----------------------------------------------------------------
 hdr db_systems.csv        'region,compartment_name,compartment_ocid,db_system_name,db_system_ocid,lifecycle_state,shape,cpu_core_count,node_count,memory_gb,data_storage_gb,database_edition,db_system_version,license_model,availability_domain,time_created'
 hdr db_homes.csv          'region,compartment_name,compartment_ocid,db_home_name,db_home_ocid,lifecycle_state,db_version,db_system_ocid,vm_cluster_ocid,database_software_image_ocid,time_created'
-hdr databases.csv         'region,compartment_name,db_home_ocid,db_name,db_unique_name,database_ocid,lifecycle_state,db_workload,character_set,ncharacter_set,pdb_name,time_created'
+hdr databases.csv         'region,compartment_name,compartment_ocid,db_home_ocid,db_name,db_unique_name,database_ocid,lifecycle_state,db_workload,character_set,ncharacter_set,pdb_name,time_created'
 hdr exadata_infrastructure.csv 'region,compartment_name,compartment_ocid,infra_type,infra_name,infra_ocid,lifecycle_state,shape,compute_count,storage_count,total_storage_tb,availability_domain,time_created'
 hdr vm_clusters.csv       'region,compartment_name,compartment_ocid,cluster_type,cluster_name,cluster_ocid,lifecycle_state,shape,cpu_core_count,memory_gb,gi_version,system_version,node_count,license_model,time_created'
 hdr autonomous_databases.csv 'region,compartment_name,compartment_ocid,adb_display_name,adb_name,adb_ocid,lifecycle_state,db_version,db_workload,compute_model,compute_count,cpu_core_count,storage_tb,license_model,is_dedicated,container_db_ocid,time_created'
@@ -302,8 +350,8 @@ hdr mysql_db_systems.csv  'region,compartment_name,compartment_ocid,mysql_name,m
 hdr postgresql_db_systems.csv 'region,compartment_name,compartment_ocid,psql_name,psql_ocid,lifecycle_state,db_version,shape,instance_count,instance_ocpus,instance_memory_gb,time_created'
 hdr nosql_tables.csv      'region,compartment_name,compartment_ocid,table_name,table_ocid,lifecycle_state,is_multi_region,table_limits,time_created'
 # --- in-guest software -------------------------------------------------------
-hdr os_managed_instances.csv 'region,compartment_name,managed_instance_name,managed_instance_ocid,inventory_source,status,os_name,os_version,kernel_version,architecture,agent_version,installed_packages,security_updates_available,bug_updates_available,other_updates_available,profile,lifecycle_environment'
-hdr os_installed_packages.csv 'region,managed_instance_name,managed_instance_ocid,package_name,package_version,package_architecture,package_type,install_time'
+hdr os_managed_instances.csv 'region,compartment_name,compartment_ocid,managed_instance_name,managed_instance_ocid,inventory_source,status,os_name,os_version,kernel_version,architecture,agent_version,installed_packages,security_updates_available,bug_updates_available,other_updates_available,profile,lifecycle_environment'
+hdr os_installed_packages.csv 'region,compartment_name,compartment_ocid,managed_instance_name,managed_instance_ocid,package_name,package_version,package_architecture,package_type,install_time'
 
 #------------------------------------------------------------------------------
 # Regions
@@ -398,7 +446,7 @@ for REGION in "${REGIONS[@]}"; do
       bv volume list "${R[@]}"
 
     emit volume_attachments.csv "compute volume-attachment list [$CNAME]" '
-      dat | .[]? | [ $r,$cn,"BLOCK",
+      dat | .[]? | [ $r,$cn,$co,"BLOCK",
         s("instance-id"), s("volume-id"), s("lifecycle-state"),
         s("attachment-type"), tri("is-read-only"), tri("is-shareable"),
         tri("is-pv-encryption-in-transit-enabled"), s("time-created") ] | @csv' \
@@ -418,7 +466,7 @@ for REGION in "${REGIONS[@]}"; do
           bv boot-volume list "${RAD[@]}"
 
         emit volume_attachments.csv "compute boot-volume-attachment list [$CNAME/$AD]" '
-          dat | .[]? | [ $r,$cn,"BOOT",
+          dat | .[]? | [ $r,$cn,$co,"BOOT",
             s("instance-id"), s("boot-volume-id"), s("lifecycle-state"),
             "boot", "N/A", "N/A",
             tri("is-pv-encryption-in-transit-enabled"), s("time-created") ] | @csv' \
@@ -443,7 +491,7 @@ for REGION in "${REGIONS[@]}"; do
     fi
 
     emit fss_exports.csv "fs export list [$CNAME]" '
-      dat | .[]? | [ $r,$cn,
+      dat | .[]? | [ $r,$cn,$co,
         s("id"), s("lifecycle-state"), s("export-set-id"), s("file-system-id"),
         s("path"), cnt("export-options"),
         tri("is-idmap-groups-for-sys-auth"), s("time-created") ] | @csv' \
@@ -597,7 +645,7 @@ for REGION in "${REGIONS[@]}"; do
       ce cluster list "${R[@]}"
 
     emit oke_node_pools.csv "ce node-pool list [$CNAME]" '
-      dat | .[]? | [ $r,$cn,
+      dat | .[]? | [ $r,$cn,$co,
         s("cluster-id"), s("name"), s("id"), s("lifecycle-state"),
         s("kubernetes-version"), s("node-shape"),
         (sub("node-shape-config") | n("ocpus")),
@@ -610,7 +658,7 @@ for REGION in "${REGIONS[@]}"; do
       ce node-pool list "${R[@]}"
 
     emit oke_virtual_node_pools.csv "ce virtual-node-pool list [$CNAME]" '
-      dat | .[]? | [ $r,$cn,
+      dat | .[]? | [ $r,$cn,$co,
         s("cluster-id"), s("display-name"), s("id"), s("lifecycle-state"),
         s("kubernetes-version"), n("size"),
         (sub("pod-configuration") | s("shape")),
@@ -626,7 +674,7 @@ for REGION in "${REGIONS[@]}"; do
       container-instances container-instance list "${R[@]}"
 
     emit containers.csv "container list [$CNAME]" '
-      dat | .[]? | [ $r,$cn,
+      dat | .[]? | [ $r,$cn,$co,
         s("container-instance-id"), s("display-name"), s("id"),
         s("lifecycle-state"), s("image-url"),
         s("availability-domain"), s("fault-domain"), s("time-created") ] | @csv' \
@@ -637,7 +685,7 @@ for REGION in "${REGIONS[@]}"; do
       [[ -z "$APPID" ]] && continue
       X1="$APPNAME"; X2="$APPID"
       emit functions.csv "fn function list [$APPNAME]" '
-        dat | .[]? | [ $r,$cn,$x1,$x2,
+        dat | .[]? | [ $r,$cn,$co,$x1,$x2,
           s("display-name"), s("id"), s("lifecycle-state"),
           s("image"), s("image-digest"), n("memory-in-mbs"),
           n("timeout-in-seconds"), s("shape"), s("time-created") ] | @csv' \
@@ -670,7 +718,7 @@ for REGION in "${REGIONS[@]}"; do
       [[ -z "$DBHID" ]] && continue
       X1="$DBHID"
       emit databases.csv "db database list [$DBHNAME]" '
-        dat | .[]? | [ $r,$cn,$x1,
+        dat | .[]? | [ $r,$cn,$co,$x1,
           s("db-name"), s("db-unique-name"), s("id"), s("lifecycle-state"),
           s("db-workload"), s("character-set"), s("ncharacter-set"),
           s("pdb-name"), s("time-created") ] | @csv' \
@@ -764,8 +812,8 @@ for REGION in "${REGIONS[@]}"; do
     fi
 
     printf '%s' "$OSM_JSON" \
-      | jq -r --arg r "$REGION" --arg cn "$CNAME" --arg src "$OSM_SRC" "$JQP"'
-          dat | .[]? | [ $r,$cn,
+      | jq -r --arg r "$REGION" --arg cn "$CNAME" --arg co "$CID" --arg src "$OSM_SRC" "$JQP"'
+          dat | .[]? | [ $r,$cn,$co,
             s("display-name"), s("id"), $src, s("status"),
             s("os-name"), s("os-version"), s("os-kernel-version"),
             s("architecture"), s("agent-version"),
@@ -788,8 +836,8 @@ for REGION in "${REGIONS[@]}"; do
             --managed-instance-id "$MIID" --region "$REGION" --all
         fi
         printf '%s' "$PKG_JSON" \
-          | jq -r --arg r "$REGION" --arg mn "$MINAME" --arg mi "$MIID" "$JQP"'
-              dat | .[]? | [ $r,$mn,$mi,
+          | jq -r --arg r "$REGION" --arg cn "$CNAME" --arg co "$CID" --arg mn "$MINAME" --arg mi "$MIID" "$JQP"'
+              dat | .[]? | [ $r,$cn,$co,$mn,$mi,
                 ((.["display-name"] // .name // "") | tostring),
                 s("version"), s("architecture"), s("type"),
                 s("install-time") ] | @csv' \

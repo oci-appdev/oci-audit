@@ -1,42 +1,33 @@
 #!/usr/bin/env bash
 #
-# cm02-01-configuration-baseline.sh
-# Collector ID: CM02-01
+# cm08-01-component-inventory-baseline.sh
+# Collector ID: CM08-01
 #
-# TASK 8 / CM-2 BASELINE CONFIGURATION EVIDENCE
+# TASK 9 / CM-8 SYSTEM COMPONENT INVENTORY EVIDENCE
 #
-# This read-only workflow separates four evidence questions:
-#   1. Which OCI resources are controlled configuration items (CIs)?
-#   2. Which configuration attributes are approved in the System Design Form
-#      or configuration baseline?
-#   3. Where does live OCI configuration differ from that approved baseline?
-#   4. Was the monthly comparison reviewed, dispositioned and approved?
-#
-# The script never invents an approved baseline. An inventory-only run creates
-# review templates. A complete run requires organization-owned CI register,
-# approved baseline and monthly-review CSV inputs.
-#
-# READ-ONLY CLOUD BOUNDARY: OCI calls are list/get operations. Collection is
-# delegated, after approval, to the existing CM-8 inventory engine. Nothing is
-# created, updated, attached, detached or deleted in OCI.
+# This read-only workflow collects OCI hardware, software and logical cloud
+# components, compares them to an organization-approved prior inventory, and
+# creates monthly review and change-disposition evidence. It never treats a
+# current cloud value or generated template as an approval.
 #
 # Usage:
-#   bash cm02-01-configuration-baseline.sh -r us-langley-1 --inventory-only
-#   bash cm02-01-configuration-baseline.sh -i -r us-langley-1 --inventory-only
-#   bash cm02-01-configuration-baseline.sh \
+#   bash cm08-01-component-inventory-baseline.sh -r us-langley-1 --inventory-only
+#   bash cm08-01-component-inventory-baseline.sh -i -r us-langley-1 --inventory-only
+#   bash cm08-01-component-inventory-baseline.sh \
 #       -c ocid1.compartment... -r us-langley-1 --inventory-only
-#   bash cm02-01-configuration-baseline.sh \
+#   bash cm08-01-component-inventory-baseline.sh \
 #       -c ocid1.compartment... -r us-langley-1 \
-#       -g approved_ci_register.csv -b approved_configuration_baseline.csv \
-#       -m completed_monthly_review.csv
-#   bash cm02-01-configuration-baseline.sh \
+#       -b approved-component-inventory.csv \
+#       -d completed-change-dispositions.csv \
+#       -m completed-monthly-review.csv
+#   bash cm08-01-component-inventory-baseline.sh \
 #       -c ocid1.compartment... -r us-langley-1 --non-interactive \
 #       --confirm-scope-ocid ocid1.compartment... --approve-scan YES \
 #       --inventory-only
-#   bash cm02-01-configuration-baseline.sh --selfcheck
+#   bash cm08-01-component-inventory-baseline.sh --selfcheck
 #
 # Exit codes:
-#   0  collection/reconciliation completed; findings still require review
+#   0  collection and supplied control-evidence validation completed
 #   1  precondition, scope, confirmation or input validation failure
 #   3  collection or control evidence is incomplete
 
@@ -47,11 +38,13 @@ SCRIPT_PATH="${BASH_SOURCE[0]}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SCOPE_HELPER="$SCRIPT_DIR/lib/oci-scope-selector.sh"
 INVENTORY_ENGINE="$SCRIPT_DIR/cm08-hw-sw-baseline.sh"
-POSTPROCESSOR="$SCRIPT_DIR/lib/cm02-01-reconcile.py"
+POSTPROCESSOR="$SCRIPT_DIR/lib/cm08-01-reconcile.py"
+CORE_NORMALIZER="$SCRIPT_DIR/lib/cm02-01-reconcile.py"
 
 readonly_selfcheck() {                                           # selfcheck-exempt
   local deny hits raw rawpat                                    # selfcheck-exempt
   local -a paths=("$SCRIPT_PATH" "$SCOPE_HELPER" "$INVENTORY_ENGINE") # selfcheck-exempt
+  [ -r "$CORE_NORMALIZER" ] || { echo "READ-ONLY SELF-CHECK: FAILED — missing $CORE_NORMALIZER" >&2; return 1; } # selfcheck-exempt
   for path in "${paths[@]}"; do                                 # selfcheck-exempt
     [ -r "$path" ] || { echo "READ-ONLY SELF-CHECK: FAILED — missing $path" >&2; return 1; } # selfcheck-exempt
   done                                                           # selfcheck-exempt
@@ -65,7 +58,7 @@ readonly_selfcheck() {                                           # selfcheck-exe
          | grep -viE 'http-method[[:space:]=]+GET' \
          | grep -v 'selfcheck-exempt' \
          | grep -vE '(^|:)[0-9]+:[[:space:]]*#' || true)"        # selfcheck-exempt
-  if [ -n "$hits" ] || [ -n "$raw" ]; then                    # selfcheck-exempt
+  if [ -n "$hits" ] || [ -n "$raw" ]; then                   # selfcheck-exempt
     echo "READ-ONLY SELF-CHECK: FAILED — prohibited call found:" >&2
     printf '%s\n%s\n' "$hits" "$raw" >&2
     return 1
@@ -74,13 +67,10 @@ readonly_selfcheck() {                                           # selfcheck-exe
 }
 
 if [ "${1:-}" = "--selfcheck" ]; then
-  if [ "$#" -ne 1 ]; then
-    echo "ERROR: --selfcheck must be used by itself." >&2
-    exit 1
-  fi
+  [ "$#" -eq 1 ] || { echo "ERROR: --selfcheck must be used by itself." >&2; exit 1; }
   if readonly_selfcheck; then
-    echo "READ-ONLY SELF-CHECK: PASSED (cm02-01-configuration-baseline)"
-    echo "CM02-01, its scope helper and CM08 inventory engine contain only OCI list/get operations."
+    echo "READ-ONLY SELF-CHECK: PASSED (cm08-01-component-inventory-baseline)"
+    echo "CM08-01, its scope helper and CM08 inventory engine contain only OCI list/get operations."
     exit 0
   fi
   exit 1
@@ -88,11 +78,10 @@ fi
 
 for command_name in oci jq python3 mktemp sha256sum; do
   command -v "$command_name" >/dev/null 2>&1 || {
-    echo "ERROR: required command not found: $command_name" >&2
-    exit 1
+    echo "ERROR: required command not found: $command_name" >&2; exit 1;
   }
 done
-for required_file in "$SCOPE_HELPER" "$INVENTORY_ENGINE" "$POSTPROCESSOR"; do
+for required_file in "$SCOPE_HELPER" "$INVENTORY_ENGINE" "$POSTPROCESSOR" "$CORE_NORMALIZER"; do
   [ -r "$required_file" ] || { echo "ERROR: required file not found: $required_file" >&2; exit 1; }
 done
 
@@ -104,8 +93,8 @@ COMP_NAMES_FILTER=""
 REGION=""
 OUTDIR="."
 PROFILE=""
-CI_REGISTER=""
-BASELINE_FILE=""
+APPROVED_INVENTORY=""
+DISPOSITIONS=""
 MONTHLY_REVIEW=""
 INVENTORY_ONLY=0
 SELECT_SCOPE=0
@@ -114,10 +103,7 @@ APPROVE_SCAN=""
 CONFIRM_SCOPE_OCIDS=()
 
 need_value() {
-  [ "$#" -ge 2 ] && [ -n "$2" ] || {
-    echo "ERROR: $1 requires a value." >&2
-    exit 1
-  }
+  [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "ERROR: $1 requires a value." >&2; exit 1; }
 }
 
 while [ "$#" -gt 0 ]; do
@@ -128,8 +114,8 @@ while [ "$#" -gt 0 ]; do
     -r|--region) need_value "$@"; REGION="$2"; shift 2 ;;
     -o|--output-dir) need_value "$@"; OUTDIR="$2"; shift 2 ;;
     -p|--profile) need_value "$@"; PROFILE="$2"; shift 2 ;;
-    -g|--ci-register) need_value "$@"; CI_REGISTER="$2"; shift 2 ;;
-    -b|--approved-baseline) need_value "$@"; BASELINE_FILE="$2"; shift 2 ;;
+    -b|--approved-inventory) need_value "$@"; APPROVED_INVENTORY="$2"; shift 2 ;;
+    -d|--change-dispositions) need_value "$@"; DISPOSITIONS="$2"; shift 2 ;;
     -m|--monthly-review) need_value "$@"; MONTHLY_REVIEW="$2"; shift 2 ;;
     --inventory-only) INVENTORY_ONLY=1; shift ;;
     --non-interactive) NON_INTERACTIVE=1; shift ;;
@@ -163,10 +149,10 @@ if [ -z "$REGION" ]; then
 fi
 case "$REGION" in *[!A-Za-z0-9-]*) echo "ERROR: one explicit OCI region is required." >&2; exit 1 ;; esac
 
-if [ "$INVENTORY_ONLY" -eq 1 ] && { [ -n "$CI_REGISTER" ] || [ -n "$BASELINE_FILE" ] || [ -n "$MONTHLY_REVIEW" ]; }; then
+if [ "$INVENTORY_ONLY" -eq 1 ] && { [ -n "$APPROVED_INVENTORY" ] || [ -n "$DISPOSITIONS" ] || [ -n "$MONTHLY_REVIEW" ]; }; then
   echo "ERROR: --inventory-only cannot be combined with control-evidence inputs." >&2; exit 1
 fi
-for input_pair in "CI register|$CI_REGISTER" "approved baseline|$BASELINE_FILE" "monthly review|$MONTHLY_REVIEW"; do
+for input_pair in "approved inventory|$APPROVED_INVENTORY" "change dispositions|$DISPOSITIONS" "monthly review|$MONTHLY_REVIEW"; do
   input_label="${input_pair%%|*}"
   input_path="${input_pair#*|}"
   if [ -n "$input_path" ] && [ ! -r "$input_path" ]; then
@@ -174,14 +160,15 @@ for input_pair in "CI register|$CI_REGISTER" "approved baseline|$BASELINE_FILE" 
   fi
 done
 if [ "$INVENTORY_ONLY" -eq 0 ]; then
-  [ -n "$CI_REGISTER" ] && [ -n "$BASELINE_FILE" ] && [ -n "$MONTHLY_REVIEW" ] || {
-    echo "ERROR: complete mode requires --ci-register, --approved-baseline and --monthly-review." >&2
-    echo "Run --inventory-only first to generate templates." >&2
+  [ -n "$APPROVED_INVENTORY" ] || {
+    echo "ERROR: reconciliation mode requires --approved-inventory." >&2
+    echo "Run --inventory-only first to generate the approved-inventory template." >&2
     exit 1
   }
-  python3 "$POSTPROCESSOR" --validate-only \
-    --ci-register "$CI_REGISTER" --baseline "$BASELINE_FILE" \
-    --monthly-review "$MONTHLY_REVIEW" || exit 1
+  VALIDATE_ARGS=(--validate-only --approved-inventory "$APPROVED_INVENTORY")
+  [ -n "$DISPOSITIONS" ] && VALIDATE_ARGS+=(--change-dispositions "$DISPOSITIONS")
+  [ -n "$MONTHLY_REVIEW" ] && VALIDATE_ARGS+=(--monthly-review "$MONTHLY_REVIEW")
+  python3 "$POSTPROCESSOR" "${VALIDATE_ARGS[@]}" || exit 1
 fi
 
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
@@ -303,14 +290,15 @@ if [ "$NON_INTERACTIVE" -eq 1 ]; then
 fi
 
 TS="$(date -u +%Y%m%d_%H%M%SZ)"
-PREFIX="cm02-01"
-ITEMS_OUT="$OUTDIR/${PREFIX}_configuration_items_${TS}.csv"
-ATTRS_OUT="$OUTDIR/${PREFIX}_configuration_attributes_${TS}.csv"
-CI_TEMPLATE_OUT="$OUTDIR/${PREFIX}_ci_register_template_${TS}.csv"
-BASELINE_TEMPLATE_OUT="$OUTDIR/${PREFIX}_baseline_template_${TS}.csv"
-RECON_OUT="$OUTDIR/${PREFIX}_baseline_reconciliation_${TS}.csv"
+PREFIX="cm08-01"
+COMPONENTS_OUT="$OUTDIR/${PREFIX}_component_inventory_${TS}.csv"
+BASELINE_TEMPLATE_OUT="$OUTDIR/${PREFIX}_approved_inventory_template_${TS}.csv"
+RECON_OUT="$OUTDIR/${PREFIX}_inventory_reconciliation_${TS}.csv"
+DISPOSITION_TEMPLATE_OUT="$OUTDIR/${PREFIX}_change_disposition_template_${TS}.csv"
+DISPOSITION_OUT="$OUTDIR/${PREFIX}_change_disposition_results_${TS}.csv"
 REVIEW_TEMPLATE_OUT="$OUTDIR/${PREFIX}_monthly_review_template_${TS}.csv"
 REVIEW_OUT="$OUTDIR/${PREFIX}_monthly_review_results_${TS}.csv"
+GAPS_OUT="$OUTDIR/${PREFIX}_unmanaged_coverage_gaps_${TS}.csv"
 SOURCES_OUT="$OUTDIR/${PREFIX}_input_sources_${TS}.csv"
 COVERAGE_OUT="$OUTDIR/${PREFIX}_coverage_${TS}.csv"
 FINDINGS_OUT="$OUTDIR/${PREFIX}_findings_${TS}.csv"
@@ -319,48 +307,49 @@ SUMMARY_OUT="$OUTDIR/${PREFIX}_summary_${TS}.txt"
 PLAN_OUT="$OUTDIR/${PREFIX}_approved_scan_plan_${TS}.txt"
 RAW_ROOT="$OUTDIR/${PREFIX}_raw_inventory_${TS}"
 
-MODE_LABEL="COMPLETE RECONCILIATION"
+MODE_LABEL="MONTHLY INVENTORY RECONCILIATION"
 [ "$INVENTORY_ONLY" -eq 1 ] && MODE_LABEL="INVENTORY-ONLY TEMPLATE GENERATION"
-WORK_ITEMS="Broad OCI configuration inventory (CM08 engine)
-Controlled configuration item normalization
-Configuration attribute snapshot and SHA-256 fingerprint
-CI register reconciliation
-Approved System Design Form/baseline reconciliation
-Monthly review validation and findings ledger"
+WORK_ITEMS="Broad OCI hardware/software inventory
+OS Management Hub installed-package inventory
+Stable component identity and SHA-256 inventory fingerprint
+Approved prior-inventory reconciliation (added, removed, changed, unchanged)
+Unmanaged/in-guest inventory coverage-gap analysis
+Change disposition and count-bound monthly review validation"
 OUTPUT_FILES="$PLAN_OUT
-$ITEMS_OUT
-$ATTRS_OUT
-$CI_TEMPLATE_OUT
+$COMPONENTS_OUT
 $BASELINE_TEMPLATE_OUT
 $RECON_OUT
+$DISPOSITION_TEMPLATE_OUT
+$DISPOSITION_OUT
 $REVIEW_TEMPLATE_OUT
 $REVIEW_OUT
+$GAPS_OUT
 $SOURCES_OUT
 $COVERAGE_OUT
 $FINDINGS_OUT
-$ERRORS_OUT (created only when errors/gaps exist)
+$ERRORS_OUT (created only when evidence errors exist)
 $SUMMARY_OUT
 $RAW_ROOT/"
 PLAN_TMP="$TMPDIR/approved-plan.txt"
 oci_scope_print_scan_plan \
-  "CM-2 CONFIGURATION BASELINE" "CM02-01" "CM-2 / CM-2(2) / CM-2(3)" "$REGION" \
+  "CM-8 SYSTEM COMPONENT INVENTORY" "CM08-01" "CM-8 / CM-8(1) / CM-8(2)" "$REGION" \
   "$SELECTED_KIND" "$SELECTED_NAME" "$SELECTED_OCID" "$TARGET_COUNT" \
   "$TARGET_CATALOG" "Evidence work" "$WORK_ITEMS" "$OUTPUT_FILES" \
-  "Sensitive configuration metadata, OCIDs, tags, design references and reviewer identities" \
+  "Sensitive component metadata, OCIDs, package versions, owners and approval references" \
   | tee "$PLAN_TMP"
-echo "Mode            : $MODE_LABEL" | tee -a "$PLAN_TMP"
-echo "OCI CLI profile : ${PROFILE:-<default/ambient>}" | tee -a "$PLAN_TMP"
-echo "CI register     : ${CI_REGISTER:-<not supplied>}" | tee -a "$PLAN_TMP"
-echo "Approved baseline: ${BASELINE_FILE:-<not supplied>}" | tee -a "$PLAN_TMP"
-echo "Monthly review  : ${MONTHLY_REVIEW:-<not supplied>}" | tee -a "$PLAN_TMP"
+echo "Mode              : $MODE_LABEL" | tee -a "$PLAN_TMP"
+echo "OCI CLI profile   : ${PROFILE:-<default/ambient>}" | tee -a "$PLAN_TMP"
+echo "Approved inventory: ${APPROVED_INVENTORY:-<not supplied>}" | tee -a "$PLAN_TMP"
+echo "Dispositions      : ${DISPOSITIONS:-<not supplied>}" | tee -a "$PLAN_TMP"
+echo "Monthly review    : ${MONTHLY_REVIEW:-<not supplied>}" | tee -a "$PLAN_TMP"
+echo "Installed packages: INCLUDED (may be high volume)" | tee -a "$PLAN_TMP"
 
 if [ "$NON_INTERACTIVE" -eq 0 ]; then
   oci_scope_require_final_approval 1 || {
-    echo "SCAN NOT STARTED: $OCI_SCOPE_APPROVAL_ERROR. Nothing was scanned." >&2
-    exit 1
+    echo "SCAN NOT STARTED: $OCI_SCOPE_APPROVAL_ERROR. Nothing was scanned." >&2; exit 1;
   }
 else
-  echo "Approval mode   : strict automation confirmation accepted"
+  echo "Approval mode     : strict automation confirmation accepted"
   echo "SCAN APPROVED: starting read-only service collection."
 fi
 
@@ -378,9 +367,9 @@ if [ "$SELECTED_KIND" = "TENANCY" ]; then
   mkdir -p "$raw_dir"
   RAW_DIR_ARGS+=(--raw-dir "$raw_dir")
   OCI_TENANCY="$TENANCY_ID" OCI_CLI_PROFILE="$PROFILE" \
-    OCI_AUDIT_APPROVED_CALLER=CM02-01 OCI_AUDIT_APPROVED_SCOPE_OCID="$TENANCY_ID" \
+    OCI_AUDIT_APPROVED_CALLER=CM08-01 OCI_AUDIT_APPROVED_SCOPE_OCID="$TENANCY_ID" \
     OCI_AUDIT_APPROVED_REGION="$REGION" \
-    bash "$INVENTORY_ENGINE" -c "$TENANCY_ID" -r "$REGION" -o "$raw_dir" \
+    bash "$INVENTORY_ENGINE" -c "$TENANCY_ID" -r "$REGION" -p -o "$raw_dir" \
       > "$raw_dir/collector-console.log" 2>&1
   child_rc=$?
   [ "$child_rc" -eq 0 ] || CHILD_FAILURES=$((CHILD_FAILURES + 1))
@@ -393,9 +382,9 @@ else
     mkdir -p "$raw_dir"
     RAW_DIR_ARGS+=(--raw-dir "$raw_dir")
     OCI_TENANCY="$TENANCY_ID" OCI_CLI_PROFILE="$PROFILE" OCI_AUDIT_EXACT_SCOPE_ONLY=1 \
-      OCI_AUDIT_APPROVED_CALLER=CM02-01 OCI_AUDIT_APPROVED_SCOPE_OCID="$cid" \
+      OCI_AUDIT_APPROVED_CALLER=CM08-01 OCI_AUDIT_APPROVED_SCOPE_OCID="$cid" \
       OCI_AUDIT_APPROVED_REGION="$REGION" \
-      bash "$INVENTORY_ENGINE" -c "$cid" -r "$REGION" -o "$raw_dir" \
+      bash "$INVENTORY_ENGINE" -c "$cid" -r "$REGION" -p -o "$raw_dir" \
         > "$raw_dir/collector-console.log" 2>&1
     child_rc=$?
     [ "$child_rc" -eq 0 ] || CHILD_FAILURES=$((CHILD_FAILURES + 1))
@@ -404,17 +393,16 @@ fi
 
 POST_ARGS=(
   "${RAW_DIR_ARGS[@]}"
-  --scope-ocid "$SELECTED_OCID"
-  --scope-kind "$SELECTED_KIND"
-  --region "$REGION"
-  --collected-at "$TS"
-  --items-out "$ITEMS_OUT"
-  --attributes-out "$ATTRS_OUT"
-  --ci-template-out "$CI_TEMPLATE_OUT"
+  --scope-ocid "$SELECTED_OCID" --scope-kind "$SELECTED_KIND"
+  --region "$REGION" --collected-at "$TS"
+  --components-out "$COMPONENTS_OUT"
   --baseline-template-out "$BASELINE_TEMPLATE_OUT"
   --reconciliation-out "$RECON_OUT"
+  --disposition-template-out "$DISPOSITION_TEMPLATE_OUT"
+  --disposition-out "$DISPOSITION_OUT"
   --review-template-out "$REVIEW_TEMPLATE_OUT"
   --review-out "$REVIEW_OUT"
+  --gaps-out "$GAPS_OUT"
   --sources-out "$SOURCES_OUT"
   --coverage-out "$COVERAGE_OUT"
   --findings-out "$FINDINGS_OUT"
@@ -424,7 +412,9 @@ POST_ARGS=(
 if [ "$INVENTORY_ONLY" -eq 1 ]; then
   POST_ARGS+=(--inventory-only)
 else
-  POST_ARGS+=(--ci-register "$CI_REGISTER" --baseline "$BASELINE_FILE" --monthly-review "$MONTHLY_REVIEW")
+  POST_ARGS+=(--approved-inventory "$APPROVED_INVENTORY")
+  [ -n "$DISPOSITIONS" ] && POST_ARGS+=(--change-dispositions "$DISPOSITIONS")
+  [ -n "$MONTHLY_REVIEW" ] && POST_ARGS+=(--monthly-review "$MONTHLY_REVIEW")
 fi
 
 python3 "$POSTPROCESSOR" "${POST_ARGS[@]}"
@@ -436,7 +426,7 @@ echo
 echo "Evidence directory: $OUTDIR"
 
 if [ "$CHILD_FAILURES" -gt 0 ] || [ "$POST_RC" -eq 3 ]; then
-  echo "CM02-01 evidence is INCOMPLETE. Review coverage, errors and findings." >&2
+  echo "CM08-01 evidence is INCOMPLETE. Review coverage, errors, findings and pending approvals." >&2
   exit 3
 fi
 [ "$POST_RC" -eq 0 ] || exit 1

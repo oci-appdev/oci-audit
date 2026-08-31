@@ -1,0 +1,1 @@
+review_id,review_period,review_date,reviewer,reviewer_role,scope_ocid,baseline_id,reconciliation_reference,unchanged_count,added_count,removed_count,changed_count,unmanaged_gap_count,inventory_reviewed,changes_dispositioned,coverage_reviewed,corrective_actions,review_status,approver,approval_date,evidence_reference,notes

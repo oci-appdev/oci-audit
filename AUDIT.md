@@ -1,8 +1,8 @@
 # OCI Audit Implementation Review
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-31
 
-**Current branch:** `codex/task8-configuration-baseline`
+**Current branch:** `codex/task9-component-inventory`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -10,18 +10,19 @@
 
 ## Current audit position
 
-Tasks 1, 2, 3, 7 and 8 now have implementation-complete collector workflows and
+Tasks 1, 2, 3, 7, 8 and 9 now have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
 custody/rotation proof, Task 7 identity/host/manual proof, Task 8 approved
-CI/System Design Form/monthly-review proof, reviewer
+CI/System Design Form/monthly-review proof, Task 9 approved prior inventory,
+change-disposition/monthly-review and guest/provider-boundary proof, reviewer
 disposition, evidence-location references and approval records have not been
 produced in this repository. Task 6 has been returned to Partial after a
 controlled-use report and source review identified material CM07-01 defects.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
-Task 5 remains the earliest unimplemented worksheet item. Tasks 7 and 8 were
+Task 5 remains the earliest unimplemented worksheet item. Tasks 7–9 were
 implemented next at the user's direction.
 
 ### Task 6 corrective status
@@ -44,6 +45,50 @@ On 2026-08-28 the Task 2 collector was normalized to the canonical
 `sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
 `sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
 removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+---
+
+## 2026-08-31 — Task 9 CM-8 system component inventory workflow
+
+The broad `cm08-hw-sw-baseline.sh` engine collected useful OCI facts, but it
+did not establish an approved component owner/register, classify monthly
+addition/removal/change, require exact dispositions, bind a signed review to
+current counts or publish visibility gaps.
+
+`cm08-01-component-inventory-baseline.sh` is now the canonical Task 9 workflow.
+It:
+
+- defaults to discovered tenancy/compartment selection, exact double-OCID, a
+  full plan and exact uppercase `YES` before workload collection;
+- applies the same gate to manual `-c`/`-n` and requires explicit confirmation
+  OCIDs plus `--approve-scan YES` for automation;
+- requires one region, supports named profiles, discloses installed-package
+  volume and invokes the raw CM08 engine only after approval;
+- makes the raw engine refuse direct execution without the wrapper-approved
+  caller/scope/region handshake and runtime-allowlists read action variants;
+- normalizes cloud resources and software into stable component keys and
+  inventory fingerprints, with package versions treated as mutable state;
+- generates pending approved-inventory, change-disposition and count-bound
+  monthly-review templates without inventing organizational approval;
+- validates ownership, criticality, inventory status, baseline ID, approval
+  authority/dates and authoritative source provenance;
+- reconciles `UNCHANGED`, `ADDED`, `REMOVED` and `CHANGED`, requiring one exact
+  approved change, exception or corrective-action disposition for every change;
+- validates exactly one approved current-month review whose scope and counts
+  match the live reconciliation and unmanaged-gap ledger;
+- records input hashes, collection coverage and errors and produces private,
+  no-clobber, spreadsheet-formula-safe raw/canonical evidence.
+
+The gap ledger records compute guest/agent linkage, package detail, OKE running
+nodes, immutable image digests, compartment location and provider physical
+hardware boundaries. These are review inputs, not silently inferred negatives.
+
+Task 9 also corrected raw CM08 location provenance: child-derived attachment,
+FSS, OKE, container, Function, database and OS/package CSVs now carry
+compartment OCIDs. Regression coverage is in
+`tests/test-cm08-01-component-inventory.sh`; operating instructions and the
+recurring monthly sequence are in
+`TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md`.
 
 ---
 

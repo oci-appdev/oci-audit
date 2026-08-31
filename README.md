@@ -7,9 +7,9 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1, 2, 3, 7 and 8: implementation milestones complete;
+- Tasks 1, 2, 3, 7, 8 and 9: implementation milestones complete;
   live/approved evidence is still pending.
-- Tasks 6 and 9: partial collectors exist. Task 6 has a corrective blocker.
+- Task 6: partial collector exists with a corrective blocker.
 - Tasks 5, 10–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
@@ -50,7 +50,7 @@ Scripts 01, 02 and 03 default to interactive scope discovery. They discover
 the authenticated tenancy and active compartments, require the selected OCID
 twice, display the complete resolved scan plan, and require exact uppercase
 `YES` before service collection starts. The same mandatory interface is
-implemented by the Task 2, Task 3, Task 6, Task 7 and Task 8 collectors:
+implemented by the Task 2, Task 3, Task 6, Task 7, Task 8 and Task 9 collectors:
 
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
@@ -398,6 +398,61 @@ See
 for comparison semantics, the initial three-pass approval sequence and manual
 in-guest/rule-level evidence boundaries.
 
+## Canonical Task 9 workflow
+
+`cm08-01-component-inventory-baseline.sh` is the CM-8/CM-8(1) system-component
+inventory workflow. It keeps the current technical snapshot, the
+organization-approved prior inventory, monthly additions/removals/changes,
+their dispositions, coverage gaps and the signed monthly review separate.
+
+Start with a guarded inventory-only run:
+
+```bash
+bash cm08-01-component-inventory-baseline.sh --selfcheck
+
+bash cm08-01-component-inventory-baseline.sh \
+  -r us-langley-1 \
+  --inventory-only \
+  -o ./evidence/task9-inventory
+```
+
+The normal command discovers tenancy/compartment scopes, requires the exact
+OCID twice, discloses installed-package volume and all evidence work/outputs,
+and requires exact uppercase `YES`. Manual `-c`/`-n` uses the same gate.
+Automation requires `--non-interactive`, every exact confirmation OCID and
+`--approve-scan YES`.
+
+After approving the current inventory, compare a later scan to the prior
+approved version. The first comparison can omit dispositions/review and exit
+`3` while creating exact current templates:
+
+```bash
+bash cm08-01-component-inventory-baseline.sh \
+  -r us-langley-1 \
+  -b ./approved/cm08-component-inventory-prior.csv \
+  -o ./evidence/task9-pending
+```
+
+Disposition every `ADDED`, `REMOVED` and `CHANGED` row, complete the generated
+count-bound monthly review, then run the final package:
+
+```bash
+bash cm08-01-component-inventory-baseline.sh \
+  -r us-langley-1 \
+  -b ./approved/cm08-component-inventory-prior.csv \
+  -d ./approved/cm08-change-dispositions.csv \
+  -m ./approved/cm08-monthly-review.csv \
+  -o ./evidence/task9-final
+```
+
+The workflow always collects installed-package detail where OS Management Hub
+permits it and explicitly records guest, OKE-node, image-digest and
+provider-physical-layer visibility limits. The shared raw CM08 engine refuses
+direct execution and accepts only a wrapper-approved caller/scope/region plus
+runtime-allowlisted read actions. See
+[TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md](TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md)
+for the monthly lifecycle and evidence boundaries.
+
 ## Tests
 
 Run the repository regression suite with:
@@ -407,7 +462,7 @@ bash tests/run.sh
 ```
 
 The suite performs Bash syntax and read-only checks for CP-9, SC-8, SC-28,
-CM-7, CM-11 and CM-2. It
+CM-7, CM-11, CM-2 and CM-8. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
@@ -431,6 +486,11 @@ CM02-01 regressions cover inventory/template generation, approved CI and
 baseline matching, monthly-review validation, configuration drift, unbaselined
 attributes, denied collection, named profiles, formula-safe raw/canonical CSVs,
 tenancy/compartment confirmation and refusal before workload collection.
+CM08-01 regressions cover inventory/template generation, stable component
+identity, approved prior-inventory matching, exact addition/removal/change
+dispositions, count-bound monthly review, guest/provider coverage gaps, denied
+collection, installed-package/profile propagation, formula safety and all
+manual/automation scope refusal paths.
 
 ## Evidence handling
 
