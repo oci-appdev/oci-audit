@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-08-28
 
-**Current branch:** `codex/task7-cm11-software-control`
+**Current branch:** `codex/task8-configuration-baseline`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -10,17 +10,18 @@
 
 ## Current audit position
 
-Tasks 1, 2, 3 and 7 now have implementation-complete collector workflows and
+Tasks 1, 2, 3, 7 and 8 now have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
-custody/rotation proof, Task 7 identity/host/manual proof, reviewer
+custody/rotation proof, Task 7 identity/host/manual proof, Task 8 approved
+CI/System Design Form/monthly-review proof, reviewer
 disposition, evidence-location references and approval records have not been
 produced in this repository. Task 6 has been returned to Partial after a
 controlled-use report and source review identified material CM07-01 defects.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
-Task 5 remains the earliest unimplemented worksheet item. Task 7 was
+Task 5 remains the earliest unimplemented worksheet item. Tasks 7 and 8 were
 implemented next at the user's direction.
 
 ### Task 6 corrective status
@@ -43,6 +44,52 @@ On 2026-08-28 the Task 2 collector was normalized to the canonical
 `sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
 `sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
 removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+---
+
+## 2026-08-28 — Task 8 CM-2 configuration baseline workflow
+
+The existing `cm08-hw-sw-baseline.sh` captured broad hardware/software and
+configuration facts, but it did not establish controlled CI ownership, ingest
+an approved System Design Form/baseline, reconcile live attributes to approved
+values or validate a monthly review. It also predated the mandatory scan-
+approval boundary.
+
+`cm02-01-configuration-baseline.sh` is now the canonical Task 8 workflow. The
+CM02 name preserves the control mapping: configuration baseline is CM-2, while
+the existing CM08 file remains the invoked component-inventory engine. CM02-01:
+
+- defaults to discovered tenancy/compartment selection, exact double-OCID, a
+  complete plan and exact uppercase `YES` before workload collection;
+- applies the same double-confirmation boundary to manual `-c`/`-n` and requires
+  explicit confirmation OCIDs plus `--approve-scan YES` for automation;
+- requires one explicit region, supports a named profile and retains the
+  approved plan;
+- invokes the CM08 inventory engine only after approval and forces a selected
+  compartment to remain exact rather than silently expanding to children;
+- normalizes broad OCI inventory into stable CI keys, baseline-eligible
+  attributes and SHA-256 configuration fingerprints;
+- generates CI register, approved baseline/System Design Form and monthly-review
+  templates without representing observed live values as approved truth;
+- reconciles `EXACT`, case-insensitive, set, presence/absence and numeric
+  comparison methods and retains change/exception references;
+- distinguishes configuration drift from unregistered CIs, unbaselined live
+  attributes, incomplete/ambiguous baselines and approved attributes not live;
+- validates exactly one approved review for the current month and confirmed
+  scope, including findings/change/exception review and corrective action;
+- records input hashes, coverage and errors; produces private, no-clobber,
+  spreadsheet-formula-safe canonical and raw CSV evidence.
+
+Task 8 implementation also corrected pre-existing CM08 engine defects found by
+execution rather than static review: direct `jq` calls referenced an undefined
+`dat` function; image rows were double-encoded and included a blank image; and
+VNIC rows omitted compartment OCIDs. CM02-01 additionally treats retained raw
+stderr or downstream parser failures as incomplete evidence so they cannot
+survive behind an `OK` OCI-call ledger.
+
+Regression coverage is in `tests/test-cm02-01-configuration-baseline.sh` with
+`tests/mock-oci-task8`. The manual evidence and first-month three-pass workflow
+are documented in `TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md`.
 
 ---
 

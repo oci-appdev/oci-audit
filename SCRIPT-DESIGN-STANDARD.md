@@ -87,12 +87,14 @@ The shared double-OCID implementation and regression examples are:
 - `sc28-oci-encryption-at-rest.sh`
 - `cm07-01-open-ports-protocols-services.sh`
 - `cm11-01-software-installation-control.sh`
+- `cm02-01-configuration-baseline.sh`
 - `tests/test-scope-selection.sh`
 - `tests/test-cm07-01-open-ports.sh`
 - `tests/test-cm11-01-software-installation-control.sh`
+- `tests/test-cm02-01-configuration-baseline.sh`
 
-All seven canonical Task 1–3, Task 6 and Task 7 collectors default no-scope manual runs to
+All eight canonical Task 1–3 and Task 6–8 collectors default no-scope manual runs to
 the shared interactive workflow and implement the pre-scan summary plus
 exact-`YES` gate. CM07-01 also implements the stricter explicit automation
-contract above, as does CM11-01. Retrofit the earlier collectors before their next material
+contract above, as do CM11-01 and CM02-01. Retrofit the earlier collectors before their next material
 change; every future collector must use the strict contract when introduced.

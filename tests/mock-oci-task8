@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+TENANCY="ocid1.tenancy.oc1..task8tenancy"
+COMP="ocid1.compartment.oc1..task8config"
+
+[ -n "${MOCK_TASK8_LOG:-}" ] && printf '%s\n' "$*" >> "$MOCK_TASK8_LOG"
+
+args=("$@")
+filtered=()
+index=0
+while [ "$index" -lt "${#args[@]}" ]; do
+  case "${args[$index]}" in
+    --profile|--config-file|--auth)
+      index=$((index + 2))
+      ;;
+    *)
+      filtered+=("${args[$index]}")
+      index=$((index + 1))
+      ;;
+  esac
+done
+set -- "${filtered[@]}"
+
+case "$*" in
+  *"iam availability-domain list"*)
+    printf '{"data":[{"name":"","compartment-id":"%s"}]}' "$TENANCY"
+    ;;
+  *"iam tenancy get"*)
+    printf '{"data":{"id":"%s","name":"OCS-Tenancy"}}' "$TENANCY"
+    ;;
+  *"iam compartment get"*)
+    printf '{"data":{"id":"%s","name":"Configuration"}}' "$COMP"
+    ;;
+  *"iam compartment list"*)
+    printf '{"data":[{"id":"%s","name":"Configuration","lifecycle-state":"ACTIVE"}]}' "$COMP"
+    ;;
+  *"os ns get"*)
+    printf '{"data":"task8namespace"}'
+    ;;
+  *"compute instance list-vnics"*)
+    printf '%s' '{"data":[{"display-name":"app-vnic","id":"ocid1.vnic.oc1..task8","private-ip":"10.10.1.10","public-ip":null,"mac-address":"02:00:17:00:00:01","subnet-id":"ocid1.subnet.oc1..task8","nsg-ids":["ocid1.networksecuritygroup.oc1..task8"],"is-primary":true,"skip-source-dest-check":false}]}'
+    ;;
+  *"compute instance list"*)
+    if [ "${MOCK_TASK8_DENY_COMPUTE:-0}" = "1" ]; then
+      echo "ServiceError: NotAuthorizedOrNotFound" >&2
+      exit 1
+    fi
+    instance_name="app01"
+    [ "${MOCK_TASK8_FORMULA_NAME:-0}" = "1" ] && instance_name="=2+3"
+    printf '{"data":[{"display-name":"%s","id":"ocid1.instance.oc1..task8","compartment-id":"ocid1.compartment.oc1..task8config","lifecycle-state":"RUNNING","shape":"VM.Standard.E5.Flex","shape-config":{"ocpus":2,"memory-in-gbs":16,"networking-bandwidth-in-gbps":1},"availability-domain":"MOCK-AD-1","fault-domain":"FAULT-DOMAIN-1","launch-mode":"PARAVIRTUALIZED","platform-config":{"type":"AMD_VM","is-secure-boot-enabled":true,"is-measured-boot-enabled":true,"is-trusted-platform-module-enabled":true},"agent-config":{"is-monitoring-disabled":false,"is-management-disabled":false,"plugins-config":[{"name":"Vulnerability Scanning","desired-state":"ENABLED"}]},"freeform-tags":{"Environment":"PROD"},"time-created":"2026-01-01T00:00:00Z"}]}' "$instance_name"
+    ;;
+  *"network vcn list"*)
+    printf '%s' '{"data":[{"display-name":"app-vcn","id":"ocid1.vcn.oc1..task8","lifecycle-state":"AVAILABLE","cidr-blocks":["10.10.0.0/16"],"ipv6-cidr-blocks":[],"dns-label":"app","default-route-table-id":"ocid1.routetable.oc1..default","default-security-list-id":"ocid1.securitylist.oc1..default","time-created":"2026-01-01T00:00:00Z"}]}'
+    ;;
+  *"network subnet list"*)
+    printf '%s' '{"data":[{"display-name":"app-subnet","id":"ocid1.subnet.oc1..task8","lifecycle-state":"AVAILABLE","vcn-id":"ocid1.vcn.oc1..task8","cidr-block":"10.10.1.0/24","availability-domain":null,"prohibit-public-ip-on-vnic":true,"prohibit-internet-ingress":true,"route-table-id":"ocid1.routetable.oc1..task8","security-list-ids":["ocid1.securitylist.oc1..task8"],"dns-label":"appsubnet","time-created":"2026-01-01T00:00:00Z"}]}'
+    ;;
+  *)
+    printf '%s' '{"data":[]}'
+    ;;
+esac

@@ -7,9 +7,9 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1, 2, 3 and 7: implementation milestones complete;
+- Tasks 1, 2, 3, 7 and 8: implementation milestones complete;
   live/approved evidence is still pending.
-- Tasks 6, 8 and 9: partial collectors exist. Task 6 has a corrective blocker.
+- Tasks 6 and 9: partial collectors exist. Task 6 has a corrective blocker.
 - Tasks 5, 10–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
@@ -50,7 +50,7 @@ Scripts 01, 02 and 03 default to interactive scope discovery. They discover
 the authenticated tenancy and active compartments, require the selected OCID
 twice, display the complete resolved scan plan, and require exact uppercase
 `YES` before service collection starts. The same mandatory interface is
-implemented by the Task 2, Task 3, Task 6 and Task 7 collectors:
+implemented by the Task 2, Task 3, Task 6, Task 7 and Task 8 collectors:
 
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
@@ -354,6 +354,50 @@ SSH/sudo/local-admin, break-glass, unmanaged-host and deployment-runtime checks
 in
 [TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md](TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md).
 
+## Canonical Task 8 workflow
+
+`cm02-01-configuration-baseline.sh` is the CM-2 baseline-configuration
+collector. It keeps live OCI configuration, the organization-owned CI register,
+the approved System Design Form/baseline and the signed monthly review as
+separate evidence sources.
+
+Start by generating review templates:
+
+```bash
+bash cm02-01-configuration-baseline.sh --selfcheck
+
+bash cm02-01-configuration-baseline.sh \
+  -r us-langley-1 \
+  --inventory-only \
+  -o ./evidence/task8-inventory
+```
+
+The command defaults to discovered tenancy/compartment selection, requires the
+exact OCID twice, displays the complete scope/profile/work/output plan and
+requires exact uppercase `YES`. Manual `-c`/`-n` uses the same confirmation;
+automation requires explicit `--non-interactive`, matching confirmation OCIDs
+and `--approve-scan YES`.
+
+After the responsible owners approve the generated CI register and baseline
+and complete the monthly review, run reconciliation:
+
+```bash
+bash cm02-01-configuration-baseline.sh \
+  -r us-langley-1 \
+  -g ./approved/cm02-ci-register.csv \
+  -b ./approved/cm02-configuration-baseline.csv \
+  -m ./approved/cm02-monthly-review.csv \
+  -o ./evidence/task8-monthly
+```
+
+CM02-01 invokes `cm08-hw-sw-baseline.sh` only after approval, normalizes live
+CIs/attributes, fingerprints them, compares every controlled value, records
+input SHA-256 and validates exactly one approved review for the current month.
+See
+[TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md](TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md)
+for comparison semantics, the initial three-pass approval sequence and manual
+in-guest/rule-level evidence boundaries.
+
 ## Tests
 
 Run the repository regression suite with:
@@ -363,7 +407,7 @@ bash tests/run.sh
 ```
 
 The suite performs Bash syntax and read-only checks for CP-9, SC-8, SC-28,
-CM-7 and CM-11. It
+CM-7, CM-11 and CM-2. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
@@ -383,6 +427,10 @@ installer and software approval reconciliation, prohibited-software matches,
 OSMH control coverage, denied/malformed calls, identity-domain gaps,
 private/formula-safe output, tenancy expansion and fail-closed manual/automation
 approval.
+CM02-01 regressions cover inventory/template generation, approved CI and
+baseline matching, monthly-review validation, configuration drift, unbaselined
+attributes, denied collection, named profiles, formula-safe raw/canonical CSVs,
+tenancy/compartment confirmation and refusal before workload collection.
 
 ## Evidence handling
 

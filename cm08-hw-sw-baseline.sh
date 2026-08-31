@@ -24,6 +24,13 @@
 # SAFETY
 #   READ-ONLY. Only list/get operations are issued.
 #
+# CANONICAL USE
+#   This broad CM-8 inventory engine is also invoked by the guarded CM-2
+#   configuration-baseline workflow. Run cm02-01-configuration-baseline.sh for
+#   Task 8 so scope is confirmed before workload-service collection. The
+#   internal OCI_AUDIT_EXACT_SCOPE_ONLY=1 setting prevents child-compartment
+#   expansion when that workflow approved one exact compartment.
+#
 # AUTH
 #   Default: whatever the ambient CLI is configured for. In OCI Cloud Shell the
 #   CLI is pre-authenticated with a delegation token, so no flag is required.
@@ -254,7 +261,7 @@ hdr() { printf '%s\n' "$2" > "$OUTDIR/$1"; }
 
 # --- compute -----------------------------------------------------------------
 hdr compute_instances.csv 'region,compartment_name,compartment_ocid,instance_name,instance_ocid,lifecycle_state,form_factor,shape,ocpus,memory_gb,gpu_count,gpu_description,local_disk_count,local_disk_gb,processor_description,network_bandwidth_gbps,availability_domain,fault_domain,launch_mode,platform_config_type,secure_boot,measured_boot,tpm_enabled,image_name,image_os,image_os_version,image_ocid,monitoring_agent_disabled,management_agent_disabled,plugins_enabled,time_created,freeform_tags'
-hdr instance_vnics.csv    'region,compartment_name,instance_name,instance_ocid,vnic_name,vnic_ocid,private_ip,public_ip,mac_address,subnet_ocid,nsg_count,is_primary,skip_source_dest_check'
+hdr instance_vnics.csv    'region,compartment_name,compartment_ocid,instance_name,instance_ocid,vnic_name,vnic_ocid,private_ip,public_ip,mac_address,subnet_ocid,nsg_count,is_primary,skip_source_dest_check'
 hdr images_in_use.csv     'region,image_ocid,image_name,operating_system,os_version,base_image_ocid,launch_mode,time_created,instance_count'
 hdr dedicated_vm_hosts.csv 'region,compartment_name,compartment_ocid,host_name,host_ocid,lifecycle_state,dvh_shape,availability_domain,fault_domain,total_ocpus,remaining_ocpus,total_memory_gb,remaining_memory_gb,time_created'
 # --- block storage -----------------------------------------------------------
@@ -306,7 +313,7 @@ if [[ -n "$REGIONS_ARG" ]]; then
   REGIONS=($REGIONS_ARG)
 else
   mapfile -t REGIONS < <(oci_q "region-subscription list" iam region-subscription list \
-      | jq -r 'dat | .[]? | .["region-name"] // empty' | sort -u)
+      | jq -r "$JQP"'dat | .[]? | .["region-name"] // empty' | sort -u)
 fi
 if (( ${#REGIONS[@]} == 0 )); then
   echo "ERROR: no regions resolved. Pass -r explicitly." >&2; exit 2
@@ -325,10 +332,12 @@ else
     | jq -r '.data | select(. != null) | [.id, .name] | @tsv' >> "$COMP_FILE"
 fi
 
-oci_q "compartment list (subtree)" iam compartment list \
-    --compartment-id "$ROOT" --compartment-id-in-subtree true \
-    --access-level ACCESSIBLE --lifecycle-state ACTIVE --all \
-  | jq -r 'dat | .[]? | [.id, .name] | @tsv' >> "$COMP_FILE"
+if [[ "${OCI_AUDIT_EXACT_SCOPE_ONLY:-0}" != "1" ]]; then
+  oci_q "compartment list (subtree)" iam compartment list \
+      --compartment-id "$ROOT" --compartment-id-in-subtree true \
+      --access-level ACCESSIBLE --lifecycle-state ACTIVE --all \
+    | jq -r "$JQP"'dat | .[]? | [.id, .name] | @tsv' >> "$COMP_FILE"
+fi
 
 COMP_COUNT=$(wc -l < "$COMP_FILE" | tr -d ' ')
 if (( COMP_COUNT == 0 )); then
@@ -356,7 +365,7 @@ for REGION in "${REGIONS[@]}"; do
 
   mapfile -t ADS < <(oci_q "availability-domain list" iam availability-domain list \
       --compartment-id "$TENANCY_OCID" --region "$REGION" \
-      | jq -r 'dat | .[]? | .name // empty')
+      | jq -r "$JQP"'dat | .[]? | .name // empty')
 
   OS_NAMESPACE="$(oci_q "object-storage namespace get" os ns get --region "$REGION" \
       | jq -r '.data // "" | tostring')"
@@ -369,7 +378,7 @@ for REGION in "${REGIONS[@]}"; do
     ############################ COMPUTE #####################################
     oci_q "compute instance list [$CNAME]" compute instance list "${R[@]}" \
       | jq -c --arg r "$REGION" --arg cn "$CNAME" --arg co "$CID" \
-          'dat | .[]? | . + {_region:$r,_cname:$cn,_cocid:$co}' >> "$RTMP/instances.jsonl"
+          "$JQP"'dat | .[]? | . + {_region:$r,_cname:$cn,_cocid:$co}' >> "$RTMP/instances.jsonl"
 
     emit dedicated_vm_hosts.csv "compute dedicated-vm-host list [$CNAME]" '
       dat | .[]? | [ $r,$cn,$co,
@@ -471,7 +480,7 @@ for REGION in "${REGIONS[@]}"; do
           >> "$OUTDIR/object_storage_buckets.csv" 2>>"$ERRLOG"
       done < <(oci_q "os bucket list [$CNAME]" os bucket list \
                  --namespace-name "$OS_NAMESPACE" "${R[@]}" \
-               | jq -r 'dat | .[]? | .name // empty')
+               | jq -r "$JQP"'dat | .[]? | .name // empty')
     fi
 
     ############################ NETWORK #####################################
@@ -635,7 +644,7 @@ for REGION in "${REGIONS[@]}"; do
         fn function list --application-id "$APPID" --region "$REGION" --all
       X1=""; X2=""
     done < <(oci_q "fn application list [$CNAME]" fn application list "${R[@]}" \
-             | jq -r 'dat | .[]? | [.id, (.["display-name"] // "")] | @tsv')
+             | jq -r "$JQP"'dat | .[]? | [.id, (.["display-name"] // "")] | @tsv')
 
     ############################ DATABASE ####################################
     emit db_systems.csv "db system list [$CNAME]" '
@@ -843,11 +852,11 @@ for REGION in "${REGIONS[@]}"; do
           ((.["freeform-tags"] // {}) | to_entries | map("\(.key)=\(.value)") | join("|"))
         ] | @csv' "$RTMP/instances.jsonl" >> "$OUTDIR/compute_instances.csv" 2>>"$ERRLOG"
 
-  jq -s --slurpfile IDX "$RTMP/image_index.json" --arg r "$REGION" '
+  jq -r -s --slurpfile IDX "$RTMP/image_index.json" --arg r "$REGION" '
       ($IDX[0] // {}) as $img
       | group_by(.["image-id"] // .["source-details"]["image-id"] // "")
       | map({ iid:(.[0]["image-id"] // .[0]["source-details"]["image-id"] // ""), n:length })
-      | .[] | . as $g | ($img[$g.iid] // {}) as $i
+      | .[] | select(.iid != "") | . as $g | ($img[$g.iid] // {}) as $i
       | [ $r, $g.iid, ($i.name//""), ($i.os//""), ($i.osv//""),
           ($i.base//""), ($i.lm//""), ($i.tc//""), ($g.n|tostring) ] | @csv' \
       "$RTMP/instances.jsonl" >> "$OUTDIR/images_in_use.csv" 2>>"$ERRLOG"
@@ -855,18 +864,18 @@ for REGION in "${REGIONS[@]}"; do
   ############################ VNICS #########################################
   if (( SKIP_VNICS == 0 )); then
     log "  collecting VNICs..."
-    while IFS=$'\t' read -r IID INAME ICN; do
+    while IFS=$'\t' read -r IID INAME ICN ICO; do
       [[ -z "$IID" ]] && continue
       oci_q "compute instance list-vnics [$INAME]" compute instance list-vnics \
           --instance-id "$IID" --region "$REGION" --all \
-        | jq -r --arg r "$REGION" --arg cn "$ICN" --arg nm "$INAME" --arg id "$IID" "$JQP"'
-            dat | .[]? | [ $r,$cn,$nm,$id,
+        | jq -r --arg r "$REGION" --arg cn "$ICN" --arg co "$ICO" --arg nm "$INAME" --arg id "$IID" "$JQP"'
+            dat | .[]? | [ $r,$cn,$co,$nm,$id,
               s("display-name"), s("id"), s("private-ip"), s("public-ip"),
               s("mac-address"), s("subnet-id"), cnt("nsg-ids"),
               tri("is-primary"), tri("skip-source-dest-check") ] | @csv' \
         >> "$OUTDIR/instance_vnics.csv" 2>>"$ERRLOG"
     done < <(jq -r 'select((.["lifecycle-state"] // "") != "TERMINATED")
-                    | [.id, (.["display-name"] // ""), ._cname] | @tsv' \
+                    | [.id, (.["display-name"] // ""), ._cname, ._cocid] | @tsv' \
                 "$RTMP/instances.jsonl" 2>/dev/null)
   fi
 

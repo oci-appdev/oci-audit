@@ -2,13 +2,13 @@
 
 **Updated:** 2026-08-28
 
-**Working branch:** `codex/task7-cm11-software-control`
+**Working branch:** `codex/task8-configuration-baseline`
 
-**Base commit:** `882fe0be8f8a708ff0cd24fb9104d6f081ff0fbc`
+**Base commit:** `8133adc7bbd79006227931bb121a7543bc2da1c6`
 
-**Current milestone:** Tasks 1–3 and Task 7 collector implementations complete; Task 6 corrective patch required; live/manual/approval evidence pending
+**Current milestone:** Tasks 1–3, Task 7 and Task 8 collector implementations complete; Task 6 corrective patch required; live/manual/approval evidence pending
 
-**Pull request:** not opened for the Task 7 branch
+**Pull request:** not opened for the Task 8 branch
 
 ## Mandatory scope-selection standard
 
@@ -21,14 +21,15 @@ flag operator command for every canonical collector.
 
 Scripts `cp09-01`, `cp09-02`, `cp09-03`, `sc08-02-in-transit-encryption.sh`,
 `sc28-oci-encryption-at-rest.sh`, `cm07-01-open-ports-protocols-services.sh` and
-`cm11-01-software-installation-control.sh` now default normal/manual runs to interactive
+`cm11-01-software-installation-control.sh` and
+`cm02-01-configuration-baseline.sh` now default normal/manual runs to interactive
 scope selection; `-i` / `--select-scope` are optional aliases. They discover
 the tenancy and active compartments, display full OCIDs, require an exact
 discovered OCID twice, print the resolved scan plan, and require exact uppercase
 `YES` before workload-service collection. A tenancy selection means root plus
 every active child compartment. Mismatch/refusal exits before the collector
 loop, removes header-only CSVs and has dedicated fail-closed regressions for all
-seven collectors.
+eight collectors.
 
 The shared implementation is `lib/oci-scope-selector.sh`; regression coverage
 is in `tests/test-scope-selection.sh`.
@@ -37,6 +38,49 @@ Every new or materially redesigned collector must follow
 `SCRIPT-DESIGN-STANDARD.md`. `-c`/`-n` alone are scope selectors, not proof of
 automation approval. New collectors require explicit automation mode, exact
 resolved-OCID confirmation values and exact `YES` approval.
+
+## Latest milestone — Task 8 configuration baseline
+
+The canonical workflow is `cm02-01-configuration-baseline.sh`; the guide is
+`TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md`. Configuration baseline maps to
+CM-2, so the existing `cm08-hw-sw-baseline.sh` remains a separate CM-8 inventory
+engine invoked only after CM02-01 obtains scan approval.
+
+CM02-01 requires an exact tenancy or compartment OCID twice, prints the full
+scope/profile/work/output plan and requires exact uppercase `YES`. Manual
+`-c`/`-n` confirms every resolved compartment twice. Automation requires
+`--non-interactive`, every exact confirmation OCID and `--approve-scan YES`.
+One region is mandatory and `-p/--profile` is passed to discovery and inventory.
+
+The workflow separates live facts from three signed organizational inputs:
+
+- CI register: system/technical owners, criticality, environment, baseline ID,
+  System Design Form reference, monthly frequency and registration approval;
+- approved configuration baseline: expected attribute values, comparison,
+  design/change/exception references and approval provenance;
+- current monthly review: reviewer, findings/change/exception validation,
+  corrective actions, approval and retained evidence reference.
+
+Inventory-only creates all three templates. Full reconciliation reports match,
+configuration drift, unregistered CIs, unbaselined attributes, incomplete or
+ambiguous approvals and approved attributes not found live. Input SHA-256,
+configuration fingerprints, private/formula-safe raw and canonical CSVs,
+coverage, error and summary evidence are retained. An exact compartment is
+passed to the CM08 engine with child expansion disabled; tenancy expansion is
+disclosed in the approved plan.
+
+Execution testing fixed three existing CM08 defects: undefined `dat` filters in
+direct jq calls, double-encoded/blank image inventory and missing VNIC
+compartment OCIDs. Raw stderr or downstream parser errors now force CM02-01
+incomplete rather than hiding behind successful OCI calls.
+
+Regression coverage is in `tests/test-cm02-01-configuration-baseline.sh` using
+`tests/mock-oci-task8`. It covers complete matching, drift, missing baseline
+coverage, current monthly review, denied collection, profile propagation,
+formula safety, manual/default/tenancy scope paths, strict automation and
+refusal before workload collection. The dedicated test and full repository
+suite pass locally; require GitHub Actions on the exact published head before
+merge.
 
 ## Latest milestone — Task 7 software installation control
 
@@ -350,7 +394,7 @@ this public repository.
 
 ## Next implementation task for Claude
 
-Task 7 implementation is complete on the local feature branch. Before new
+Task 8 implementation is complete on the local feature branch. Before new
 implementation, publish the branch, run the full GitHub Actions gate on the
 exact head, review the diff and merge only when the user requests it.
 
@@ -360,21 +404,18 @@ compartment and tenancy runs before promoting it again. Do not allow an
 unresolved cross-compartment association to produce `OK` coverage or an
 inactive-container conclusion, and do not apply transport-port overlap to ICMP.
 
-After that corrective gate, the next item in the user's recent Task 6 → Task 7 progression is Task 8 —
-configuration baseline. A partial `cm08-hw-sw-baseline.sh` collector exists but
-does not yet provide the full control workflow. The next implementation should:
-
-1. identify the controlled configuration items and their owners;
-2. ingest the approved System Design Form/configuration baseline rather than
-   inventing baseline values;
-3. compare live configuration to the signed baseline with change/exception
-   disposition;
-4. define and evidence the monthly review process, reviewer and approval;
-5. adopt the strict OCID/plan/`YES`, failure-ledger, provenance and regression
-   contract from CM07-01 and CM11-01.
+After the Task 6 corrective gate, the next worksheet item in the user's chosen
+Task 7 → Task 8 progression is Task 9 — hardware/software inventory baseline.
+The corrected `cm08-hw-sw-baseline.sh` is a strong technical foundation. Task 9
+still needs the monthly inventory-baseline control workflow: approved component
+inventory ownership, month-over-month addition/removal/change reconciliation,
+unmanaged/in-guest coverage gaps, review/approval, corrective action and
+retained evidence provenance. Reuse CM02-01's strict scope approval and monthly
+review patterns without merging CM-2 baseline decisions into CM-8 inventory
+assertions.
 
 Task 5 Continuous Monitoring Form review/feedback remains the earliest
-unimplemented worksheet item because the user chose to advance Tasks 6 and 7
+unimplemented worksheet item because the user chose to advance Tasks 6–8
 first. Do not represent it as complete; return to it when the user directs.
 
 ## Resolved Task 6 blocker

@@ -26,7 +26,7 @@
 | 5 | Continuous Monitoring Form review/feedback | Not started | None | Add reviewed form, feedback log, owner, disposition and approval |
 | 6 | Ports/protocols/services list, approval proof and restricted list | Partial | `cm07-01-open-ports-protocols-services.sh` has the scope-confirmation, evidence-separation and reconciliation foundation, but controlled use found material cross-compartment coverage and ICMP restricted-match defects; the legacy `cm07-openports.sh` produced useful output while `cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` did not; see `CM07-CORRECTIVE-REVIEW.md` | Patch cross-compartment resolution and portless-protocol matching; add profile support, semantic rule identity and packaged summary; extend regressions; complete known-object compartment and tenancy validation before collecting approval/restricted-list evidence |
 | 7 | Software installation control | Implementation complete | Canonical `cm11-01-software-installation-control.sh`; default tenancy/compartment discovery, exact double-OCID and final `YES`; strict automation confirmation; explicit region; read-only IAM policy/group evidence; candidate entitlement classification for OSMH package install, Compute image provisioning and Container Registry publish; classic group-member expansion plus identity-domain boundary; OSMH installed packages, Compute boot images, container images; generated authorized-installer/approved-software templates; authoritative installer/approval/restricted-list reconciliation; OSMH/repository/image technical-control evidence; source hashes, private/formula-safe outputs, coverage/error ledgers and mock gate | Run inventory-only in every scope; obtain signed authorized-installer, approved-software and current restricted/prohibited lists; export referenced Identity Domains membership; complete SSH/sudo/local-admin, break-glass, unmanaged-host, Windows, Kubernetes/runtime and request/change-sample evidence; rerun reconciliation; disposition prohibited/restricted/unapproved/unauthorized rows and store the signed package |
-| 8 | Configuration baseline | Partial | `cm08-hw-sw-baseline.sh` captures configuration attributes | Establish CI register, System Design Form, approved baseline, monthly comparison/review process and signed evidence |
+| 8 | Configuration baseline | Implementation complete | Canonical `cm02-01-configuration-baseline.sh`; mandatory tenancy/compartment double-OCID, complete plan and exact `YES`; strict automation and named-profile support; broad CM08 read-only inventory invoked only after approval; normalized CI/attribute fingerprints; generated CI register, approved System Design Form/baseline and monthly-review templates; exact baseline reconciliation with change/exception references; input SHA-256; private/formula-safe raw and canonical evidence; failure/coverage ledgers and mock gate | Run inventory-only in every exact region/scope; have the system/configuration authority approve the CI register and System Design Form baseline; execute reconciliation; review drift/change/exception rows; complete and approve the current monthly review; rerun to exit `0`; store the signed package and in-guest/rule-level manual evidence |
 | 9 | Hardware/software inventory baseline | Partial | `cm08-hw-sw-baseline.sh` provides a strong failure-aware inventory collector | Execute monthly, compare to approved baseline, disposition changes, sign and archive evidence |
 | 10 | Vulnerability tracking | Not started | CM-8 collector exposes limited update counts only | Add monthly vulnerability tracker, SLA, remediation owner, exception and follow-up evidence |
 | 11 | Configuration change tracking | Not started | None | Add Remedy CRQ/SO approval process and approved change samples |
@@ -40,8 +40,8 @@
 
 ## Completion snapshot
 
-Excluding the two N/A items, four of sixteen actionable worksheet tasks have
-implementation-complete collector workflows. Three have partial foundations and
+Excluding the two N/A items, five of sixteen actionable worksheet tasks have
+implementation-complete collector workflows. Two have partial foundations and
 nine are not started. No actionable task should be represented as audit-complete
 until its operational evidence and approval records are produced and reviewed.
 
@@ -55,4 +55,5 @@ Continue in worksheet order:
 4. Skip Task 4 as N/A and complete Task 5 form review/feedback.
 5. Correct and live-validate Task 6, then close its operational, approval and restricted-list evidence.
 6. Execute and close Task 7 operational, identity, approval and restriction evidence.
-7. Continue Tasks 8–14, skip Task 15, then complete Tasks 16–18.
+7. Execute and close Task 8 configuration-baseline and monthly-review evidence.
+8. Continue Tasks 9–14, skip Task 15, then complete Tasks 16–18.
