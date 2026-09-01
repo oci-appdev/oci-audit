@@ -196,10 +196,19 @@ def check_db(rows, comp, config, signer):
     systems = safe(oci.pagination.list_call_get_all_results, db.list_db_systems, compartment_id=comp)
     if systems and systems.data:
         for sysd in systems.data:
-            dbs = safe(oci.pagination.list_call_get_all_results,
-                       db.list_databases, compartment_id=comp, db_system_id=sysd.id)
-            if dbs and dbs.data:
-                for d in dbs.data:
+            # list_databases has no db_system_id filter (system_id only applies to
+            # Exadata systems); scope via the system's DB Homes instead.
+            homes = safe(oci.pagination.list_call_get_all_results,
+                         db.list_db_homes, compartment_id=comp, db_system_id=sysd.id)
+            dbs_data = []
+            if homes and homes.data:
+                for h in homes.data:
+                    dbs = safe(oci.pagination.list_call_get_all_results,
+                               db.list_databases, compartment_id=comp, db_home_id=h.id)
+                    if dbs and dbs.data:
+                        dbs_data.extend(dbs.data)
+            if dbs_data:
+                for d in dbs_data:
                     cfg = getattr(d, "db_backup_config", None)
                     if cfg and cfg.auto_backup_enabled:
                         window = getattr(cfg, "auto_backup_window", "default")
@@ -227,22 +236,26 @@ def check_fss(rows, comp, config, signer):
     fss = client(oci.file_storage.FileStorageClient, config, signer)
     tid = tenancy_id(config, signer)
 
-    # Snapshot policies (schedules)
-    pols = safe(oci.pagination.list_call_get_all_results,
-                fss.list_filesystem_snapshot_policies, compartment_id=comp)
-    pol_map = {}
-    if pols and pols.data:
-        for p in pols.data:
-            full = safe(fss.get_filesystem_snapshot_policy, filesystem_snapshot_policy_id=p.id)
-            scheds = []
-            if full and full.data and full.data.schedules:
-                for s in full.data.schedules:
-                    scheds.append(f"{s.period}(retention={s.retention_duration_in_seconds}s)")
-            pol_map[p.id] = "; ".join(scheds) if scheds else "no-schedules"
-
     ads = safe(idc.list_availability_domains, compartment_id=tid)
     if not (ads and ads.data):
         return
+
+    # Snapshot policies (schedules) are AD-scoped; availability_domain is a
+    # required filter on list_filesystem_snapshot_policies.
+    pol_map = {}
+    for ad in ads.data:
+        pols = safe(oci.pagination.list_call_get_all_results,
+                    fss.list_filesystem_snapshot_policies,
+                    compartment_id=comp, availability_domain=ad.name)
+        if pols and pols.data:
+            for p in pols.data:
+                full = safe(fss.get_filesystem_snapshot_policy, filesystem_snapshot_policy_id=p.id)
+                scheds = []
+                if full and full.data and full.data.schedules:
+                    for s in full.data.schedules:
+                        scheds.append(f"{s.period}(retention={s.retention_duration_in_seconds}s)")
+                pol_map[p.id] = "; ".join(scheds) if scheds else "no-schedules"
+
     for ad in ads.data:
         fs = safe(oci.pagination.list_call_get_all_results,
                   fss.list_file_systems, compartment_id=comp, availability_domain=ad.name)
@@ -324,12 +337,15 @@ def check_postgres(rows, comp, config, signer):
     if systems and systems.data:
         for s in systems.data:
             full = safe(pg.get_db_system, db_system_id=s.id)
-            bp = getattr(full.data, "backup_policy", None) if full and full.data else None
-            if bp:
-                kind = getattr(bp, "kind", "?")
+            mgmt = getattr(full.data, "management_policy", None) if full and full.data else None
+            bp = getattr(mgmt, "backup_policy", None) if mgmt else None
+            kind = getattr(bp, "kind", None) if bp else None
+            if bp and kind and kind != "NONE":
                 ret = getattr(bp, "retention_days", "default")
                 add(rows, comp, "PostgreSQL", s.display_name, "YES",
                     f"{kind}", f"{ret}d")
+            elif bp and kind == "NONE":
+                add(rows, comp, "PostgreSQL", s.display_name, "NO", "none", "none")
             else:
                 add(rows, comp, "PostgreSQL", s.display_name, "UNKNOWN", "check-console", "n/a")
 
