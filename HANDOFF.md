@@ -1,14 +1,14 @@
 # Implementation Handoff
 
-**Updated:** 2026-08-31
+**Updated:** 2026-09-01
 
-**Working branch:** `codex/task10-vulnerability-tracking` (currently carrying the user-directed CM02 simplification first)
+**Published branch:** `main`
 
-**Base commit:** `617fc56f1a0a64a91272d6cd6567a40c6ec9d372` (published CM02 attribution/TMPDIR fix)
+**Simplified CM02 implementation:** `57de7e34dc46e53461db34172ed066351c6b35f8`
 
 **Current milestone:** Tasks 1–3, 7 and 9 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-**Delivery:** user selected the simple CM02 technical collector; publish only after focused and full local gates pass
+**Delivery:** simple CM02 technical collector published after focused and full local gates passed
 
 ## Mandatory scope-selection standard
 
