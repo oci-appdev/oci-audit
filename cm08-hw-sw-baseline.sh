@@ -310,7 +310,7 @@ hdr() { printf '%s\n' "$2" > "$OUTDIR/$1"; }
 # --- compute -----------------------------------------------------------------
 hdr compute_instances.csv 'region,compartment_name,compartment_ocid,instance_name,instance_ocid,lifecycle_state,form_factor,shape,ocpus,memory_gb,gpu_count,gpu_description,local_disk_count,local_disk_gb,processor_description,network_bandwidth_gbps,availability_domain,fault_domain,launch_mode,platform_config_type,secure_boot,measured_boot,tpm_enabled,image_name,image_os,image_os_version,image_ocid,monitoring_agent_disabled,management_agent_disabled,plugins_enabled,time_created,freeform_tags'
 hdr instance_vnics.csv    'region,compartment_name,compartment_ocid,instance_name,instance_ocid,vnic_name,vnic_ocid,private_ip,public_ip,mac_address,subnet_ocid,nsg_count,is_primary,skip_source_dest_check'
-hdr images_in_use.csv     'region,image_ocid,image_name,operating_system,os_version,base_image_ocid,launch_mode,time_created,instance_count'
+hdr images_in_use.csv     'region,compartment_name,compartment_ocid,image_ocid,image_name,operating_system,os_version,base_image_ocid,launch_mode,time_created,instance_count'
 hdr dedicated_vm_hosts.csv 'region,compartment_name,compartment_ocid,host_name,host_ocid,lifecycle_state,dvh_shape,availability_domain,fault_domain,total_ocpus,remaining_ocpus,total_memory_gb,remaining_memory_gb,time_created'
 # --- block storage -----------------------------------------------------------
 hdr block_volumes.csv     'region,compartment_name,compartment_ocid,volume_name,volume_ocid,lifecycle_state,size_gb,vpus_per_gb,availability_domain,kms_key_ocid,auto_tune_enabled,time_created'
@@ -393,6 +393,18 @@ if (( COMP_COUNT == 0 )); then
   cp "$STATUS" "$OUTDIR/collection_status.csv"; cp "$ERRLOG" "$OUTDIR/errors.log"
   exit 3
 fi
+
+# Compartment-name lookup for datasets that are not emitted inside the
+# per-compartment loop. images_in_use is aggregated per region, so each row is
+# attributed to the compartment that owns the image, not to the compartments of
+# the instances referencing it. Images outside the scanned scope (Oracle
+# platform images) resolve to an OCID with an empty name, which is accurate.
+COMP_INDEX="$TMPROOT/compartment_index.json"
+jq -R -s 'split("\n")
+          | map(select(length > 0) | split("\t"))
+          | map(select(length >= 2) | {key: .[0], value: .[1]})
+          | from_entries' "$COMP_FILE" > "$COMP_INDEX" 2>>"$ERRLOG" \
+  || echo '{}' > "$COMP_INDEX"
 
 log "Version      : $VERSION"
 log "Tenancy      : $TENANCY_NAME"
@@ -858,7 +870,8 @@ for REGION in "${REGIONS[@]}"; do
       | jq -c '.data | select(. != null) | {
           id:.id, name:(.["display-name"]//""), os:(.["operating-system"]//""),
           osv:(.["operating-system-version"]//""), base:(.["base-image-id"]//""),
-          lm:(.["launch-mode"]//""), tc:(.["time-created"]//"") }' \
+          lm:(.["launch-mode"]//""), tc:(.["time-created"]//""),
+          co:(.["compartment-id"]//"") }' \
       >> "$RTMP/images.jsonl"
   done < <(jq -r '(.["image-id"] // .["source-details"]["image-id"] // empty)' \
               "$RTMP/instances.jsonl" 2>/dev/null | sort -u)
@@ -900,12 +913,15 @@ for REGION in "${REGIONS[@]}"; do
           ((.["freeform-tags"] // {}) | to_entries | map("\(.key)=\(.value)") | join("|"))
         ] | @csv' "$RTMP/instances.jsonl" >> "$OUTDIR/compute_instances.csv" 2>>"$ERRLOG"
 
-  jq -r -s --slurpfile IDX "$RTMP/image_index.json" --arg r "$REGION" '
+  jq -r -s --slurpfile IDX "$RTMP/image_index.json" --slurpfile CIDX "$COMP_INDEX" --arg r "$REGION" '
       ($IDX[0] // {}) as $img
+      | ($CIDX[0] // {}) as $comp
       | group_by(.["image-id"] // .["source-details"]["image-id"] // "")
       | map({ iid:(.[0]["image-id"] // .[0]["source-details"]["image-id"] // ""), n:length })
       | .[] | select(.iid != "") | . as $g | ($img[$g.iid] // {}) as $i
-      | [ $r, $g.iid, ($i.name//""), ($i.os//""), ($i.osv//""),
+      | ($i.co // "") as $ico
+      | [ $r, ($comp[$ico] // ""), $ico,
+          $g.iid, ($i.name//""), ($i.os//""), ($i.osv//""),
           ($i.base//""), ($i.lm//""), ($i.tc//""), ($g.n|tostring) ] | @csv' \
       "$RTMP/instances.jsonl" >> "$OUTDIR/images_in_use.csv" 2>>"$ERRLOG"
 
@@ -1004,6 +1020,9 @@ SUM="$OUTDIR/summary.txt"
   echo "  * platform_config_type is the platform configuration model, NOT a"
   echo "    firmware version. Firmware evidence requires in-guest or hardware"
   echo "    management sources not exposed by the instance summary."
+  echo "  * images_in_use rows are attributed to the compartment that owns the"
+  echo "    image and counted by region-wide instance usage. An image shared"
+  echo "    across compartments is one CI, not one CI per consuming compartment."
   echo "  * configured_node_count is desired node-pool size, not running nodes."
   echo "  * Functions image tags are mutable; image_digest is authoritative and"
   echo "    is blank where the function was deployed by tag."

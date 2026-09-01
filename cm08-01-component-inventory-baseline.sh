@@ -178,9 +178,9 @@ readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
 
 OCI_GLOBAL=(--region "$REGION")
 [ -n "$PROFILE" ] && OCI_GLOBAL+=(--profile "$PROFILE")
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
-DISCOVERY_ERR="$TMPDIR/discovery-errors.log"
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+DISCOVERY_ERR="$WORKDIR/discovery-errors.log"
 : > "$DISCOVERY_ERR"
 
 oci_discover() {
@@ -194,11 +194,11 @@ oci_discover() {
     list|get) ;;
     *) printf 'BLOCKED [%s] :: prohibited OCI action: oci %s\n' "$label" "$*" >> "$DISCOVERY_ERR"; return 97 ;;
   esac
-  output="$(oci "${OCI_GLOBAL[@]}" "$@" 2>"$TMPDIR/call.err" </dev/null)"; rc=$?
+  output="$(oci "${OCI_GLOBAL[@]}" "$@" 2>"$WORKDIR/call.err" </dev/null)"; rc=$?
   if [ "$rc" -ne 0 ]; then
     printf 'FAILED [%s] rc=%s :: oci %s\n' "$label" "$rc" "$*" >> "$DISCOVERY_ERR"
     sed -E 's/(token|secret|password|private[-_ ]?key)[=: ]+[^ ]+/\1=<redacted>/Ig' \
-      "$TMPDIR/call.err" >> "$DISCOVERY_ERR"
+      "$WORKDIR/call.err" >> "$DISCOVERY_ERR"
     return "$rc"
   fi
   printf '%s' "$output"
@@ -330,7 +330,7 @@ $FINDINGS_OUT
 $ERRORS_OUT (created only when evidence errors exist)
 $SUMMARY_OUT
 $RAW_ROOT/"
-PLAN_TMP="$TMPDIR/approved-plan.txt"
+PLAN_TMP="$WORKDIR/approved-plan.txt"
 oci_scope_print_scan_plan \
   "CM-8 SYSTEM COMPONENT INVENTORY" "CM08-01" "CM-8 / CM-8(1) / CM-8(2)" "$REGION" \
   "$SELECTED_KIND" "$SELECTED_NAME" "$SELECTED_OCID" "$TARGET_COUNT" \

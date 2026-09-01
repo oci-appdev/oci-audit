@@ -38,6 +38,10 @@ case "$*" in
   *"os ns get"*)
     printf '{"data":"task8namespace"}'
     ;;
+  *"compute image get"*)
+    printf '{"data":{"id":"ocid1.image.oc1..task8","display-name":"OL9-hardened-2026.01","operating-system":"Oracle Linux","operating-system-version":"9","base-image-id":"ocid1.image.oc1..platform","launch-mode":"PARAVIRTUALIZED","time-created":"2026-01-01T00:00:00Z","compartment-id":"%s"}}' \
+      "${MOCK_TASK8_IMAGE_COMP:-$TENANCY}"
+    ;;
   *"compute instance list-vnics"*)
     printf '%s' '{"data":[{"display-name":"app-vnic","id":"ocid1.vnic.oc1..task8","private-ip":"10.10.1.10","public-ip":null,"mac-address":"02:00:17:00:00:01","subnet-id":"ocid1.subnet.oc1..task8","nsg-ids":["ocid1.networksecuritygroup.oc1..task8"],"is-primary":true,"skip-source-dest-check":false}]}'
     ;;
@@ -48,7 +52,10 @@ case "$*" in
     fi
     instance_name="app01"
     [ "${MOCK_TASK8_FORMULA_NAME:-0}" = "1" ] && instance_name="=2+3"
-    printf '{"data":[{"display-name":"%s","id":"ocid1.instance.oc1..task8","compartment-id":"ocid1.compartment.oc1..task8config","lifecycle-state":"RUNNING","shape":"VM.Standard.E5.Flex","shape-config":{"ocpus":2,"memory-in-gbs":16,"networking-bandwidth-in-gbps":1},"availability-domain":"MOCK-AD-1","fault-domain":"FAULT-DOMAIN-1","launch-mode":"PARAVIRTUALIZED","platform-config":{"type":"AMD_VM","is-secure-boot-enabled":true,"is-measured-boot-enabled":true,"is-trusted-platform-module-enabled":true},"agent-config":{"is-monitoring-disabled":false,"is-management-disabled":false,"plugins-config":[{"name":"Vulnerability Scanning","desired-state":"ENABLED"}]},"freeform-tags":{"Environment":"PROD"},"time-created":"2026-01-01T00:00:00Z"}]}' "$instance_name"
+    image_fragment=""
+    [ "${MOCK_TASK8_WITH_IMAGE:-0}" = "1" ] && \
+      image_fragment='"source-details":{"source-type":"image","image-id":"ocid1.image.oc1..task8"},'
+    printf '{"data":[{"display-name":"%s","id":"ocid1.instance.oc1..task8","compartment-id":"ocid1.compartment.oc1..task8config",%s"lifecycle-state":"RUNNING","shape":"VM.Standard.E5.Flex","shape-config":{"ocpus":2,"memory-in-gbs":16,"networking-bandwidth-in-gbps":1},"availability-domain":"MOCK-AD-1","fault-domain":"FAULT-DOMAIN-1","launch-mode":"PARAVIRTUALIZED","platform-config":{"type":"AMD_VM","is-secure-boot-enabled":true,"is-measured-boot-enabled":true,"is-trusted-platform-module-enabled":true},"agent-config":{"is-monitoring-disabled":false,"is-management-disabled":false,"plugins-config":[{"name":"Vulnerability Scanning","desired-state":"ENABLED"}]},"freeform-tags":{"Environment":"PROD"},"time-created":"2026-01-01T00:00:00Z"}]}' "$instance_name" "$image_fragment"
     ;;
   *"network vcn list"*)
     printf '%s' '{"data":[{"display-name":"app-vcn","id":"ocid1.vcn.oc1..task8","lifecycle-state":"AVAILABLE","cidr-blocks":["10.10.0.0/16"],"ipv6-cidr-blocks":[],"dns-label":"app","default-route-table-id":"ocid1.routetable.oc1..default","default-security-list-id":"ocid1.securitylist.oc1..default","time-created":"2026-01-01T00:00:00Z"}]}'

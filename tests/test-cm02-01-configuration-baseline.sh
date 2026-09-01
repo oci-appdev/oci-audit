@@ -246,6 +246,60 @@ PATH="$TMP/bin:$PATH" MOCK_TASK8_FORMULA_NAME=1 bash "$SCRIPT" \
 grep -q "'=2+3" "$(find "$TMP/formula" -name 'cm02-01_configuration_items_*.csv' -print -quit)"
 grep -q "'=2+3" "$(find "$TMP/formula" -name 'compute_instances.csv' -print -quit)"
 
+# images_in_use is aggregated per region instead of being emitted inside the
+# per-compartment loop, so it is the one dataset that can publish a CI with no
+# compartment. Its rows must carry the compartment that OWNS the image.
+PATH="$TMP/bin:$PATH" MOCK_TASK8_WITH_IMAGE=1 bash "$SCRIPT" \
+  -c "$COMP" -r us-langley-1 "${AUTOMATION[@]}" --inventory-only \
+  -o "$TMP/image-owner" >/dev/null
+PATH="$TMP/bin:$PATH" MOCK_TASK8_WITH_IMAGE=1 MOCK_TASK8_IMAGE_COMP="$COMP" \
+  bash "$SCRIPT" -c "$COMP" -r us-langley-1 "${AUTOMATION[@]}" \
+  --inventory-only -o "$TMP/image-inscope" >/dev/null
+
+python3 - "$TMP/image-owner" "$TMP/image-inscope" "$TENANCY" "$COMP" <<'PY'
+import csv
+import sys
+from pathlib import Path
+
+owner_dir, inscope_dir, tenancy, comp = sys.argv[1:]
+
+
+def rows(root, pattern):
+    matches = sorted(Path(root).rglob(pattern))
+    assert len(matches) == 1, f"{pattern} under {root}: {matches}"
+    with matches[0].open(newline="", encoding="utf-8-sig") as handle:
+        return list(csv.DictReader(handle))
+
+
+raw = rows(owner_dir, "images_in_use.csv")
+assert len(raw) == 1, raw
+assert list(raw[0])[:4] == ["region", "compartment_name", "compartment_ocid", "image_ocid"], list(raw[0])
+assert raw[0]["compartment_ocid"] == tenancy, raw[0]
+# The image is owned outside the scanned compartment, so a blank name is the
+# accurate answer. A fabricated name would be worse than none.
+assert raw[0]["compartment_name"] == "", raw[0]
+assert raw[0]["instance_count"] == "1", raw[0]
+
+# The canonical CI artifact is what the assessor reads; this column used to be
+# published blank for every COMPUTE_IMAGE.
+items = rows(owner_dir, "cm02-01_configuration_items_*.csv")
+images = [row for row in items if row["resource_type"] == "COMPUTE_IMAGE"]
+assert len(images) == 1, items
+assert images[0]["resource_ocid"] == "ocid1.image.oc1..task8", images[0]
+assert images[0]["compartment_ocid"] == tenancy, images[0]
+assert int(images[0]["attribute_count"]) > 0, images[0]
+
+# Attributing the image to its owner must not disturb the instance's own scope.
+instances = [row for row in items if row["resource_type"] == "COMPUTE_INSTANCE"]
+assert len(instances) == 1 and instances[0]["compartment_ocid"] == comp, instances
+
+# An image owned inside the scanned scope resolves to a real compartment name.
+inscope = rows(inscope_dir, "images_in_use.csv")
+assert len(inscope) == 1, inscope
+assert inscope[0]["compartment_ocid"] == comp, inscope[0]
+assert inscope[0]["compartment_name"] == "Configuration", inscope[0]
+PY
+
 # Manual -c requires the target OCID twice and exact uppercase YES.
 printf '%s\n%s\n%s\n' "$COMP" "$COMP" YES | \
   PATH="$TMP/bin:$PATH" bash "$SCRIPT" -c "$COMP" -r us-langley-1 \
