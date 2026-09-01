@@ -2,13 +2,13 @@
 
 **Updated:** 2026-08-31
 
-**Working branch:** `codex/task9-component-inventory`
+**Working branch:** `codex/task10-vulnerability-tracking` (currently carrying the user-directed CM02 simplification first)
 
-**Base commit:** `f0deba5a0498469ed529780fdf71bb02b329cc12` (verified Task 8 CM02 commit)
+**Base commit:** `617fc56f1a0a64a91272d6cd6567a40c6ec9d372` (published CM02 attribution/TMPDIR fix)
 
-**Current milestone:** Tasks 1–3 and Tasks 7–9 collector implementations complete; Task 6 corrective patch required; live/manual/approval evidence pending
+**Current milestone:** Tasks 1–3, 7 and 9 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-**Delivery:** user authorized publishing CM02 followed by CM08 directly to `main` after the full local gate; verify the exact remote head in Git history
+**Delivery:** user selected the simple CM02 technical collector; publish only after focused and full local gates pass
 
 ## Mandatory scope-selection standard
 
@@ -39,6 +39,26 @@ Every new or materially redesigned collector must follow
 `SCRIPT-DESIGN-STANDARD.md`. `-c`/`-n` alone are scope selectors, not proof of
 automation approval. New collectors require explicit automation mode, exact
 resolved-OCID confirmation values and exact `YES` approval.
+
+## Latest milestone — simplified Task 8 CM02 collector
+
+At the user's direction, CM02-01 was reduced to one technical collection mode.
+A normal command requires only region/output plus the mandatory scope gate; the
+legacy `--inventory-only` flag is accepted as a no-op. The script no longer
+accepts CI-register, approved-baseline or monthly-review inputs and no longer
+publishes approval/reconciliation templates at the evidence-directory root.
+
+Exit `0` now means only that technical collection and normalization completed.
+Exit `3` is reserved for failed/malformed read collection and prints the exact
+coverage/error paths. The summary uses `COLLECTION STATUS: COMPLETE` or
+`INCOMPLETE` and no longer prints the confusing authorization-decision text.
+
+The mandatory tenancy/compartment OCID-twice, resolved plan, exact `YES`, named
+profile, strict automation, read-only source/runtime boundary, private output,
+formula safety, image-owner compartment attribution and raw failure handling
+remain intact. Task 8 is therefore tracked as Partial: the system owner still
+must supply and reconcile an approved CI register, System Design Form/baseline,
+monthly review, changes and exceptions outside this simplified collector.
 
 ## Latest milestone — Task 9 hardware/software component inventory
 
@@ -94,6 +114,10 @@ refusal before workload collection. The focused gate and full repository suite
 must pass on the exact commit published to `main`.
 
 ## Latest milestone — Task 8 configuration baseline
+
+**Superseded on 2026-09-01:** the implementation details below describe the
+former governed reconciliation mode. The current user-selected CM02 interface
+is the simple technical collector documented above and in the Task 8 guide.
 
 The canonical workflow is `cm02-01-configuration-baseline.sh`; the guide is
 `TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md`. Configuration baseline maps to

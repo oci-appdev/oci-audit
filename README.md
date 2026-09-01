@@ -7,9 +7,10 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1, 2, 3, 7, 8 and 9: implementation milestones complete;
+- Tasks 1, 2, 3, 7 and 9: implementation milestones complete;
   live/approved evidence is still pending.
-- Task 6: partial collector exists with a corrective blocker.
+- Tasks 6 and 8: partial collectors exist; Task 6 has corrective blockers and
+  Task 8 is now intentionally technical-collection-only.
 - Tasks 5, 10–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
@@ -356,20 +357,19 @@ in
 
 ## Canonical Task 8 workflow
 
-`cm02-01-configuration-baseline.sh` is the CM-2 baseline-configuration
-collector. It keeps live OCI configuration, the organization-owned CI register,
-the approved System Design Form/baseline and the signed monthly review as
-separate evidence sources.
+`cm02-01-configuration-baseline.sh` is now a simple CM-2 technical
+configuration collector. It records the current visible OCI resources,
+configuration attributes, fingerprints, per-operation coverage and collection
+errors. It does not ingest approval files or perform governance reconciliation.
 
-Start by generating review templates:
+Run one guarded collection command:
 
 ```bash
 bash cm02-01-configuration-baseline.sh --selfcheck
 
 bash cm02-01-configuration-baseline.sh \
   -r us-langley-1 \
-  --inventory-only \
-  -o ./evidence/task8-inventory
+  -o ./evidence/task8-technical-snapshot
 ```
 
 The command defaults to discovered tenancy/compartment selection, requires the
@@ -378,25 +378,20 @@ requires exact uppercase `YES`. Manual `-c`/`-n` uses the same confirmation;
 automation requires explicit `--non-interactive`, matching confirmation OCIDs
 and `--approve-scan YES`.
 
-After the responsible owners approve the generated CI register and baseline
-and complete the monthly review, run reconciliation:
+Successful collection exits `0` and prints `COLLECTION COMPLETE`. Exit `3`
+means at least one read-only OCI operation failed or returned unusable data;
+the terminal prints the exact coverage/error paths to review. The legacy
+`--inventory-only` flag remains a harmless compatibility alias. The former
+`--ci-register`, `--approved-baseline` and `--monthly-review` flags are rejected
+because the simplified script no longer makes organizational approval claims.
 
-```bash
-bash cm02-01-configuration-baseline.sh \
-  -r us-langley-1 \
-  -g ./approved/cm02-ci-register.csv \
-  -b ./approved/cm02-configuration-baseline.csv \
-  -m ./approved/cm02-monthly-review.csv \
-  -o ./evidence/task8-monthly
-```
-
-CM02-01 invokes `cm08-hw-sw-baseline.sh` only after approval, normalizes live
-CIs/attributes, fingerprints them, compares every controlled value, records
-input SHA-256 and validates exactly one approved review for the current month.
+CM02-01 invokes `cm08-hw-sw-baseline.sh` only after operator approval and
+normalizes live CIs/attributes into private, formula-safe evidence. A technical
+snapshot alone does not satisfy the worksheet's approved System Design Form,
+baseline or monthly-review requirements.
 See
 [TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md](TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md)
-for comparison semantics, the initial three-pass approval sequence and manual
-in-guest/rule-level evidence boundaries.
+for output interpretation and the remaining manual governance evidence.
 
 ## Canonical Task 9 workflow
 
@@ -482,10 +477,11 @@ installer and software approval reconciliation, prohibited-software matches,
 OSMH control coverage, denied/malformed calls, identity-domain gaps,
 private/formula-safe output, tenancy expansion and fail-closed manual/automation
 approval.
-CM02-01 regressions cover inventory/template generation, approved CI and
-baseline matching, monthly-review validation, configuration drift, unbaselined
-attributes, denied collection, named profiles, formula-safe raw/canonical CSVs,
-tenancy/compartment confirmation and refusal before workload collection.
+CM02-01 regressions cover the one-command technical snapshot, clear
+complete/incomplete results, denied collection, named profiles, formula-safe
+raw/canonical CSVs, image ownership attribution, tenancy/compartment
+confirmation, legacy-governance flag rejection and refusal before workload
+collection.
 CM08-01 regressions cover inventory/template generation, stable component
 identity, approved prior-inventory matching, exact addition/removal/change
 dispositions, count-bound monthly review, guest/provider coverage gaps, denied

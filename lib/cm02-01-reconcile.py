@@ -802,28 +802,34 @@ def main() -> int:
     recon_counts = Counter(row.get("reconciliation_status", "UNKNOWN") for row in reconciled)
     finding_counts = Counter(row.get("severity", "UNKNOWN") for row in findings)
     with Path(args.summary_out).open("w", encoding="utf-8") as handle:
-        handle.write("CM02-01 Configuration Baseline Summary\n")
-        handle.write("======================================\n")
+        if args.inventory_only:
+            handle.write("CM02-01 Technical Configuration Snapshot Summary\n")
+            handle.write("================================================\n")
+        else:
+            handle.write("CM02-01 Configuration Baseline Summary\n")
+            handle.write("======================================\n")
         handle.write(f"Scope kind             : {args.scope_kind}\n")
         handle.write(f"Scope OCID             : {args.scope_ocid}\n")
         handle.write(f"Region                 : {args.region}\n")
         handle.write(f"Collected              : {args.collected_at}\n")
-        handle.write(f"Mode                   : {'INVENTORY-ONLY' if args.inventory_only else 'COMPLETE-RECONCILIATION'}\n")
+        handle.write(f"Mode                   : {'SIMPLE-TECHNICAL-COLLECTION' if args.inventory_only else 'COMPLETE-RECONCILIATION'}\n")
         handle.write(f"Configuration items    : {len(items)}\n")
         handle.write(f"Configuration attributes: {len(attributes)}\n")
         handle.write(f"Coverage rows          : {len(coverage)}\n")
         handle.write(f"Coverage OK            : {coverage_counts['OK']}\n")
         handle.write(f"Coverage EMPTY         : {coverage_counts['EMPTY']}\n")
         handle.write(f"Coverage FAILED        : {coverage_counts['FAILED']}\n")
-        handle.write(f"Baseline matches       : {recon_counts['MATCH']}\n")
-        handle.write(f"Configuration drift    : {recon_counts['CONFIGURATION-DRIFT']}\n")
-        handle.write(f"Not baselined          : {recon_counts['ATTRIBUTE-NOT-BASELINED']}\n")
-        handle.write(f"Findings HIGH          : {finding_counts['HIGH']}\n")
-        handle.write(f"Findings MEDIUM        : {finding_counts['MEDIUM']}\n")
         handle.write(f"Evidence errors/gaps   : {len(errors)}\n")
-        handle.write(f"EVIDENCE STATUS        : {'INCOMPLETE' if incomplete else 'COMPLETE-FOR-REVIEW'}\n")
-        handle.write("\nA COMPLETE-FOR-REVIEW result is not an authorization decision. The designated\n")
-        handle.write("configuration authority must review findings and approve the retained package.\n")
+        if args.inventory_only:
+            handle.write(f"COLLECTION STATUS      : {'INCOMPLETE' if incomplete else 'COMPLETE'}\n")
+            handle.write("\nThis package is a technical configuration snapshot.\n")
+        else:
+            handle.write(f"Baseline matches       : {recon_counts['MATCH']}\n")
+            handle.write(f"Configuration drift    : {recon_counts['CONFIGURATION-DRIFT']}\n")
+            handle.write(f"Not baselined          : {recon_counts['ATTRIBUTE-NOT-BASELINED']}\n")
+            handle.write(f"Findings HIGH          : {finding_counts['HIGH']}\n")
+            handle.write(f"Findings MEDIUM        : {finding_counts['MEDIUM']}\n")
+            handle.write(f"EVIDENCE STATUS        : {'INCOMPLETE' if incomplete else 'COMPLETE-FOR-REVIEW'}\n")
 
     return 3 if incomplete else 0
 

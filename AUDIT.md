@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-08-31
 
-**Current branch:** `codex/task9-component-inventory`
+**Current branch:** `codex/task10-vulnerability-tracking`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -10,15 +10,16 @@
 
 ## Current audit position
 
-Tasks 1, 2, 3, 7, 8 and 9 now have implementation-complete collector workflows and
+Tasks 1, 2, 3, 7 and 9 have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
-custody/rotation proof, Task 7 identity/host/manual proof, Task 8 approved
-CI/System Design Form/monthly-review proof, Task 9 approved prior inventory,
+custody/rotation proof, Task 7 identity/host/manual proof, Task 9 approved prior inventory,
 change-disposition/monthly-review and guest/provider-boundary proof, reviewer
 disposition, evidence-location references and approval records have not been
-produced in this repository. Task 6 has been returned to Partial after a
-controlled-use report and source review identified material CM07-01 defects.
+produced in this repository. Task 6 remains Partial after a controlled-use
+report and source review identified material CM07-01 defects. Task 8 is also
+Partial after the user selected a simple technical-collection-only CM02 script;
+approved baseline and monthly-review reconciliation are now external evidence.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
@@ -45,6 +46,30 @@ On 2026-08-28 the Task 2 collector was normalized to the canonical
 `sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
 `sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
 removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+---
+
+## 2026-09-01 — CM02 simplified to technical collection
+
+The user selected a simple CM02 workflow after the prior evidence-completeness
+and authorization wording caused operational confusion. CM02-01 now has one
+collection mode:
+
+- no CI-register, approved-baseline or monthly-review inputs;
+- no top-level approval or reconciliation templates;
+- one command after the mandatory tenancy/compartment selection, exact OCID
+  twice, complete plan and exact uppercase `YES`;
+- exit `0` only when the technical snapshot and normalization complete;
+- exit `3` only for failed/malformed OCI or raw collector evidence, with exact
+  coverage/error paths printed to the terminal;
+- a clear `COLLECTION STATUS: COMPLETE` or `INCOMPLETE` summary.
+
+Named profiles, strict automation confirmation, read-only source/runtime
+checks, private/formula-safe output, CM08 raw collection, configuration
+fingerprints and the `617fc56` Compute-image owner-compartment fix remain.
+Because this version intentionally does not establish or reconcile an approved
+organizational baseline, Task 8 is Partial and requires separate CI register,
+System Design Form/baseline, monthly review, change and exception evidence.
 
 ---
 
@@ -93,6 +118,9 @@ recurring monthly sequence are in
 ---
 
 ## 2026-08-28 — Task 8 CM-2 configuration baseline workflow
+
+**Historical implementation note:** this governed reconciliation interface was
+superseded by the user-directed simple technical collector on 2026-09-01.
 
 The existing `cm08-hw-sw-baseline.sh` captured broad hardware/software and
 configuration facts, but it did not establish controlled CI ownership, ingest
