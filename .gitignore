@@ -1,0 +1,23 @@
+# Compiled Python. Two .pyc files reached a commit on copilot/review-repo
+# because nothing here excluded them; this repository is public.
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Collected OCI evidence. AGENTS.md rule 4: generated evidence is never
+# committed. It carries OCIDs, IAM memberships, network rules and database
+# names, and belongs in the approved restricted evidence location.
+evidence/
+*_evidence_*.csv
+oci_atrest_encryption_*.csv
+sc08-02_*.csv
+cp09-0*_*.csv
+cm0*-01_*.csv
+cm07-01_*.csv
+ra05-01_*.csv
+
+# Local tooling noise
+.venv/
+venv/
+.DS_Store
+*.swp

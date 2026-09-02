@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-02 (read-only gate extended to SDK method names)
+**Last updated:** 2026-09-02 (read-only gate made layout-independent)
 
 ## Non-negotiable repository rules
 
@@ -46,6 +46,12 @@ the single source of truth.
    uses (`iam auth-token list`) and the snake form the Python SDK uses
    (`client.get_auth_token(...)`). Matching only one left SDK collectors
    unchecked. 47 secret-returning SDK reads are screened by name.
+   Discovery is **recursive** and the gate asserts a **coverage floor** (18
+   shell files, 200 call sites). It previously globbed only the repository root
+   plus `lib/`, which meant a per-task folder reorganisation dropped every
+   canonical collector out of scope: coverage fell from 252 call sites to 53 and
+   it still reported PASS. A safety check that can quietly stop checking is
+   worse than none. If the floor trips, fix discovery — never lower the floor.
    Do not add an exemption to get a call past this gate. The call is wrong.
 
 ### Identity Domains: read the note before building an identity collector
@@ -84,6 +90,7 @@ making it.
 | Task 13 — OKTA/DOJLogin federation (IA-2) | **Codex** | Reported implementation-complete on `codex/task13-ia02-federation` (`719b5c9`, `c31bae0`); **not pushed, so not reviewable**. `ia02-01-federation-configuration.py`. |
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
+| `copilot/review-repo` per-task folder reorg | **Copilot** | Reviewed by Claude 2026-09-02, findings in `COPILOT-REORG-REVIEW.md`. Structurally sound; blocked on two committed `.pyc` files and on landing the read-only-gate hardening first. Claude did not edit Copilot's branch. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |
 
 ## SDK-verified changes — do not revert blindly (2026-09-02)
@@ -172,6 +179,14 @@ then convert each camelCase JSON name to kebab-case.
   is forward-looking and applies to new or materially rewritten collectors.
   Porting the nine existing ones is roughly 19k lines across seven control
   families and has not been started or requested.
+
+## Repository hygiene
+
+A `.gitignore` exists as of 2026-09-02 covering `__pycache__/`, `*.pyc` and
+collected `evidence/`. Before it, the repository had none, and two compiled
+`.pyc` files reached a commit on `copilot/review-repo`. Rule 4 says generated
+evidence is never committed; the ignore file is what makes that hold by default
+rather than by everyone remembering.
 
 ## Branches
 

@@ -111,8 +111,25 @@ def joined(path):
         i += 1
     return out
 
-shell_files = sorted(pathlib.Path(".").glob("*.sh")) + sorted(pathlib.Path("lib").glob("*.sh"))
-py_files = sorted(pathlib.Path(".").glob("*.py")) + sorted(pathlib.Path("lib").glob("*.py"))
+# Discover recursively, not by a fixed root+lib glob. A top-level glob silently
+# stops seeing collectors the moment anyone reorganises the tree into
+# subdirectories: coverage collapses, and a gate that scans nothing still says
+# PASS. The floor assertion below is the backstop for exactly that.
+# Test harnesses are excluded on purpose: this file and the SC-8 safety test
+# name the forbidden operations in order to test for them, and the mocks
+# emulate the CLI rather than calling it. The subject of this proof is collector
+# source, not the harness that proves it.
+def discover(suffix):
+    return sorted(
+        p for p in pathlib.Path(".").rglob(f"*{suffix}")
+        if ".git" not in p.parts
+        and "__pycache__" not in p.parts
+        and "evidence" not in p.parts
+        and "tests" not in p.parts
+    )
+
+shell_files = discover(".sh")
+py_files = discover(".py")
 
 failures = []
 sites = 0
@@ -182,6 +199,23 @@ if failures:
     print("READ-ONLY PROOF: FAILED", file=sys.stderr)
     for f in failures:
         print("  " + f, file=sys.stderr)
+    sys.exit(1)
+
+# A read-only proof that quietly stops covering the collectors is worse than no
+# proof, because it still reports PASS. These floors are deliberately below the
+# current counts so ordinary additions do not trip them, but any structural
+# change that drops whole collectors out of scope fails loudly.
+MIN_SHELL_FILES = 18
+MIN_CALL_SITES = 200
+if len(shell_files) < MIN_SHELL_FILES:
+    print(f"READ-ONLY PROOF: FAILED — only {len(shell_files)} shell files discovered, "
+          f"expected at least {MIN_SHELL_FILES}. The collectors are not being scanned; "
+          f"fix discovery rather than lowering this floor.", file=sys.stderr)
+    sys.exit(1)
+if sites < MIN_CALL_SITES:
+    print(f"READ-ONLY PROOF: FAILED — only {sites} OCI call sites verified, expected at "
+          f"least {MIN_CALL_SITES}. Coverage has collapsed; fix discovery rather than "
+          f"lowering this floor.", file=sys.stderr)
     sys.exit(1)
 
 print(f"Scanned {len(shell_files)} shell and {len(py_files)} Python files.")
