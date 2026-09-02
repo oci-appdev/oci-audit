@@ -107,7 +107,7 @@ CM-11 `software-sources` fix.
 
 Three of the four newer test gates fail **loudly** under the reorg because they
 reference old flat paths — `test-task1-3-automation-contract.sh`,
-`test-cm07-01-corrective.sh`, `test-cp09-01-backup-config.sh`. Loud failure is
+`cm07-01/tests/test-cm07-01-corrective.sh`, `cp09-01/tests/test-cp09-01-backup-config.sh`. Loud failure is
 the safe outcome; they need their paths updated as part of the merge. Only the
 read-only proof failed silently, and that is now fixed.
 

@@ -18,11 +18,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
-ln -s "$ROOT/tests/mock-oci-cp0901" "$TMP/bin/oci"
+ln -s "$ROOT/cp09-01/tests/mock-oci-cp0901" "$TMP/bin/oci"
 
 COMP='ocid1.compartment.oc1..test'
 OTHER='ocid1.compartment.oc1..other'
-SCRIPT="$ROOT/cp09-01-backup-type-config-frequency.sh"
+SCRIPT="$ROOT/cp09-01/cp09-01-backup-type-config-frequency.sh"
 
 run() {  # run <label> <expected-rc> -- args...
   local label="$1" want="$2"; shift 3
@@ -114,11 +114,11 @@ grep -q 'worm-volume' "$config"
 
 # 8. Every retrofitted collector exposes the same contract and no longer
 #    advertises -c/-n as an approved bypass.
-for s in cp09-01-backup-type-config-frequency.sh \
-         cp09-02-backup-access-files-check.sh \
-         cp09-03-backup-replication-check.sh \
-         sc08-02-in-transit-encryption.sh \
-         sc28-oci-encryption-at-rest.sh; do
+for s in cp09-01/cp09-01-backup-type-config-frequency.sh \
+         cp09-02/cp09-02-backup-access-files-check.sh \
+         cp09-03/cp09-03-backup-replication-check.sh \
+         sc08-02/sc08-02-in-transit-encryption.sh \
+         sc28/sc28-oci-encryption-at-rest.sh; do
   for opt in --non-interactive --confirm-scope-ocid --approve-scan; do
     grep -q -- "$opt" "$ROOT/$s" || { echo "FAIL: $s lacks $opt" >&2; exit 1; }
   done

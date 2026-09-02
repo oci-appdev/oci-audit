@@ -2,7 +2,9 @@
 
 **Last updated:** 2026-09-02
 
-**Current branch:** `main`
+**Current branch:** `copilot/review-repo`
+
+**Current head:** `4f63cd467d9273c31190c4942df0f2c76d76c413`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -42,14 +44,57 @@ environment. Source review confirmed two high-severity correctness defects:
   narrow port-based restricted entry.
 
 The committed scope helper is present, so the missing-helper concern is not a
-current defect. `CM07-CORRECTIVE-REVIEW.md` records the remaining hardening and
+current defect. `cm07-01/CM07-CORRECTIVE-REVIEW.md` records the remaining hardening and
 the live acceptance gate. Mock regression success must not be represented as
 proof that Task 6 works in OCI.
 
 On 2026-08-28 the Task 2 collector was normalized to the canonical
-`sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
+`sc08-02/sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
 `sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
 removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+---
+
+## 2026-09-02 — per-task folder layout adopted
+
+Copilot's `copilot/review-repo` reorg was reviewed
+(`COPILOT-REORG-REVIEW.md`) and merged rather than rebuilt: its path surgery
+was verified correct by execution, and redoing it would have discarded sound
+work and its authorship.
+
+Each collector now lives in its own `<task-id>/` folder with its reconciler,
+guide, mock and tests. `-o` namespaces evidence under `<root>/<task-id>/`, so a
+single evidence root holds every task without collision.
+
+**Merge.** Seven conflicts, all resolved by keeping both sides rather than
+taking one: Copilot contributed the paths, this branch contributed the logic.
+The SC-8 collector needed `TASK_DIR` **and** the `mysql` service; the SC-8 and
+SC-28 test files needed the new paths **and** the mandatory automation flags
+that the scope-automation retrofit introduced. All five SDK-verified collector
+fixes were confirmed present afterwards.
+
+**A bug this introduced, caught by the suite.** Resolving the moved test files
+with `--ours` kept their old `ROOT="…/.."`, which is correct for a file in
+`tests/` but wrong for one now two levels down in `<task>/tests/`. The result
+was a doubled path and `rc=127`. Every test in a task folder now uses
+`../..`; the repository-wide gates in `tests/` keep the single `..`.
+
+**Header accuracy.** Every collector's header now carries a
+`PYTHON FILES USED:` block naming the `.py` files it actually invokes. Written
+from what each script really calls, not from assumption: `cp09-01`, `cp09-02`
+and `cp09-03` use no Python at all; `sc08-02`, `sc28` and `cm07-01` use only an
+inline `python3 - <<'PY'` heredoc with no separate module, and CM07-01's whole
+reconciliation engine is that heredoc; `cm08-01` depends on two reconcilers,
+one of which lives under `cm02-01/`.
+
+`tests/test-repo-structure.sh` guards both the layout and the headers, and was
+verified by injection: it catches a header naming a non-existent `.py` and a
+collector left duplicated at the repository root. A header that is confidently
+wrong is worse than no header.
+
+The two committed `.pyc` files were dropped; `.gitignore` prevents recurrence.
+The read-only gate, hardened earlier the same day, reports the same 22 files and
+252 call sites under the new layout as under the old one.
 
 ---
 
@@ -101,7 +146,7 @@ ICMPv6 lands in the portless set. No defect found.
 `cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` suppress OCI stderr on 14 to 17
 call sites, so a denied call becomes an empty result and then a "no rules found"
 conclusion — rule 3's exact prohibition. `cm07-ppsm.sh` additionally embeds a
-static DISA-aligned restricted list, which `CM07-CORRECTIVE-REVIEW.md`
+static DISA-aligned restricted list, which `cm07-01/CM07-CORRECTIVE-REVIEW.md`
 specifically warned could be mistaken for current organizational policy. They
 carried "LEGACY REFERENCE" headers, but a comment does not stop execution, and
 the corrective review notes an operator did run `cm07-openports.sh` and got
@@ -114,7 +159,7 @@ the precedent set by the CM-8 raw engine. The source stays readable.
 schema the reconciler rejects. Realigned, with a gate that diffs shipped against
 generated headers so it cannot drift again silently.
 
-`TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md` now explains the corrected outputs a
+`cm07-01/TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md` now explains the corrected outputs a
 reviewer will actually meet: cross-compartment rows and their owning
 compartment, `attachment_count=UNKNOWN` under a partial scope and why it is not
 an unattached container, the portless-protocol restricted-list semantics, and
@@ -122,7 +167,7 @@ an unattached container, the portless-protocol restricted-list semantics, and
 
 **Task 6 remains Partial.** The only outstanding gate items are the controlled
 compartment and tenancy runs, which need OCI credentials no agent session has
-had. `TASK6-LIVE-VALIDATION-RUNBOOK.md` is the turnkey procedure.
+had. `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` is the turnkey procedure.
 
 ---
 
@@ -167,7 +212,7 @@ Not closable from an agent session. This environment has no `oci` CLI, no
 `~/.oci`, and no OCI credentials, so the two remaining acceptance-gate items —
 a controlled compartment run and a controlled tenancy run against known network
 objects, with counts reconciled to Console/CLI — require a human with tenancy
-access. `TASK6-LIVE-VALIDATION-RUNBOOK.md` makes that turnkey: exact commands,
+access. `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` makes that turnkey: exact commands,
 the specific objects to record from the Console beforehand, per-step
 verification boxes for both corrected defects, and a reviewer disposition
 record. Task 6 stays **Partial**.
@@ -219,7 +264,7 @@ would make every ICMP rule permanently unverifiable; both are handled. A jq
 precedence error in the first draft of the resolver (`.a // [][]?` iterates the
 empty literal) was caught by the regression before it reached a commit.
 
-`tests/test-cm07-01-corrective.sh` covers all five mocked gate items and was
+`cm07-01/tests/test-cm07-01-corrective.sh` covers all five mocked gate items and was
 verified to fail without each fix. **Task 6 stays Partial**: the gate also
 requires controlled compartment and tenancy runs against known objects with
 counts reconciled to Console/CLI, and mock success is explicitly not sufficient.
@@ -298,7 +343,7 @@ model, and from asking what a response that establishes nothing is recorded as.
   for them. Base DB and Autonomous DB were the only affected services.
 - No subshell-losing `| while read` pipelines; every collector uses process
   substitution, so `INCOMPLETE` survives.
-- `warn()` in `cm08-hw-sw-baseline.sh` is dead code. Noted, not removed.
+- `warn()` in `cm08-01/cm08-hw-sw-baseline.sh` is dead code. Noted, not removed.
 
 ---
 
@@ -310,7 +355,7 @@ cannot satisfy a requirement. `SCRIPT-DESIGN-STANDARD.md` now requires the
 pinned Oracle SDK, generated clients/models, official pagination/retries,
 supported signers, runtime list/get allowlists and structured service errors.
 
-`ra05-01-vulnerability-tracking.py` implements Task 10 with:
+`ra05-01/ra05-01-vulnerability-tracking.py` implements Task 10 with:
 
 - config-profile, instance-principal and resource-principal authentication;
 - explicit region, default interactive tenancy/compartment discovery, exact
@@ -331,7 +376,7 @@ supported signers, runtime list/get allowlists and structured service errors.
 The collector deliberately does not claim coverage for non-OCI hosts,
 appliances, managed services, application scanning or third-party scanner
 sources. Those boundaries, remediation closure proof and signed approval remain
-required in `TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`.
+required in `ra05-01/TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`.
 
 The mock SDK gate exercises pagination, host/container details,
 cross-compartment targets, exact-scope conservatism, mutation injection,
@@ -414,19 +459,19 @@ the SDK model, never from the script under test.
 
 Each fix is guarded by a regression that was verified to fail without it:
 
-- `tests/test-encryption-at-rest.sh` — five Autonomous Databases covering
+- `sc28/tests/test-encryption-at-rest.sh` — five Autonomous Databases covering
   `kms-key-id`, external provider, key store, `ORACLE_MANAGED` and a silent
   response.
-- `tests/test-cm11-01-software-installation-control.sh` — asserts the package
+- `cm11-01/tests/test-cm11-01-software-installation-control.sh` — asserts the package
   repository and source OCID come from `software-sources` and are not the
   package type.
-- `tests/test-cp09-01-backup-config.sh` and `tests/mock-oci-cp0901` — new.
+- `cp09-01/tests/test-cp09-01-backup-config.sh` and `cp09-01/tests/mock-oci-cp0901` — new.
   `cp09-01` previously had no collection regression at all; only its syntax,
   self-check and scope gates were exercised.
 
 ### Open, not fixed
 
-- Task 6 / CM07-01 still carries both defects in `CM07-CORRECTIVE-REVIEW.md`:
+- Task 6 / CM07-01 still carries both defects in `cm07-01/CM07-CORRECTIVE-REVIEW.md`:
   `rule_port_range()` maps every non-TCP/UDP/ANY protocol to `0-65535`, so ICMP
   false-matches port-based restrictions, and there is still no `-p/--profile`.
   Task 6 remains Partial.
@@ -464,12 +509,12 @@ System Design Form/baseline, monthly review, change and exception evidence.
 
 ## 2026-08-31 — Task 9 CM-8 system component inventory workflow
 
-The broad `cm08-hw-sw-baseline.sh` engine collected useful OCI facts, but it
+The broad `cm08-01/cm08-hw-sw-baseline.sh` engine collected useful OCI facts, but it
 did not establish an approved component owner/register, classify monthly
 addition/removal/change, require exact dispositions, bind a signed review to
 current counts or publish visibility gaps.
 
-`cm08-01-component-inventory-baseline.sh` is now the canonical Task 9 workflow.
+`cm08-01/cm08-01-component-inventory-baseline.sh` is now the canonical Task 9 workflow.
 It:
 
 - defaults to discovered tenancy/compartment selection, exact double-OCID, a
@@ -500,9 +545,9 @@ hardware boundaries. These are review inputs, not silently inferred negatives.
 Task 9 also corrected raw CM08 location provenance: child-derived attachment,
 FSS, OKE, container, Function, database and OS/package CSVs now carry
 compartment OCIDs. Regression coverage is in
-`tests/test-cm08-01-component-inventory.sh`; operating instructions and the
+`cm08-01/tests/test-cm08-01-component-inventory.sh`; operating instructions and the
 recurring monthly sequence are in
-`TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md`.
+`cm08-01/TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md`.
 
 ---
 
@@ -511,13 +556,13 @@ recurring monthly sequence are in
 **Historical implementation note:** this governed reconciliation interface was
 superseded by the user-directed simple technical collector on 2026-09-01.
 
-The existing `cm08-hw-sw-baseline.sh` captured broad hardware/software and
+The existing `cm08-01/cm08-hw-sw-baseline.sh` captured broad hardware/software and
 configuration facts, but it did not establish controlled CI ownership, ingest
 an approved System Design Form/baseline, reconcile live attributes to approved
 values or validate a monthly review. It also predated the mandatory scan-
 approval boundary.
 
-`cm02-01-configuration-baseline.sh` is now the canonical Task 8 workflow. The
+`cm02-01/cm02-01-configuration-baseline.sh` is now the canonical Task 8 workflow. The
 CM02 name preserves the control mapping: configuration baseline is CM-2, while
 the existing CM08 file remains the invoked component-inventory engine. CM02-01:
 
@@ -549,20 +594,20 @@ VNIC rows omitted compartment OCIDs. CM02-01 additionally treats retained raw
 stderr or downstream parser failures as incomplete evidence so they cannot
 survive behind an `OK` OCI-call ledger.
 
-Regression coverage is in `tests/test-cm02-01-configuration-baseline.sh` with
-`tests/mock-oci-task8`. The manual evidence and first-month three-pass workflow
-are documented in `TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md`.
+Regression coverage is in `cm02-01/tests/test-cm02-01-configuration-baseline.sh` with
+`cm08-01/tests/mock-oci-task8`. The manual evidence and first-month three-pass workflow
+are documented in `cm02-01/TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md`.
 
 ---
 
 ## 2026-08-28 — Task 7 CM-11 software installation control workflow
 
-The existing `cm08-hw-sw-baseline.sh` package inventory was adjacent CM-8/CM-2
+The existing `cm08-01/cm08-hw-sw-baseline.sh` package inventory was adjacent CM-8/CM-2
 evidence, but it could not answer who was authorized to install software,
 whether live software was approved, or whether it matched an authoritative
 restricted list. It also predated the mandatory scope approval contract.
 
-`cm11-01-software-installation-control.sh` is now the canonical Task 7
+`cm11-01/cm11-01-software-installation-control.sh` is now the canonical Task 7
 collector. It:
 
 - defaults manual runs to discovered tenancy/compartment selection, requires
@@ -606,10 +651,10 @@ paths, packages installed outside the authoritative management platform,
 Windows installed applications, or Kubernetes/Functions/deployment-runtime
 permissions. Those required evidence boundaries and the controlled two-pass
 workflow are documented in
-`TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md`.
+`cm11-01/TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md`.
 
 Regression coverage in
-`tests/test-cm11-01-software-installation-control.sh` exercises successful
+`cm11-01/tests/test-cm11-01-software-installation-control.sh` exercises successful
 inventory/reconciliation, authorization expansion, a prohibited Telnet match,
 input hashes, OSMH control coverage, denied packages, malformed JSON,
 formula-safe output, manual and default interactive selection, tenancy
@@ -628,7 +673,7 @@ paths. The approval script had a confirmed stdin collision: a pipeline supplied
 the baseline CSV while a Python here-document simultaneously occupied stdin,
 so no baseline rows reached the CSV reader.
 
-`cm07-01-open-ports-protocols-services.sh` is now the canonical Task 6
+`cm07-01/cm07-01-open-ports-protocols-services.sh` is now the canonical Task 6
 collector. It:
 
 - defaults manual runs to discovered tenancy/compartment selection, requires the
@@ -670,13 +715,13 @@ The collector records OCI packet-filter permissions, not actual listening
 processes or end-to-end reachability. Routes, IP addressing, OCI Network
 Firewall, ZPR, load-balancer listeners, host firewalls and application
 configuration remain manual reconciliation boundaries documented in
-`TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md`.
+`cm07-01/TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md`.
 
 ---
 
 ## 2026-08-27 — SC-8 pre-scan authorization and safety review
 
-A second source-level safety review of `sc08-02-in-transit-encryption.sh` verified 27
+A second source-level safety review of `sc08-02/sc08-02-in-transit-encryption.sh` verified 27
 OCI wrapper call sites. All are `list`/`get`, and none retrieves the separate
 IPSec shared-secret object. The review also found that the previous
 no-argument path immediately expanded to a tenancy scan and that the original
@@ -704,14 +749,14 @@ The SC-8 collector now:
   fabricating a disabled result;
 - reports backend TLS with peer verification disabled as a review finding.
 
-`SC08-SAFETY-REVIEW.md` records the complete review, command inventory,
+`sc08-02/SC08-SAFETY-REVIEW.md` records the complete review, command inventory,
 resolved findings, local-write boundary and remaining manual evidence.
 
 ---
 
 ## 2026-08-27 — Task 3 SC-28 encryption-at-rest integrity and KMS evidence
 
-The original `sc28-oci-encryption-at-rest.sh` discarded stderr for every OCI
+The original `sc28/sc28-oci-encryption-at-rest.sh` discarded stderr for every OCI
 call. A permission denial therefore looked like an empty service or absent key.
 It also used obsolete/nonexistent MySQL and PostgreSQL key paths and listed KMS
 keys without collecting the full key or version metadata needed to prove
@@ -737,7 +782,7 @@ The collector now:
   non-AES-256 shape and failed/unconfirmed rotation as explicit findings;
 - never retrieves key material, secrets or protected configuration values.
 
-`TASK3-MANUAL-EVIDENCE-CHECKLIST.md` defines the required CMK reconciliation,
+`sc28/TASK3-MANUAL-EVIDENCE-CHECKLIST.md` defines the required CMK reconciliation,
 key administrator approval, HSM/AES-256 review, OCI Audit rotation proof,
 manual rotation procedure, evidence integrity and sign-off package.
 
@@ -750,7 +795,7 @@ it is forbidden from reporting the result as no keys.
 
 ## 2026-08-27 — Task 2 SC-8 collection integrity and IPSec coverage
 
-The original `sc08-02-in-transit-encryption.sh` discarded stderr for every OCI call.
+The original `sc08-02/sc08-02-in-transit-encryption.sh` discarded stderr for every OCI call.
 A permission denial therefore looked exactly like an empty service. It also
 claimed Load Balancer backend coverage without collecting backend sets and had
 no Site-to-Site VPN evidence.
@@ -772,7 +817,7 @@ The collector now:
 - retains manual-evidence boundaries for NLB backend TLS, Base DB `sqlnet.ora`
   and FSS encrypted client mounts.
 
-`TASK2-MANUAL-EVIDENCE-CHECKLIST.md` defines the screenshot/config package and
+`sc08-02/TASK2-MANUAL-EVIDENCE-CHECKLIST.md` defines the screenshot/config package and
 review sign-off required to close those boundaries.
 
 The regression suite exercises every Task 2 service path. A denied tunnel-list
@@ -883,9 +928,9 @@ The script's **stated purpose and design are read-only**. To confirm fully, revi
 
 | Script | Dimension | Status |
 |---|---|---|
-| `cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | implementation complete; OCI evidence pending |
-| `cp09-02-backup-access-files-check.sh` | who can access the backup files | implementation complete; OCI evidence pending |
-| `cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | row-level failure attribution and coverage complete; OCI evidence pending |
+| `cp09-01/cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | implementation complete; OCI evidence pending |
+| `cp09-02/cp09-02-backup-access-files-check.sh` | who can access the backup files | implementation complete; OCI evidence pending |
+| `cp09-03/cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | row-level failure attribution and coverage complete; OCI evidence pending |
 
 All three are read-only, record compartment names, and refuse to let a failed
 collection look like a clean result. All three carry a `--selfcheck` flag that
@@ -898,7 +943,7 @@ replication — all OCS assets (VCN, Shared Services, CD3)"*.
 
 ## 2026-08-27 — cp09-01 coverage review (blockers found — now fixed, see below)
 
-A 7-lens review of `cp09-01-backup-type-config-frequency.sh` against the CP-9 evidence requirement "Backup type/frequency, access, replication — all OCS assets (VCN, Shared Services, CD3)" found several **blocker**-severity defects still open:
+A 7-lens review of `cp09-01/cp09-01-backup-type-config-frequency.sh` against the CP-9 evidence requirement "Backup type/frequency, access, replication — all OCS assets (VCN, Shared Services, CD3)" found several **blocker**-severity defects still open:
 
 - `oci fs snapshot-policy list` is not a real CLI command — every FSS row fails. The correct command (used by `backup-storage.sh`) is `oci fs filesystem-snapshot-policy list`.
 - FSS schedules are read off the `list` response, which never carries `schedules` — every FSS policy reports `NO_SCHEDULES` even when one exists.
@@ -964,7 +1009,7 @@ bash tests/run.sh
 
 ---
 
-## 2026-08-27 — cp09-02-backup-access-files-check.sh (new script)
+## 2026-08-27 — cp09-02/cp09-02-backup-access-files-check.sh (new script)
 
 Added to fill the empty slot between `cp09-01` (type/frequency) and `cp09-03` (replication): **who can access the backup files**, resolved down to named users rather than stopping at a group name.
 
