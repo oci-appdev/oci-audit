@@ -53,6 +53,54 @@ removed; the collector's read-only and no-secret safety boundary is unchanged.
 
 ---
 
+## 2026-09-02 — repository-wide read-only proof
+
+The per-collector `--selfcheck` gates are denylists: they grep the source for
+known mutating verbs. A denylist cannot prove the absence of a verb nobody
+anticipated. `tests/test-readonly-proof.sh` is the inverse and now runs in the
+suite.
+
+**Allowlist.** Every OCI wrapper call site in every shell file, canonical and
+legacy, must carry an action token that is exactly `list`, `get`, or a
+`list-*`/`get-*` variant. 252 sites verified. The nine distinct actions in use
+are `list`, `get`, `get-volume-backup-policy-asset-assignment`,
+`list-db-systems`, `list-installed-packages`, `list-packages`,
+`list-replication-policies`, `list-users` and `list-vnics`.
+
+**Named-read-but-POST.** Checking the SDK rather than assuming: of 8,220
+generated operations, 3,450 `list_*`/`get_*` operations issue HTTP GET — but 18
+issue **POST**. Being called `get` is therefore not by itself proof of a read.
+Those 18 are named and blocked. None was in use.
+
+**Secret-returning reads.** 51 SDK read operations return credential or key
+material — Autonomous Database wallets, auth tokens, API keys, customer secret
+keys, Swift passwords, Windows initial credentials, secret bundles, IPSec PSKs.
+Read-only is not the same as safe to write into an evidence CSV, and this
+repository is public. SC-8 already blocked `ip-sec-psk`; that rule is now
+generalised to every collector. None was in use.
+
+`raw-request` remains blocked unless explicitly `http-method GET`, and the SDK
+collectors' declared allowlists are checked to contain only `list_*`/`get_*`
+names.
+
+The gate was verified by injection, not merely by passing: a `bv volume delete`,
+an `autonomous-database-wallet` read, a POST-shaped `list-metrics`, and an
+`iam auth-token list` were each added to a collector in turn and each was caught
+by the rule intended to catch it.
+
+### Task 6 live validation
+
+Not closable from an agent session. This environment has no `oci` CLI, no
+`~/.oci`, and no OCI credentials, so the two remaining acceptance-gate items —
+a controlled compartment run and a controlled tenancy run against known network
+objects, with counts reconciled to Console/CLI — require a human with tenancy
+access. `TASK6-LIVE-VALIDATION-RUNBOOK.md` makes that turnkey: exact commands,
+the specific objects to record from the Console beforehand, per-step
+verification boxes for both corrected defects, and a reviewer disposition
+record. Task 6 stays **Partial**.
+
+---
+
 ## 2026-09-02 — Task 6 corrective action and SC-8 MySQL coverage
 
 Closes the two items that had been carried as open and unassigned. Task 11 was

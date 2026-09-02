@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-02 (Task 6 corrective action and SC-8 MySQL coverage)
+**Last updated:** 2026-09-02 (repository-wide read-only proof)
 
 ## Non-negotiable repository rules
 
@@ -32,6 +32,17 @@ the single source of truth.
    ledger says `OK`.
 4. Generated evidence never gets committed. This repository is public.
 5. `bash tests/run.sh` must pass before any commit.
+6. `tests/test-readonly-proof.sh` is the repository-wide read-only gate and is
+   an **allowlist**, unlike the per-collector `--selfcheck` denylists. Every OCI
+   wrapper call site in every shell file, canonical and legacy, must carry a
+   `list`/`get` action token. It additionally blocks:
+   - the 18 SDK operations named `list_*`/`get_*` that issue **POST**, not GET,
+     so "it is called get" is never taken as proof of a read;
+   - the 51 SDK reads that return credential or key material (wallets, auth
+     tokens, API keys, PSKs, initial passwords). **Read-only is not the same as
+     safe to write into evidence**, and this repository is public. The SC-8
+     collector already blocked `ip-sec-psk`; this generalises it everywhere.
+   Do not add an exemption to get a call past this gate. The call is wrong.
 
 ## Ownership boundaries — read before you edit
 
@@ -45,7 +56,7 @@ making it.
 | Task 11 — configuration change tracking | **Codex** | In progress, OCI Python SDK. Claude must not touch it. |
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
-| Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Code and regressions complete; **live validation still required** before Task 6 leaves Partial. See `CM07-CORRECTIVE-REVIEW.md`. |
+| Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Code and regressions complete; **live validation still required** before Task 6 leaves Partial. Runbook: `TASK6-LIVE-VALIDATION-RUNBOOK.md`. |
 
 ## SDK-verified changes — do not revert blindly (2026-09-02)
 
@@ -121,7 +132,16 @@ then convert each camelCase JSON name to kebab-case.
   gate also requires a controlled compartment run and a controlled tenancy run
   against known network objects, with counts reconciled to Console/CLI spot
   checks. Mock success is explicitly not sufficient. Task 6 stays **Partial**
-  until those runs are recorded.
+  until those runs are recorded. **No agent session so far has had OCI access**
+  (no `oci` CLI, no `~/.oci`, no credentials), so this cannot be closed from a
+  session — it needs a human with tenancy access working through
+  `TASK6-LIVE-VALIDATION-RUNBOOK.md`. The same is true of the pending live runs
+  for Tasks 1, 2, 3, 7, 9 and 10.
+- **Only 1 of 10 canonical collectors uses the OCI Python SDK.** `ra05-01` is
+  SDK-native; the other nine are Bash + OCI CLI. The SDK requirement in rule 1
+  is forward-looking and applies to new or materially rewritten collectors.
+  Porting the nine existing ones is roughly 19k lines across seven control
+  families and has not been started or requested.
 
 ## Branches
 
