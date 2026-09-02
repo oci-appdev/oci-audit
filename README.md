@@ -25,9 +25,9 @@ Use these three scripts together. Legacy `backup-storage.sh` and
 
 | Script | Evidence dimension |
 |---|---|
-| `cp09-01-backup-type-config-frequency.sh` | Backup configuration, type, schedule, retention and last successful backup |
-| `cp09-02-backup-access-files-check.sh` | IAM grants, named principals, KMS custody, PARs and public/cross-tenancy exposure |
-| `cp09-03-backup-replication-check.sh` | Replication, second copies, Data Guard, versioning and WORM posture |
+| `cp09-01/cp09-01-backup-type-config-frequency.sh` | Backup configuration, type, schedule, retention and last successful backup |
+| `cp09-02/cp09-02-backup-access-files-check.sh` | IAM grants, named principals, KMS custody, PARs and public/cross-tenancy exposure |
+| `cp09-03/cp09-03-backup-replication-check.sh` | Replication, second copies, Data Guard, versioning and WORM posture |
 
 ### Prerequisites
 
@@ -40,9 +40,9 @@ Use these three scripts together. Legacy `backup-storage.sh` and
 Run the read-only verification before using the collectors:
 
 ```bash
-bash cp09-01-backup-type-config-frequency.sh --selfcheck
-bash cp09-02-backup-access-files-check.sh --selfcheck
-bash cp09-03-backup-replication-check.sh --selfcheck
+bash cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck
+bash cp09-02/cp09-02-backup-access-files-check.sh --selfcheck
+bash cp09-03/cp09-03-backup-replication-check.sh --selfcheck
 ```
 
 ### Interactive scope discovery and confirmation
@@ -59,13 +59,13 @@ packages such as `./evidence/cp09-01/`, `./evidence/cm07-01/` and
 `./evidence/ra05-01/`.
 
 ```bash
-bash cp09-01-backup-type-config-frequency.sh \
+bash cp09-01/cp09-01-backup-type-config-frequency.sh \
   -r us-langley-1 -o ./evidence
 
-bash cp09-02-backup-access-files-check.sh \
+bash cp09-02/cp09-02-backup-access-files-check.sh \
   -r us-langley-1 -o ./evidence
 
-bash cp09-03-backup-replication-check.sh \
+bash cp09-03/cp09-03-backup-replication-check.sh \
   -r us-langley-1 -o ./evidence
 ```
 
@@ -90,13 +90,13 @@ EVIDENCE_DIR="./evidence/${REGION}/${RUN_ID}"
 
 mkdir -p "$EVIDENCE_DIR"
 
-bash cp09-01-backup-type-config-frequency.sh \
+bash cp09-01/cp09-01-backup-type-config-frequency.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 
-bash cp09-02-backup-access-files-check.sh \
+bash cp09-02/cp09-02-backup-access-files-check.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 
-bash cp09-03-backup-replication-check.sh \
+bash cp09-03/cp09-03-backup-replication-check.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 ```
 
@@ -116,7 +116,7 @@ tenancy passed the control. Review the findings and evidence rows separately.
 
 ## Canonical Task 2 workflow
 
-`sc08-02-in-transit-encryption.sh` is the canonical SC08-02 SC-8/SC-8(1)/SC-13 collector. It covers Load
+`sc08-02/sc08-02-in-transit-encryption.sh` is the canonical SC08-02 SC-8/SC-8(1)/SC-13 collector. It covers Load
 Balancer frontend and backend TLS, NLB passthrough, Autonomous and Base
 databases, Object Storage, volume attachments, FSS, API Gateway, OKE and the
 Site-to-Site VPN chain (CPE, IPSec connection, tunnels and DRG attachment/route
@@ -125,12 +125,12 @@ context).
 The collector uses only OCI list/get operations and intentionally never calls
 `network ip-sec-psk get`, the separate operation that retrieves an IPSec
 pre-shared key. The full source and evidence-handling review is in
-[SC08-SAFETY-REVIEW.md](SC08-SAFETY-REVIEW.md).
+[sc08-02/SC08-SAFETY-REVIEW.md](sc08-02/SC08-SAFETY-REVIEW.md).
 
 Run the read-only check:
 
 ```bash
-bash sc08-02-in-transit-encryption.sh --selfcheck
+bash sc08-02/sc08-02-in-transit-encryption.sh --selfcheck
 ```
 
 No-argument execution is interactive by default. It discovers the tenancy and
@@ -139,7 +139,7 @@ complete scan plan and starts service collection only after exact uppercase
 `YES`:
 
 ```bash
-bash sc08-02-in-transit-encryption.sh \
+bash sc08-02/sc08-02-in-transit-encryption.sh \
   -r us-langley-1 -o ./evidence
 ```
 
@@ -158,7 +158,7 @@ EVIDENCE_DIR="./evidence/${REGION}/${RUN_ID}"
 
 mkdir -p "$EVIDENCE_DIR"
 
-bash sc08-02-in-transit-encryption.sh \
+bash sc08-02/sc08-02-in-transit-encryption.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 ```
 
@@ -178,13 +178,13 @@ Both are collected independently. A successful tunnel list with a count other
 than two produces `IPSEC-TUNNEL-PAIR-INCOMPLETE` for review.
 
 Complete the API evidence with
-[TASK2-MANUAL-EVIDENCE-CHECKLIST.md](TASK2-MANUAL-EVIDENCE-CHECKLIST.md),
+[sc08-02/TASK2-MANUAL-EVIDENCE-CHECKLIST.md](sc08-02/TASK2-MANUAL-EVIDENCE-CHECKLIST.md),
 including IPSec tunnel screenshots, Base DB `sqlnet.ora`, encrypted FSS mounts
 and backend TLS hidden by NLB passthrough.
 
 ## Canonical Task 3 workflow
 
-`sc28-oci-encryption-at-rest.sh` is the SC-28/SC-28(1)/SC-12 collector. It
+`sc28/sc28-oci-encryption-at-rest.sh` is the SC-28/SC-28(1)/SC-12 collector. It
 covers Block and Boot Volumes, Object Storage, FSS, Autonomous and Base
 databases, MySQL, OCI Database with PostgreSQL, Vaults, KMS key protection,
 lifecycle, automatic-rotation metadata and key-version history.
@@ -194,9 +194,9 @@ or secrets. Run the source check first, then select and confirm the exact OCI
 scope:
 
 ```bash
-bash sc28-oci-encryption-at-rest.sh --selfcheck
+bash sc28/sc28-oci-encryption-at-rest.sh --selfcheck
 
-bash sc28-oci-encryption-at-rest.sh \
+bash sc28/sc28-oci-encryption-at-rest.sh \
   -r us-langley-1 -o ./evidence
 ```
 
@@ -208,7 +208,7 @@ call.
 For approved automation, use explicit `-c` or `-n` scope flags. Example:
 
 ```bash
-bash sc28-oci-encryption-at-rest.sh \
+bash sc28/sc28-oci-encryption-at-rest.sh \
   -r us-langley-1 -n 'VCN,Shared Services,CD3' -o ./evidence
 ```
 
@@ -225,7 +225,7 @@ a retained error ledger and exit code `3`; it is never reported as an empty
 service or absent key.
 
 Complete the API evidence with
-[TASK3-MANUAL-EVIDENCE-CHECKLIST.md](TASK3-MANUAL-EVIDENCE-CHECKLIST.md),
+[sc28/TASK3-MANUAL-EVIDENCE-CHECKLIST.md](sc28/TASK3-MANUAL-EVIDENCE-CHECKLIST.md),
 including key-administrator approval, AES-256/HSM validation, rotation Audit
 logs, manual rotation procedure where applicable and reviewer sign-off.
 
@@ -234,11 +234,11 @@ logs, manual rotation procedure where applicable and reviewer sign-off.
 > **Corrective status:** Do not use CM07-01 as complete audit evidence yet.
 > Controlled use found cross-compartment coverage and ICMP restricted-match
 > defects. See
-> [CM07-CORRECTIVE-REVIEW.md](CM07-CORRECTIVE-REVIEW.md) for the findings and
+> [cm07-01/CM07-CORRECTIVE-REVIEW.md](cm07-01/CM07-CORRECTIVE-REVIEW.md) for the findings and
 > acceptance gate. The commands below document the intended interface pending
 > correction and live validation.
 
-`cm07-01-open-ports-protocols-services.sh` is the CM-7/CM-7(1)/PPSM
+`cm07-01/cm07-01-open-ports-protocols-services.sh` is the CM-7/CM-7(1)/PPSM
 collector. It inventories Security List and NSG rules, Security List-to-subnet
 associations and NSG-to-VNIC membership. It records OCI packet-filter facts,
 common-service inference, accountable actual-service/listener verification,
@@ -250,9 +250,9 @@ exact tenancy or compartment OCID twice, prints the resolved plan and requires
 exact uppercase `YES` before the first Networking service call:
 
 ```bash
-bash cm07-01-open-ports-protocols-services.sh --selfcheck
+bash cm07-01/cm07-01-open-ports-protocols-services.sh --selfcheck
 
-bash cm07-01-open-ports-protocols-services.sh \
+bash cm07-01/cm07-01-open-ports-protocols-services.sh \
   -r us-langley-1 \
   --inventory-only \
   -o ./evidence/task6-inventory
@@ -265,7 +265,7 @@ obtain the restricted PPS list from the authoritative PPSM or enterprise
 security-policy owner. Then run the complete reconciliation:
 
 ```bash
-bash cm07-01-open-ports-protocols-services.sh \
+bash cm07-01/cm07-01-open-ports-protocols-services.sh \
   -r us-langley-1 \
   -a ./approved/cm07-approved-ports.csv \
   -x ./approved/cm07-restricted-ports.csv \
@@ -277,7 +277,7 @@ Supplying `-c` or `-n` manually still requires every resolved OCID twice and
 exact uppercase `YES`. Approved automation is explicit:
 
 ```bash
-bash cm07-01-open-ports-protocols-services.sh \
+bash cm07-01/cm07-01-open-ports-protocols-services.sh \
   -c ocid1.compartment... \
   --non-interactive \
   --confirm-scope-ocid ocid1.compartment... \
@@ -295,7 +295,7 @@ reference and dates; the evidence package records their SHA-256 hashes.
 
 An OCI rule permits traffic but does not prove that a host process is listening
 or that the path is reachable. Complete the layered-control and actual-listener
-checks in [TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md](TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md).
+checks in [cm07-01/TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md](cm07-01/TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md).
 
 The older `cm07-openports.sh`, `cm07-ppsm.sh` and
 `cm07-proof-opened-ports.sh` files are retained as legacy references. They
@@ -304,7 +304,7 @@ not enforce the mandatory scope-confirmation boundary.
 
 ## Canonical Task 7 workflow
 
-`cm11-01-software-installation-control.sh` is the CM-11/CM-11(1) collector.
+`cm11-01/cm11-01-software-installation-control.sh` is the CM-11/CM-11(1) collector.
 It keeps three evidence questions separate: candidate technical installation
 capability, approved installed/available software resources, and current
 restricted/prohibited software policy.
@@ -322,9 +322,9 @@ The read-only inventory includes:
 Start with an inventory-only run:
 
 ```bash
-bash cm11-01-software-installation-control.sh --selfcheck
+bash cm11-01/cm11-01-software-installation-control.sh --selfcheck
 
-bash cm11-01-software-installation-control.sh \
+bash cm11-01/cm11-01-software-installation-control.sh \
   -r us-langley-1 \
   --inventory-only \
   -o ./evidence/task7-inventory
@@ -344,7 +344,7 @@ authority complete them, obtain the current restricted-software list from the
 ISSO/designated policy owner, then run the reconciliation:
 
 ```bash
-bash cm11-01-software-installation-control.sh \
+bash cm11-01/cm11-01-software-installation-control.sh \
   -r us-langley-1 \
   -u ./approved/cm11-authorized-installers.csv \
   -a ./approved/cm11-approved-software.csv \
@@ -358,11 +358,11 @@ entitlement evidence and exits incomplete for referenced identity-domain groups
 whose user membership was not collected. Complete the Identity Domains,
 SSH/sudo/local-admin, break-glass, unmanaged-host and deployment-runtime checks
 in
-[TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md](TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md).
+[cm11-01/TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md](cm11-01/TASK7-SOFTWARE-INSTALLATION-CONTROL-EVIDENCE-GUIDE.md).
 
 ## Canonical Task 8 workflow
 
-`cm02-01-configuration-baseline.sh` is now a simple CM-2 technical
+`cm02-01/cm02-01-configuration-baseline.sh` is now a simple CM-2 technical
 configuration collector. It records the current visible OCI resources,
 configuration attributes, fingerprints, per-operation coverage and collection
 errors. It does not ingest approval files or perform governance reconciliation.
@@ -370,9 +370,9 @@ errors. It does not ingest approval files or perform governance reconciliation.
 Run one guarded collection command:
 
 ```bash
-bash cm02-01-configuration-baseline.sh --selfcheck
+bash cm02-01/cm02-01-configuration-baseline.sh --selfcheck
 
-bash cm02-01-configuration-baseline.sh \
+bash cm02-01/cm02-01-configuration-baseline.sh \
   -r us-langley-1 \
   -o ./evidence/task8-technical-snapshot
 ```
@@ -390,17 +390,17 @@ the terminal prints the exact coverage/error paths to review. The legacy
 `--ci-register`, `--approved-baseline` and `--monthly-review` flags are rejected
 because the simplified script no longer makes organizational approval claims.
 
-CM02-01 invokes `cm08-hw-sw-baseline.sh` only after operator approval and
+CM02-01 invokes `cm08-01/cm08-hw-sw-baseline.sh` only after operator approval and
 normalizes live CIs/attributes into private, formula-safe evidence. A technical
 snapshot alone does not satisfy the worksheet's approved System Design Form,
 baseline or monthly-review requirements.
 See
-[TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md](TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md)
+[cm02-01/TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md](cm02-01/TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md)
 for output interpretation and the remaining manual governance evidence.
 
 ## Canonical Task 9 workflow
 
-`cm08-01-component-inventory-baseline.sh` is the CM-8/CM-8(1) system-component
+`cm08-01/cm08-01-component-inventory-baseline.sh` is the CM-8/CM-8(1) system-component
 inventory workflow. It keeps the current technical snapshot, the
 organization-approved prior inventory, monthly additions/removals/changes,
 their dispositions, coverage gaps and the signed monthly review separate.
@@ -408,9 +408,9 @@ their dispositions, coverage gaps and the signed monthly review separate.
 Start with a guarded inventory-only run:
 
 ```bash
-bash cm08-01-component-inventory-baseline.sh --selfcheck
+bash cm08-01/cm08-01-component-inventory-baseline.sh --selfcheck
 
-bash cm08-01-component-inventory-baseline.sh \
+bash cm08-01/cm08-01-component-inventory-baseline.sh \
   -r us-langley-1 \
   --inventory-only \
   -o ./evidence/task9-inventory
@@ -427,7 +427,7 @@ approved version. The first comparison can omit dispositions/review and exit
 `3` while creating exact current templates:
 
 ```bash
-bash cm08-01-component-inventory-baseline.sh \
+bash cm08-01/cm08-01-component-inventory-baseline.sh \
   -r us-langley-1 \
   -b ./approved/cm08-component-inventory-prior.csv \
   -o ./evidence/task9-pending
@@ -437,7 +437,7 @@ Disposition every `ADDED`, `REMOVED` and `CHANGED` row, complete the generated
 count-bound monthly review, then run the final package:
 
 ```bash
-bash cm08-01-component-inventory-baseline.sh \
+bash cm08-01/cm08-01-component-inventory-baseline.sh \
   -r us-langley-1 \
   -b ./approved/cm08-component-inventory-prior.csv \
   -d ./approved/cm08-change-dispositions.csv \
@@ -450,25 +450,25 @@ permits it and explicitly records guest, OKE-node, image-digest and
 provider-physical-layer visibility limits. The shared raw CM08 engine refuses
 direct execution and accepts only a wrapper-approved caller/scope/region plus
 runtime-allowlisted read actions. See
-[TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md](TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md)
+[cm08-01/TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md](cm08-01/TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md)
 for the monthly lifecycle and evidence boundaries.
 
 ## Canonical Task 10 workflow
 
-`ra05-01-vulnerability-tracking.py` is the RA-5/SI-2 host and container
+`ra05-01/ra05-01-vulnerability-tracking.py` is the RA-5/SI-2 host and container
 vulnerability workflow and the first collector built on Oracle's official OCI
 Python SDK standard. Install the reviewed SDK version in an approved virtual
 environment when it is not already present:
 
 ```bash
-python3 -m pip install -r requirements-oci-sdk.txt
-python3 ra05-01-vulnerability-tracking.py --selfcheck
+python3 -m pip install -r ra05-01/requirements-oci-sdk.txt
+python3 ra05-01/ra05-01-vulnerability-tracking.py --selfcheck
 ```
 
 Start with a guarded technical collection:
 
 ```bash
-python3 ra05-01-vulnerability-tracking.py \
+python3 ra05-01/ra05-01-vulnerability-tracking.py \
   -r us-langley-1 \
   -o ./evidence/task10-inventory
 ```
@@ -486,7 +486,7 @@ current-count monthly-review template. After approval, supply all three inputs
 for the governed package:
 
 ```bash
-python3 ra05-01-vulnerability-tracking.py \
+python3 ra05-01/ra05-01-vulnerability-tracking.py \
   -r us-langley-1 \
   --sla-policy ./approved/ra05-sla-policy.csv \
   --remediation-tracker ./approved/ra05-remediation-tracker.csv \
@@ -497,7 +497,7 @@ python3 ra05-01-vulnerability-tracking.py \
 The workflow uses stable finding keys, validates owners/tickets/follow-up and
 exceptions, calculates due dates only from the supplied approved SLA, and
 binds the monthly review to exact snapshot SHA-256 and counts. See
-[TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md](TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md)
+[ra05-01/TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md](ra05-01/TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md)
 for the full run/review sequence and non-VSS coverage requirements.
 
 ## Tests

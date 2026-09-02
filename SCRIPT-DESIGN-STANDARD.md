@@ -8,7 +8,7 @@ repository. Existing scripts should adopt it when they are next hardened.
 ## Required OCI Python SDK foundation
 
 Every new or materially rewritten collector must use Oracle's official
-`oci-python-sdk`. Use the version pinned in `requirements-oci-sdk.txt` unless a
+`oci-python-sdk`. Use the version pinned in `ra05-01/requirements-oci-sdk.txt` unless a
 documented service requirement needs a newer Oracle release.
 
 - Use generated service clients and model attributes. Do not implement custom
@@ -108,20 +108,20 @@ Each collector integration must prove:
 
 The shared double-OCID implementation and regression examples are:
 
-- `cp09-01-backup-type-config-frequency.sh`
-- `cp09-02-backup-access-files-check.sh`
-- `cp09-03-backup-replication-check.sh`
-- `sc08-02-in-transit-encryption.sh`
-- `sc28-oci-encryption-at-rest.sh`
-- `cm07-01-open-ports-protocols-services.sh`
-- `cm11-01-software-installation-control.sh`
-- `cm02-01-configuration-baseline.sh`
-- `cm08-01-component-inventory-baseline.sh`
+- `cp09-01/cp09-01-backup-type-config-frequency.sh`
+- `cp09-02/cp09-02-backup-access-files-check.sh`
+- `cp09-03/cp09-03-backup-replication-check.sh`
+- `sc08-02/sc08-02-in-transit-encryption.sh`
+- `sc28/sc28-oci-encryption-at-rest.sh`
+- `cm07-01/cm07-01-open-ports-protocols-services.sh`
+- `cm11-01/cm11-01-software-installation-control.sh`
+- `cm02-01/cm02-01-configuration-baseline.sh`
+- `cm08-01/cm08-01-component-inventory-baseline.sh`
 - `tests/test-scope-selection.sh`
-- `tests/test-cm07-01-open-ports.sh`
-- `tests/test-cm11-01-software-installation-control.sh`
-- `tests/test-cm02-01-configuration-baseline.sh`
-- `tests/test-cm08-01-component-inventory.sh`
+- `cm07-01/tests/test-cm07-01-open-ports.sh`
+- `cm11-01/tests/test-cm11-01-software-installation-control.sh`
+- `cm02-01/tests/test-cm02-01-configuration-baseline.sh`
+- `cm08-01/tests/test-cm08-01-component-inventory.sh`
 
 All nine canonical Task 1–3 and Task 6–9 collectors default no-scope manual runs to
 the shared interactive workflow and implement the pre-scan summary plus
@@ -129,6 +129,6 @@ exact-`YES` gate. CM07-01 also implements the stricter explicit automation
 contract above, as do CM11-01, CM02-01 and CM08-01. Retrofit the earlier collectors before their next material
 change; every future collector must use the strict contract when introduced.
 
-`ra05-01-vulnerability-tracking.py` is the first collector built on the Oracle
-SDK standard. Its shared SDK primitives are in `lib/oci_audit_sdk.py`, and its
-mock-client gate is `tests/test-ra05-01-vulnerability-tracking.py`.
+`ra05-01/ra05-01-vulnerability-tracking.py` is the first collector built on the Oracle
+SDK standard. Its shared SDK primitives are in `ra05-01/lib/oci_audit_sdk.py`, and its
+mock-client gate is `ra05-01/tests/test-ra05-01-vulnerability-tracking.py`.
