@@ -1,0 +1,2 @@
+# Oracle-maintained OCI Python SDK version reviewed for the RA05-01 collector.
+oci==2.185.1

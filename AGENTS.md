@@ -4,16 +4,28 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-02 (revised after the Task 10 RA-5 publication to `main`)
 
 ## Non-negotiable repository rules
 
 1. `SCRIPT-DESIGN-STANDARD.md` is binding on every new or materially
    redesigned collector. Do not add a collector that skips the
    discovery / double-OCID / pre-scan-plan / exact-`YES` sequence.
-2. Collectors are **read-only**. Only OCI `list`/`get` operations. Every
-   script's `--selfcheck` greps its own source for mutating verbs; if you add a
-   call that trips it, the call is wrong, not the check.
+   Since 2026-09-02 that standard also requires every **new or materially
+   rewritten** collector to use Oracle's official `oci-python-sdk`, pinned in
+   `requirements-oci-sdk.txt`, with generated clients, SDK pagination/retries
+   and a runtime `list_*`/`get_*` allowlist. `ra05-01-vulnerability-tracking.py`
+   and `lib/oci_audit_sdk.py` are the reference implementation.
+   This does **not** mean the existing Bash/OCI-CLI collectors should be
+   rewritten opportunistically. A targeted correctness fix to one of them — such
+   as the three SDK-verified fixes below — is not a material rewrite and does not
+   trigger a port. Port a collector only when it is being materially redesigned
+   anyway, or when the user asks.
+2. Collectors are **read-only**. Only OCI `list`/`get` operations. Shell
+   collectors enforce this with a `--selfcheck` that greps their own source for
+   mutating verbs; SDK collectors enforce it with a runtime `list_*`/`get_*`
+   method allowlist their `--selfcheck` validates. If you add a call that trips
+   either gate, the call is wrong, not the gate.
 3. A failed or ambiguous API call must never become a negative finding. It
    becomes a `COLLECTION-FAILED` row, a non-OK coverage row, a retained error
    ledger and exit code `3`. An empty CSV proves absence only when the coverage
@@ -29,7 +41,8 @@ making it.
 
 | Area | Owner | Status |
 |---|---|---|
-| Task 10 — vulnerability tracking | **Codex** | In progress. Claude must not touch it. |
+| Task 10 — vulnerability tracking (RA-5/SI-2) | **Codex** | Delivered to `main` (`030af450`). `ra05-01-vulnerability-tracking.py`, `lib/oci_audit_sdk.py`, `tests/test-ra05-01-vulnerability-tracking.py`, `TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`. Claude did not review it. |
+| Task 11 — configuration change tracking | **Codex** (next) | Not started. |
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 6 — CM07-01 corrective work | Unassigned | Open. See `CM07-CORRECTIVE-REVIEW.md`. |
 
@@ -58,7 +71,9 @@ the OCI API does not produce. The mock agreed with the bug, so the suite passed
 while the collector wrote the wrong value into evidence.
 
 **When you add or change a mock payload, copy the field names from the SDK
-model, not from the script you are testing.** Find them with:
+model, not from the script you are testing.** This applies equally to the mock
+OCI CLI shims and to the mocked generated clients used by SDK collectors: a mock
+that agrees with the collector proves nothing. Find the real names with:
 
 ```bash
 python3 - <<'PY'
@@ -85,5 +100,11 @@ then convert each camelCase JSON name to kebab-case.
 
 ## Branches
 
-Claude develops on `claude/repo-study-u22ntx`. Do not force-push or rebase
-another agent's branch.
+Claude develops on `claude/repo-study-u22ntx`; Codex publishes to `main`. Do not
+force-push or rebase another agent's branch.
+
+`main` was merged into `claude/repo-study-u22ntx` on 2026-09-02 to pick up the
+RA-5 collector. Two conflicts were resolved by keeping both sides: the
+`AUDIT.md` dated sections, and the `tests/run.sh` entries for
+`tests/test-cp09-01-backup-config.sh` and the RA-5 self-check. If you merge
+these branches again, keep both sides of those hunks rather than taking one.

@@ -1,6 +1,6 @@
 # OCS Audit Master Task List
 
-**Last reviewed:** 2026-08-31
+**Last reviewed:** 2026-09-02
 
 **Tracking basis:** repository implementation plus evidence artifacts visible in this repository
 
@@ -34,7 +34,7 @@ substitute for a controlled live run.
 | 7 | Software installation control | Implementation complete | Canonical `cm11-01-software-installation-control.sh`; default tenancy/compartment discovery, exact double-OCID and final `YES`; strict automation confirmation; explicit region; read-only IAM policy/group evidence; candidate entitlement classification for OSMH package install, Compute image provisioning and Container Registry publish; classic group-member expansion plus identity-domain boundary; OSMH installed packages, Compute boot images, container images; generated authorized-installer/approved-software templates; authoritative installer/approval/restricted-list reconciliation; OSMH/repository/image technical-control evidence; source hashes, private/formula-safe outputs, coverage/error ledgers and mock gate | Run inventory-only in every scope; obtain signed authorized-installer, approved-software and current restricted/prohibited lists; export referenced Identity Domains membership; complete SSH/sudo/local-admin, break-glass, unmanaged-host, Windows, Kubernetes/runtime and request/change-sample evidence; rerun reconciliation; disposition prohibited/restricted/unapproved/unauthorized rows and store the signed package |
 | 8 | Configuration baseline | Partial | Simplified `cm02-01-configuration-baseline.sh`; one-command read-only technical snapshot; mandatory tenancy/compartment double-OCID, full plan and exact `YES`; strict automation, explicit region and named-profile support; normalized CI/attribute fingerprints; private/formula-safe raw and canonical evidence; explicit coverage/error ledger; exit `0` only when technical collection succeeds; mock safety/failure gate | Run in every exact region/scope and retain the snapshot; separately establish and approve the CI register, System Design Form/configuration baseline and monthly review; reconcile technical values to those approved records; retain change/exception, in-guest and rule-level evidence before representing CM-2 as complete |
 | 9 | Hardware/software inventory baseline | Implementation complete | Canonical `cm08-01-component-inventory-baseline.sh`; mandatory tenancy/compartment double-OCID, complete plan, package-volume disclosure and exact `YES`; strict automation, explicit region and named-profile support; corrected failure-aware CM08 engine; stable component keys/fingerprints; generated approved-inventory, change-disposition and count-bound monthly-review templates; `UNCHANGED`/`ADDED`/`REMOVED`/`CHANGED` reconciliation; authoritative ownership/approval and exact disposition validation; unmanaged/in-guest/provider coverage-gap ledger; input SHA-256; private/formula-safe raw and canonical evidence; mock gate | Run inventory-only in every exact region/scope; resolve guest/package/OKE/digest/provider-boundary gaps; approve the inventory; compare to the prior approved month; disposition every addition/removal/change; complete and approve the count-bound monthly review; rerun to exit `0`; sign/archive the package and promote the current snapshot for the next month |
-| 10 | Vulnerability tracking | Not started | CM-8 collector exposes limited update counts only | Add monthly vulnerability tracker, SLA, remediation owner, exception and follow-up evidence |
+| 10 | Vulnerability tracking | Implementation complete | Canonical `ra05-01-vulnerability-tracking.py` built on Oracle's pinned OCI Python SDK; config/instance/resource-principal auth; SDK pagination/retries and runtime list/get allowlist; mandatory tenancy/compartment double-OCID, complete SDK plan and exact `YES`; Compute/OCIR asset coverage; VSS host/container targets, latest scans and detailed CVE/package rows; conservative cross-compartment target resolution; organization-owned SLA ingestion; stable-key remediation tracker; exception/follow-up validation; snapshot-hash/count-bound monthly review; private/formula-safe evidence, structured coverage/errors and mock gate | Run tenancy-wide in every in-scope region; approve the SLA; complete every remediation owner/ticket/follow-up or approved exception; resolve stale/unscanned/unknown assets and failed calls; add non-VSS/third-party/application coverage; submit and approve the exact monthly review; sign/archive the final package |
 | 11 | Configuration change tracking | Not started | None | Add Remedy CRQ/SO approval process and approved change samples |
 | 12 | Account management | Not started | CP-9 access collector is limited to backup access and is not an account-management review | Add lifecycle procedures, manager/approver ownership, inactivity removal, group/privilege baseline, review template and completed approvals |
 | 13 | OKTA/DOJLogin configuration | Not started | None | Confirm integration applicability and capture approved configuration evidence |
@@ -46,9 +46,9 @@ substitute for a controlled live run.
 
 ## Completion snapshot
 
-Excluding the two N/A items, five of sixteen actionable worksheet tasks have
+Excluding the two N/A items, six of sixteen actionable worksheet tasks have
 implementation-complete collector workflows. Two have partial foundations and
-nine are not started. No actionable task should be represented as audit-complete
+eight are not started. No actionable task should be represented as audit-complete
 until its operational evidence and approval records are produced and reviewed.
 
 ## Work order
@@ -63,4 +63,5 @@ Continue in worksheet order:
 6. Execute and close Task 7 operational, identity, approval and restriction evidence.
 7. Execute and close Task 8 configuration-baseline and monthly-review evidence.
 8. Execute and close Task 9 component-inventory and monthly-review evidence.
-9. Continue Tasks 10–14, skip Task 15, then complete Tasks 16–18.
+9. Execute and close Task 10 vulnerability-tracking evidence.
+10. Continue Tasks 11–14, skip Task 15, then complete Tasks 16–18.
