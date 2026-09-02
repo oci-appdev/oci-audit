@@ -108,9 +108,9 @@ Each collector integration must prove:
 
 The shared double-OCID implementation and regression examples are:
 
-- `cp09-01/cp09-01-backup-type-config-frequency.sh`
-- `cp09-02/cp09-02-backup-access-files-check.sh`
-- `cp09-03/cp09-03-backup-replication-check.sh`
+- `cp09/cp09-01/cp09-01-backup-type-config-frequency.sh`
+- `cp09/cp09-02/cp09-02-backup-access-files-check.sh`
+- `cp09/cp09-03/cp09-03-backup-replication-check.sh`
 - `sc08-02/sc08-02-in-transit-encryption.sh`
 - `sc28/sc28-oci-encryption-at-rest.sh`
 - `cm07-01/cm07-01-open-ports-protocols-services.sh`

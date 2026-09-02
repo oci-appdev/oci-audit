@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# cp09-02/cp09-02-backup-access-files-check.sh
+# cp09/cp09-02/cp09-02-backup-access-files-check.sh
 #
 # CP-9 EVIDENCE — WHO CAN ACCESS THE BACKUP FILES?
 #
 # Consolidates and supersedes four earlier scripts in this repo:
 #   backup-storage-access.sh / oci-backup-access.sh  (access surface)
-#   cp09-01/legacy/backup-storage.sh        / oci-backup-audit.sh   (where the backups live)
+#   cp09/cp09-01/legacy/backup-storage.sh        / oci-backup-audit.sh   (where the backups live)
 #
 # The earlier access scripts stopped at the group name and said so:
 #   "It does not resolve group membership. To see actual humans, cross-reference
@@ -35,16 +35,16 @@
 #       `oci iam compartment list` work). Outside Cloud Shell pass -p PROFILE.
 #
 # Usage:
-#   ./cp09-02/cp09-02-backup-access-files-check.sh                  # interactive scope + approval
-#   ./cp09-02/cp09-02-backup-access-files-check.sh --select-scope   # discover + confirm scope
-#   ./cp09-02/cp09-02-backup-access-files-check.sh -i               # short form
-#   ./cp09-02/cp09-02-backup-access-files-check.sh -c <ocid>        # one compartment
-#   ./cp09-02/cp09-02-backup-access-files-check.sh -n VCN,CD3       # by compartment NAME
-#   ./cp09-02/cp09-02-backup-access-files-check.sh -r us-langley-1  # region override
-#   ./cp09-02/cp09-02-backup-access-files-check.sh -p AUDITOR       # config-file profile
-#   ./cp09-02/cp09-02-backup-access-files-check.sh -s "grants exposure"   # subset
-#   ./cp09-02/cp09-02-backup-access-files-check.sh -o ./evidence    # output root; writes into ./evidence/cp09-02/
-#   ./cp09-02/cp09-02-backup-access-files-check.sh --selfcheck      # prove read-only, exit
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh                  # interactive scope + approval
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh --select-scope   # discover + confirm scope
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh -i               # short form
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh -c <ocid>        # one compartment
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh -n VCN,CD3       # by compartment NAME
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh -r us-langley-1  # region override
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh -p AUDITOR       # config-file profile
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh -s "grants exposure"   # subset
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh -o ./evidence    # output root; writes into ./evidence/cp09-02/
+#   ./cp09/cp09-02/cp09-02-backup-access-files-check.sh --selfcheck      # prove read-only, exit
 #
 # Phases (-s): artifacts grants principals exposure keys
 #
@@ -62,7 +62,7 @@ set -uo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-SCOPE_HELPER="$SCRIPT_DIR/../lib/oci-scope-selector.sh"
+SCOPE_HELPER="$SCRIPT_DIR/../../lib/oci-scope-selector.sh"
 
 # ---------------------------------------------------------------------------
 # Read-only self-verification
@@ -443,7 +443,7 @@ PLAN_WORK=""
 for phase in $PHASES; do PLAN_WORK+="${phase}"$'\n'; done
 
 oci_scope_print_scan_plan \
-  "CP-9 BACKUP ACCESS" "cp09-02/cp09-02-backup-access-files-check.sh" \
+  "CP-9 BACKUP ACCESS" "cp09/cp09-02/cp09-02-backup-access-files-check.sh" \
   "CP-9 / AC-3 / AC-6 / SC-12" "${REGION_OVERRIDE:-<cloud-shell / config default>}" \
   "$PLAN_SCOPE_TYPE" "$PLAN_SCOPE_NAME" "$PLAN_SCOPE_OCID" "$COMP_COUNT" \
   "$PLAN_TARGETS" "Requested evidence phases" "$PLAN_WORK" \

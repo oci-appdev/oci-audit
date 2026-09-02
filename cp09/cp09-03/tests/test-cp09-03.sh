@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 TMP="$(mktemp -d)"
 cleanup() { [ -n "${TMP:-}" ] && [ -d "$TMP" ] && rm -rf -- "$TMP"; }
 trap cleanup EXIT
@@ -34,7 +34,7 @@ PY
 }
 
 # Complete collection: the asset and coverage rows must both be OK.
-bash "$ROOT/cp09-03/cp09-03-backup-replication-check.sh" \
+bash "$ROOT/cp09/cp09-03/cp09-03-backup-replication-check.sh" \
   -c ocid1.compartment.oc1..test -r us-langley-1 -o "$TMP/success" \
   >"$TMP/success.stdout" 2>"$TMP/success.stderr"
 
@@ -72,7 +72,7 @@ fi
 # Denied replica collection: do not emit NO-REPLICA. Attribute DENIED to the
 # asset row, mark coverage incomplete, retain the error ledger and exit 3.
 set +e
-MOCK_DENY_REPLICA=1 bash "$ROOT/cp09-03/cp09-03-backup-replication-check.sh" \
+MOCK_DENY_REPLICA=1 bash "$ROOT/cp09/cp09-03/cp09-03-backup-replication-check.sh" \
   -c ocid1.compartment.oc1..test -r us-langley-1 -s volumes -o "$TMP/denied" \
   >"$TMP/denied.stdout" 2>"$TMP/denied.stderr"
 DENIED_RC=$?

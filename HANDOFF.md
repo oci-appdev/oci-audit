@@ -4,7 +4,7 @@
 
 **Current branch:** `copilot/review-repo`
 
-**Current head:** `4f63cd467d9273c31190c4942df0f2c76d76c413`
+**Current head:** `112e50452eaa07a18d77d9c2be90abef17e2a2b8`
 
 **Current milestone:** Tasks 1–3, 7, 9 and 10 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
@@ -46,7 +46,7 @@ normal command containing only region/output options silently used the old
 tenancy-wide path. The option parser and tests now exercise the real no-scope-
 flag operator command for every canonical collector.
 
-Scripts `cp09-01`, `cp09-02`, `cp09-03`, `sc08-02/sc08-02-in-transit-encryption.sh`,
+Scripts `cp09/cp09-01/cp09-01-backup-type-config-frequency.sh`, `cp09/cp09-02/cp09-02-backup-access-files-check.sh`, `cp09/cp09-03/cp09-03-backup-replication-check.sh`, `sc08-02/sc08-02-in-transit-encryption.sh`,
 `sc28/sc28-oci-encryption-at-rest.sh`, `cm07-01/cm07-01-open-ports-protocols-services.sh` and
 `cm11-01/cm11-01-software-installation-control.sh` and
 `cm02-01/cm02-01-configuration-baseline.sh` and
@@ -397,7 +397,7 @@ It also proves the failure cannot become `TUNNEL-DOWN`, `NO-IPSEC` or `NO-VPN`.
 
 ## What changed
 
-### `cp09-03/cp09-03-backup-replication-check.sh`
+### `cp09/cp09-03/cp09-03-backup-replication-check.sh`
 
 - Added the same read-only `--selfcheck` boundary used by `cp09-01` and `cp09-02`.
 - Added `-n` compartment-name filtering and `-o` output-directory support.
@@ -415,7 +415,7 @@ It also proves the failure cannot become `TUNNEL-DOWN`, `NO-IPSEC` or `NO-VPN`.
 Added:
 
 - `tests/mock-oci`
-- `cp09-03/tests/test-cp09-03.sh`
+- `cp09/cp09-03/tests/test-cp09-03.sh`
 - `tests/run.sh`
 
 The mock exercises Object Storage, Block Volume, Boot Volume, volume backups,
@@ -453,7 +453,7 @@ bash tests/run.sh
 
 ### Legacy collectors
 
-`cp09-01/legacy/backup-storage.sh` and `cp09-01/legacy/oci_backup_audit.py` are now explicitly marked
+`cp09/cp09-01/legacy/backup-storage.sh` and `cp09/cp09-01/legacy/oci_backup_audit.py` are now explicitly marked
 deprecated. They remain as reference implementations but are not canonical
 evidence sources because they lack the CP-9 family's row-level collection
 integrity.

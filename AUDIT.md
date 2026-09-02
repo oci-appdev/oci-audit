@@ -468,7 +468,7 @@ or confirmation boundary.
 
 ## Original SDK collector review
 
-**Script:** `cp09-01/legacy/oci_backup_audit.py`
+**Script:** `cp09/cp09-01/legacy/oci_backup_audit.py`
 
 **Original review date:** 2026-07-14
 
@@ -538,9 +538,9 @@ The script's **stated purpose and design are read-only**. To confirm fully, revi
 
 | Script | Dimension | Status |
 |---|---|---|
-| `cp09-01/cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | implementation complete; OCI evidence pending |
-| `cp09-02/cp09-02-backup-access-files-check.sh` | who can access the backup files | implementation complete; OCI evidence pending |
-| `cp09-03/cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | row-level failure attribution and coverage complete; OCI evidence pending |
+| `cp09/cp09-01/cp09-01-backup-type-config-frequency.sh` | backup type / configuration / frequency | implementation complete; OCI evidence pending |
+| `cp09/cp09-02/cp09-02-backup-access-files-check.sh` | who can access the backup files | implementation complete; OCI evidence pending |
+| `cp09/cp09-03/cp09-03-backup-replication-check.sh` | replication, retention, versioning (DR) | row-level failure attribution and coverage complete; OCI evidence pending |
 
 All three are read-only, record compartment names, and refuse to let a failed
 collection look like a clean result. All three carry a `--selfcheck` flag that
@@ -553,9 +553,9 @@ replication — all OCS assets (VCN, Shared Services, CD3)"*.
 
 ## 2026-08-27 — cp09-01 coverage review (blockers found — now fixed, see below)
 
-A 7-lens review of `cp09-01/cp09-01-backup-type-config-frequency.sh` against the CP-9 evidence requirement "Backup type/frequency, access, replication — all OCS assets (VCN, Shared Services, CD3)" found several **blocker**-severity defects still open:
+A 7-lens review of `cp09/cp09-01/cp09-01-backup-type-config-frequency.sh` against the CP-9 evidence requirement "Backup type/frequency, access, replication — all OCS assets (VCN, Shared Services, CD3)" found several **blocker**-severity defects still open:
 
-- `oci fs snapshot-policy list` is not a real CLI command — every FSS row fails. The correct command (used by `cp09-01/legacy/backup-storage.sh`) is `oci fs filesystem-snapshot-policy list`.
+- `oci fs snapshot-policy list` is not a real CLI command — every FSS row fails. The correct command (used by `cp09/cp09-01/legacy/backup-storage.sh`) is `oci fs filesystem-snapshot-policy list`.
 - FSS schedules are read off the `list` response, which never carries `schedules` — every FSS policy reports `NO_SCHEDULES` even when one exists.
 - The default config path is `/.oci/config` instead of `$HOME/.oci/config`, so config-auth mode aborts on a normal workstation.
 - The volume→policy linkage relies on an unverified showoci CSV column instead of calling `oci bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment`.
@@ -619,18 +619,18 @@ bash tests/run.sh
 
 ---
 
-## 2026-08-27 — cp09-02/cp09-02-backup-access-files-check.sh (new script)
+## 2026-08-27 — cp09/cp09-02/cp09-02-backup-access-files-check.sh (new script)
 
 Added to fill the empty slot between `cp09-01` (type/frequency) and `cp09-03` (replication): **who can access the backup files**, resolved down to named users rather than stopping at a group name.
 
 **Consolidated and removed** (superseded, no unique content lost — verified by diff before deletion):
 - `oci-backup-access.sh` — older duplicate of `backup-storage-access.sh`
-- `oci-backup-audit.sh` — older duplicate of `cp09-01/legacy/backup-storage.sh`
+- `oci-backup-audit.sh` — older duplicate of `cp09/cp09-01/legacy/backup-storage.sh`
 - `backup-storage-access.sh` — fully superseded by `cp09-02`
 
 **Later status:** `cp09-01` now covers Base DB, ADB, MySQL and PostgreSQL with
-failure-aware rows and a coverage ledger. `cp09-01/legacy/backup-storage.sh` and
-`cp09-01/legacy/oci_backup_audit.py` are therefore deprecated compatibility/reference
+failure-aware rows and a coverage ledger. `cp09/cp09-01/legacy/backup-storage.sh` and
+`cp09/cp09-01/legacy/oci_backup_audit.py` are therefore deprecated compatibility/reference
 collectors and are not canonical audit evidence sources.
 
 ### Gaps closed vs. the scripts it replaces

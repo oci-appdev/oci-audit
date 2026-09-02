@@ -20,14 +20,14 @@ collector work must follow [SCRIPT-DESIGN-STANDARD.md](SCRIPT-DESIGN-STANDARD.md
 
 ## Canonical Task 1 workflow
 
-Use these three scripts together. Legacy `cp09-01/legacy/backup-storage.sh` and
-`cp09-01/legacy/oci_backup_audit.py` are retained only for reference.
+Use these three scripts together under `cp09/`. Legacy `cp09/cp09-01/legacy/backup-storage.sh` and
+`cp09/cp09-01/legacy/oci_backup_audit.py` are retained only for reference.
 
 | Script | Evidence dimension |
 |---|---|
-| `cp09-01/cp09-01-backup-type-config-frequency.sh` | Backup configuration, type, schedule, retention and last successful backup |
-| `cp09-02/cp09-02-backup-access-files-check.sh` | IAM grants, named principals, KMS custody, PARs and public/cross-tenancy exposure |
-| `cp09-03/cp09-03-backup-replication-check.sh` | Replication, second copies, Data Guard, versioning and WORM posture |
+| `cp09/cp09-01/cp09-01-backup-type-config-frequency.sh` | Backup configuration, type, schedule, retention and last successful backup |
+| `cp09/cp09-02/cp09-02-backup-access-files-check.sh` | IAM grants, named principals, KMS custody, PARs and public/cross-tenancy exposure |
+| `cp09/cp09-03/cp09-03-backup-replication-check.sh` | Replication, second copies, Data Guard, versioning and WORM posture |
 
 ### Prerequisites
 
@@ -40,9 +40,9 @@ Use these three scripts together. Legacy `cp09-01/legacy/backup-storage.sh` and
 Run the read-only verification before using the collectors:
 
 ```bash
-bash cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck
-bash cp09-02/cp09-02-backup-access-files-check.sh --selfcheck
-bash cp09-03/cp09-03-backup-replication-check.sh --selfcheck
+bash cp09/cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck
+bash cp09/cp09-02/cp09-02-backup-access-files-check.sh --selfcheck
+bash cp09/cp09-03/cp09-03-backup-replication-check.sh --selfcheck
 ```
 
 ### Interactive scope discovery and confirmation
@@ -59,13 +59,13 @@ packages such as `./evidence/cp09-01/`, `./evidence/cm07-01/` and
 `./evidence/ra05-01/`.
 
 ```bash
-bash cp09-01/cp09-01-backup-type-config-frequency.sh \
+bash cp09/cp09-01/cp09-01-backup-type-config-frequency.sh \
   -r us-langley-1 -o ./evidence
 
-bash cp09-02/cp09-02-backup-access-files-check.sh \
+bash cp09/cp09-02/cp09-02-backup-access-files-check.sh \
   -r us-langley-1 -o ./evidence
 
-bash cp09-03/cp09-03-backup-replication-check.sh \
+bash cp09/cp09-03/cp09-03-backup-replication-check.sh \
   -r us-langley-1 -o ./evidence
 ```
 
@@ -90,13 +90,13 @@ EVIDENCE_DIR="./evidence/${REGION}/${RUN_ID}"
 
 mkdir -p "$EVIDENCE_DIR"
 
-bash cp09-01/cp09-01-backup-type-config-frequency.sh \
+bash cp09/cp09-01/cp09-01-backup-type-config-frequency.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 
-bash cp09-02/cp09-02-backup-access-files-check.sh \
+bash cp09/cp09-02/cp09-02-backup-access-files-check.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 
-bash cp09-03/cp09-03-backup-replication-check.sh \
+bash cp09/cp09-03/cp09-03-backup-replication-check.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 ```
 

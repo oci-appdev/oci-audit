@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# cp09-01/cp09-01-backup-type-config-frequency.sh
+# cp09/cp09-01/cp09-01-backup-type-config-frequency.sh
 #
 # CP-9 EVIDENCE — BACKUP TYPE, CONFIGURATION & FREQUENCY
 #
@@ -26,16 +26,16 @@
 #       `oci iam compartment list` work). Outside Cloud Shell pass -p PROFILE.
 #
 # Usage:
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh                  # interactive scope + approval
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh --select-scope   # discover + confirm scope
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh -i               # short form
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh -c <ocid>        # one compartment
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh -n VCN,CD3       # by compartment NAME
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh -r us-langley-1  # region override
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh -p AUDITOR       # config-file profile
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh -s "volumes fss" # subset of services
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh -o ./evidence    # output root; writes into ./evidence/cp09-01/
-#   ./cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck      # prove read-only, exit
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh                  # interactive scope + approval
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh --select-scope   # discover + confirm scope
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh -i               # short form
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh -c <ocid>        # one compartment
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh -n VCN,CD3       # by compartment NAME
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh -r us-langley-1  # region override
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh -p AUDITOR       # config-file profile
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh -s "volumes fss" # subset of services
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh -o ./evidence    # output root; writes into ./evidence/cp09-01/
+#   ./cp09/cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck      # prove read-only, exit
 #
 # Services (-s): volumes bootvol volgroup fss object basedb adb mysql postgres
 #
@@ -69,7 +69,7 @@ set -uo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-SCOPE_HELPER="$SCRIPT_DIR/../lib/oci-scope-selector.sh"
+SCOPE_HELPER="$SCRIPT_DIR/../../lib/oci-scope-selector.sh"
 
 # ---------------------------------------------------------------------------
 # Read-only self-verification
@@ -398,7 +398,7 @@ PLAN_WORK=""
 for svc in $SERVICES; do PLAN_WORK+="${svc}"$'\n'; done
 
 oci_scope_print_scan_plan \
-  "CP-9 BACKUP CONFIGURATION" "cp09-01/cp09-01-backup-type-config-frequency.sh" \
+  "CP-9 BACKUP CONFIGURATION" "cp09/cp09-01/cp09-01-backup-type-config-frequency.sh" \
   "CP-9 / CP-9(1)" "${REGION_OVERRIDE:-<cloud-shell / config default>}" \
   "$PLAN_SCOPE_TYPE" "$PLAN_SCOPE_NAME" "$PLAN_SCOPE_OCID" "$COMP_COUNT" \
   "$PLAN_TARGETS" "Requested service scans" "$PLAN_WORK" \

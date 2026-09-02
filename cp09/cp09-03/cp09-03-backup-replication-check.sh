@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# cp09-03/cp09-03-backup-replication-check.sh
+# cp09/cp09-03/cp09-03-backup-replication-check.sh
 #
 # CP-9(5) / CP-10 EVIDENCE — Backup replication, retention & versioning
 #
@@ -29,15 +29,15 @@
 #   Python SDK.
 #
 # Usage:
-#   ./cp09-03/cp09-03-backup-replication-check.sh                  # interactive scope + approval
-#   ./cp09-03/cp09-03-backup-replication-check.sh --select-scope   # discover + confirm scope
-#   ./cp09-03/cp09-03-backup-replication-check.sh -i               # short form
-#   ./cp09-03/cp09-03-backup-replication-check.sh -c <ocid>        # one compartment
-#   ./cp09-03/cp09-03-backup-replication-check.sh -n VCN,CD3       # compartment names
-#   ./cp09-03/cp09-03-backup-replication-check.sh -r us-langley-1  # GovCloud region
-#   ./cp09-03/cp09-03-backup-replication-check.sh -s "object fss"  # service subset
-#   ./cp09-03/cp09-03-backup-replication-check.sh -o ./evidence    # output root; writes into ./evidence/cp09-03/
-#   ./cp09-03/cp09-03-backup-replication-check.sh --selfcheck      # prove read-only
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh                  # interactive scope + approval
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh --select-scope   # discover + confirm scope
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh -i               # short form
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh -c <ocid>        # one compartment
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh -n VCN,CD3       # compartment names
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh -r us-langley-1  # GovCloud region
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh -s "object fss"  # service subset
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh -o ./evidence    # output root; writes into ./evidence/cp09-03/
+#   ./cp09/cp09-03/cp09-03-backup-replication-check.sh --selfcheck      # prove read-only
 #
 # Output: three timestamped CSVs + console summary.
 #   ..._<ts>.csv                    one row per asset, including collection status
@@ -48,7 +48,7 @@ set -uo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-SCOPE_HELPER="$SCRIPT_DIR/../lib/oci-scope-selector.sh"
+SCOPE_HELPER="$SCRIPT_DIR/../../lib/oci-scope-selector.sh"
 
 readonly_selfcheck() {                                          # selfcheck-exempt
   local deny hits raw rawpat                                    # selfcheck-exempt
@@ -397,7 +397,7 @@ PLAN_WORK=""
 for svc in $SERVICES; do PLAN_WORK+="${svc}"$'\n'; done
 
 oci_scope_print_scan_plan \
-  "CP-9 BACKUP REPLICATION" "cp09-03/cp09-03-backup-replication-check.sh" \
+  "CP-9 BACKUP REPLICATION" "cp09/cp09-03/cp09-03-backup-replication-check.sh" \
   "CP-9(5) / CP-10" "${REGION_OVERRIDE:-${CUR_REGION:-<cloud-shell-default>}}" \
   "$PLAN_SCOPE_TYPE" "$PLAN_SCOPE_NAME" "$PLAN_SCOPE_OCID" "$COMP_COUNT" \
   "$PLAN_TARGETS" "Requested service scans" "$PLAN_WORK" \

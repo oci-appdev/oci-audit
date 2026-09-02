@@ -18,7 +18,7 @@ COMPARTMENT='ocid1.compartment.oc1..vcn'
 # confirmation and exact uppercase YES.
 printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'YES' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/cp01.log" \
-  bash "$ROOT/cp09-01/cp09-01-backup-type-config-frequency.sh" \
+  bash "$ROOT/cp09/cp09-01/cp09-01-backup-type-config-frequency.sh" \
     -r us-langley-1 -s '' -o "$TMP/cp01" > "$TMP/cp01.out"
 
 grep -q 'DISCOVERED OCI AUDIT SCOPES' "$TMP/cp01.out"
@@ -34,7 +34,7 @@ grep -q 'compartment-id-in-subtree true' "$TMP/cp01.log"
 # root plus both active child compartments.
 printf '%s\n%s\n%s\n' "$TENANCY" "$TENANCY" 'YES' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/cp02.log" \
-  bash "$ROOT/cp09-02/cp09-02-backup-access-files-check.sh" \
+  bash "$ROOT/cp09/cp09-02/cp09-02-backup-access-files-check.sh" \
     -r us-langley-1 -s '' -o "$TMP/cp02" > "$TMP/cp02.out"
 
 grep -q 'WARNING: this selection scans the tenancy root and every active child compartment.' "$TMP/cp02.out"
@@ -47,7 +47,7 @@ grep -q 'Scope  : 3 compartment(s)' "$TMP/cp02.out"
 # Script 03: no scope flag uses the same selector and approval boundary.
 printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'YES' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/cp03.log" \
-  bash "$ROOT/cp09-03/cp09-03-backup-replication-check.sh" \
+  bash "$ROOT/cp09/cp09-03/cp09-03-backup-replication-check.sh" \
     -r us-langley-1 -s '' -o "$TMP/cp03" > "$TMP/cp03.out"
 
 grep -q 'Confirmed scope: COMPARTMENT — VCN' "$TMP/cp03.out"
@@ -112,7 +112,7 @@ grep -q 'Collecting SC-28 evidence across 3 compartment(s)' "$TMP/sc28-tenancy.o
 # A mismatched confirmation must stop before the collector loop.
 set +e
 printf '%s\n%s\n' "$COMPARTMENT" "$TENANCY" | \
-  PATH="$TMP/bin:$PATH" bash "$ROOT/cp09-01/cp09-01-backup-type-config-frequency.sh" \
+  PATH="$TMP/bin:$PATH" bash "$ROOT/cp09/cp09-01/cp09-01-backup-type-config-frequency.sh" \
     -i -s '' -o "$TMP/mismatch" > "$TMP/mismatch.out" 2>&1
 rc=$?
 set -e
@@ -127,7 +127,7 @@ fi
 # Script 03 must also fail closed on a mismatched second OCID.
 set +e
 printf '%s\n%s\n' "$COMPARTMENT" "$TENANCY" | \
-  PATH="$TMP/bin:$PATH" bash "$ROOT/cp09-03/cp09-03-backup-replication-check.sh" \
+  PATH="$TMP/bin:$PATH" bash "$ROOT/cp09/cp09-03/cp09-03-backup-replication-check.sh" \
     -i -r us-langley-1 -s '' -o "$TMP/mismatch03" > "$TMP/mismatch03.out" 2>&1
 rc=$?
 set -e
@@ -184,7 +184,7 @@ fi
 set +e
 printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'yes' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/refuse01.log" \
-  bash "$ROOT/cp09-01/cp09-01-backup-type-config-frequency.sh" \
+  bash "$ROOT/cp09/cp09-01/cp09-01-backup-type-config-frequency.sh" \
     -r us-langley-1 -s volumes -o "$TMP/refuse01" > "$TMP/refuse01.out" 2>&1
 rc=$?
 set -e
@@ -197,7 +197,7 @@ grep -q 'SCAN NOT STARTED: operator did not enter exact uppercase YES' "$TMP/ref
 set +e
 printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'yes' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/refuse02.log" \
-  bash "$ROOT/cp09-02/cp09-02-backup-access-files-check.sh" \
+  bash "$ROOT/cp09/cp09-02/cp09-02-backup-access-files-check.sh" \
     -r us-langley-1 -s artifacts -o "$TMP/refuse02" > "$TMP/refuse02.out" 2>&1
 rc=$?
 set -e
@@ -210,7 +210,7 @@ grep -q 'SCAN NOT STARTED: operator did not enter exact uppercase YES' "$TMP/ref
 set +e
 printf '%s\n%s\n%s\n' "$COMPARTMENT" "$COMPARTMENT" 'yes' | \
   PATH="$TMP/bin:$PATH" MOCK_SCOPE_LOG="$TMP/refuse03.log" \
-  bash "$ROOT/cp09-03/cp09-03-backup-replication-check.sh" \
+  bash "$ROOT/cp09/cp09-03/cp09-03-backup-replication-check.sh" \
     -r us-langley-1 -s object -o "$TMP/refuse03" > "$TMP/refuse03.out" 2>&1
 rc=$?
 set -e
@@ -250,7 +250,7 @@ fi
 
 # Interactive selection cannot be mixed with non-interactive scope flags.
 set +e
-PATH="$TMP/bin:$PATH" bash "$ROOT/cp09-02/cp09-02-backup-access-files-check.sh" \
+PATH="$TMP/bin:$PATH" bash "$ROOT/cp09/cp09-02/cp09-02-backup-access-files-check.sh" \
   --select-scope -c "$COMPARTMENT" -s '' -o "$TMP/conflict" > "$TMP/conflict.out" 2>&1
 rc=$?
 set -e
