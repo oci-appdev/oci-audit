@@ -130,4 +130,36 @@ if grep -Eq 'IN-TRANSIT-ENC-DISABLED|BOOT-IN-TRANSIT-ENC-DISABLED' "$missing_evi
   exit 1
 fi
 
+# MySQL exposes secure-connections on the DbSystem. SC-28 already covered MySQL
+# at rest; SC-8 collected no in-transit evidence for it at all.
+mkdir -p "$TMP/mysql"
+PATH="$TMP/bin:$PATH" bash "$ROOT/sc08-02-in-transit-encryption.sh" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
+  -c ocid1.compartment.oc1..test -r us-langley-1 -s mysql \
+  -o "$TMP/mysql" > "$TMP/mysql.out" 2>&1
+
+mysql_evidence="$(find "$TMP/mysql" -name 'sc08-02_*.csv' ! -name '*coverage*' ! -name '*collection_errors*' -print -quit)"
+[ -n "$mysql_evidence" ]
+
+python3 - "$mysql_evidence" <<'PY'
+import csv, sys
+rows = [r for r in csv.DictReader(open(sys.argv[1], newline="", encoding="utf-8-sig"))
+        if r["service"] == "MySQL"]
+by_name = {r["resource"]: r for r in rows}
+assert len(rows) == 3, rows
+
+byoc = by_name["mysql-byoc"]
+assert byoc["finding"] == "OK-CUSTOMER-CERTIFICATE", byoc
+assert "ocid1.certificate.oc1..mysql" in byoc["cipher_or_detail"], byoc
+
+system = by_name["mysql-system"]
+assert system["finding"] == "OK-SERVICE-CERTIFICATE", system
+
+# No secure-connections block establishes neither TLS nor plaintext, so it must
+# be a manual-verify row rather than either conclusion.
+silent = by_name["mysql-silent"]
+assert silent["finding"] == "MANUAL-VERIFY-TLS", silent
+assert silent["encryption_enabled"] == "UNKNOWN", silent
+PY
+
 echo "PASS: Task 2 integrity, TLS/IPSec findings and evidence-file safety regressions"

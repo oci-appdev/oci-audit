@@ -105,7 +105,7 @@ SINGLE_COMP=""
 COMP_NAMES_FILTER=""
 REGION_OVERRIDE=""
 OUTDIR="."
-SERVICES="lb nlb adb basedb object volumes fss apigw oke ipsec"
+SERVICES="lb nlb adb basedb mysql object volumes fss apigw oke ipsec"
 SELECT_SCOPE=0
 
 NON_INTERACTIVE=0
@@ -187,7 +187,7 @@ fi
 
 for requested_service in $SERVICES; do
   case "$requested_service" in
-    lb|nlb|adb|basedb|object|volumes|fss|apigw|oke|ipsec) ;;
+    lb|nlb|adb|basedb|mysql|object|volumes|fss|apigw|oke|ipsec) ;;
     *) echo "ERROR: unknown service selector: $requested_service" >&2; exit 1 ;;
   esac
 done
@@ -364,6 +364,7 @@ sc8_service_label() {
     nlb) printf 'Network Load Balancer passthrough inventory' ;;
     adb) printf 'Autonomous Database TLS/mTLS' ;;
     basedb) printf 'Base Database inventory (sqlnet.ora manual)' ;;
+    mysql) printf 'MySQL secure-connection TLS configuration' ;;
     object) printf 'Object Storage HTTPS/public exposure' ;;
     volumes) printf 'Block/boot volume in-transit encryption' ;;
     fss) printf 'File Storage mount targets (client proof manual)' ;;
@@ -728,6 +729,52 @@ check_basedb() {
   coverage_row "$comp" "BaseDB" "$count" "OK" ""
 }
 
+# MySQL exposes secure-connections (certificate-id, certificate-generation-type)
+# on the DbSystem. SC-28 already covered MySQL at rest; SC-8 collected no
+# in-transit evidence for it at all.
+check_mysql() {
+  local comp="$1" list_json status error count=0 system_id full name gen cert detail finding enc
+  oci_capture "MySQL DB system list" mysql db-system list --compartment-id "$comp" --all
+  list_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
+  if [ "$status" != "OK" ]; then
+    collection_failure_row "$comp" "MySQL" "<collection>" "$status" "$error" "SC-8(1)/SC-13"
+    coverage_row "$comp" "MySQL" "UNKNOWN" "$status" "$error"
+    return
+  fi
+  while IFS= read -r system_id; do
+    [ -z "$system_id" ] && continue
+    count=$((count+1))
+    oci_capture "MySQL DB system get [$system_id]" mysql db-system get --db-system-id "$system_id"
+    full="$COLLECT_OUT"
+    merge_status status error "$COLLECT_STATUS" "$COLLECT_ERROR"
+    if [ "$COLLECT_STATUS" != "OK" ]; then
+      collection_failure_row "$comp" "MySQL" "$system_id" "$COLLECT_STATUS" "$COLLECT_ERROR" "SC-8(1)/SC-13"
+      continue
+    fi
+    name="$(jq -r '.data."display-name" // "mysql"' <<< "$full")"
+    gen="$(jq -r '.data."secure-connections"."certificate-generation-type" // empty' <<< "$full")"
+    cert="$(jq -r '.data."secure-connections"."certificate-id" // empty' <<< "$full")"
+    case "$gen" in
+      BYOC)
+        enc="YES(TLS)"
+        detail="certificate-generation-type=BYOC;certificate-id=${cert:-not-exposed}"
+        finding="OK-CUSTOMER-CERTIFICATE" ;;
+      SYSTEM)
+        enc="YES(TLS)"
+        detail="certificate-generation-type=SYSTEM (service-managed certificate)"
+        finding="OK-SERVICE-CERTIFICATE" ;;
+      *)
+        # No secure-connections block: the response establishes neither TLS nor
+        # plaintext, so it must not be recorded as either.
+        enc="UNKNOWN"
+        detail="secure-connections-not-exposed"
+        finding="MANUAL-VERIFY-TLS" ;;
+    esac
+    row "$comp" "MySQL" "$name" "$enc" "TLS" "$detail" "$finding" "SC-8(1)/SC-13" "OK" ""
+  done < <(jq -r "$LIST_ITER | .id" <<< "$list_json" 2>/dev/null)
+  coverage_row "$comp" "MySQL" "$count" "$status" "$error"
+}
+
 check_object() {
   local comp="$1" ns buckets_json count=0 service_status="OK" service_error=""
   oci_capture "Object Storage namespace" os ns get --raw-output --query data
@@ -1061,6 +1108,7 @@ while IFS= read -r comp; do
       nlb) check_nlb "$comp" ;;
       adb) check_adb "$comp" ;;
       basedb) check_basedb "$comp" ;;
+      mysql) check_mysql "$comp" ;;
       object) check_object "$comp" ;;
       volumes) check_volumes "$comp" ;;
       fss) check_fss "$comp" ;;

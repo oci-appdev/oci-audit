@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-02 (second completed-task bug review)
+**Last updated:** 2026-09-02 (Task 6 corrective action and SC-8 MySQL coverage)
 
 ## Non-negotiable repository rules
 
@@ -45,7 +45,7 @@ making it.
 | Task 11 — configuration change tracking | **Codex** | In progress, OCI Python SDK. Claude must not touch it. |
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
-| Task 6 — CM07-01 corrective work | Unassigned | Open. See `CM07-CORRECTIVE-REVIEW.md`. |
+| Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Code and regressions complete; **live validation still required** before Task 6 leaves Partial. See `CM07-CORRECTIVE-REVIEW.md`. |
 
 ## SDK-verified changes — do not revert blindly (2026-09-02)
 
@@ -67,6 +67,9 @@ test must be updated with a stated reason, not deleted.
 | PostgreSQL backup policy is nested at `management-policy.backup-policy`, not at the top level of the db-system response. Reading the flat path always produced an empty `kind`, so **every** PostgreSQL system was reported `backup_configured=NO` with a HIGH `no-backup-policy` finding — including correctly backed-up ones. An absent policy object is now `UNKNOWN`, and only `kind=NONE` raises the HIGH finding. | `cp09-01-backup-type-config-frequency.sh` | `tests/test-cp09-01-backup-config.sh` |
 | Base DB key custody had the same defect as Autonomous DB: `Database` also exposes `key-store-id` and `encryption-key-location-details.provider-type` (EXTERNAL/AWS/AZURE/GCP). A key-store or externally keyed database was reported `ORACLE-MANAGED` / `REVIEW-USE-CMK`. The first pass fixed only Autonomous DB and missed this. | `sc28-oci-encryption-at-rest.sh` | `tests/test-encryption-at-rest.sh` |
 | `os retention-rule list` and `os replication list-replication-policies` are paginated but were called without `--all` in five places. A truncated list became `repl=NO` / an understated WORM posture — a negative finding from an incomplete read. | `cp09-01`, `cp09-02`, `cp09-03` | `tests/test-cp09-03.sh`, `tests/test-cp09-01-backup-config.sh` |
+| CM07-01 `rule_port_range()` returned `0-65535` for ICMP, so every ICMP rule overlapped every port-scoped restriction and matched entries like "protocol ANY, port 3389". Portless protocols now return `None` and match only protocol-scoped entries, with optional `icmp_type`/`icmp_code` targeting. | `cm07-01-open-ports-protocols-services.sh` | `tests/test-cm07-01-corrective.sh` |
+| CM07-01 listed Security Lists per target compartment, so a list in another compartment attached to an in-scope subnet was missed entirely, and a partial scope could report an attached container as unattached. Referenced OCIDs are now resolved with read-only gets (`UNRESOLVED-SECURITY-LIST` when that fails), and a partial scope reports associations `UNKNOWN` rather than zero. | `cm07-01-open-ports-protocols-services.sh` | `tests/test-cm07-01-corrective.sh` |
+| SC-8 collected no MySQL evidence although `mysql.models.DbSystem.secure_connections` is in-transit TLS configuration and SC-28 already covered MySQL at rest. | `sc08-02-in-transit-encryption.sh` | `tests/test-sc08-02-in-transit-encryption.sh` |
 | Volume backup schedules expose `is-retention-lock-enabled` and `is-prevent-deletion-enabled` (the CP-9 WORM evidence) and may express retention as `retention-period` instead of `retention-seconds`. None of these were collected. | `cp09-01-backup-type-config-frequency.sh` | `tests/test-cp09-01-backup-config.sh` (new) |
 
 ## Review method that found these
@@ -102,10 +105,6 @@ then convert each camelCase JSON name to kebab-case.
 
 ## Known open items (not defects introduced by the above)
 
-- **Task 6 / CM07-01** still has both defects recorded in
-  `CM07-CORRECTIVE-REVIEW.md`: `rule_port_range()` maps every non-TCP/UDP/ANY
-  protocol to `0-65535`, so ICMP false-matches port-based restrictions; and
-  there is still no `-p/--profile` flag. Task 6 stays **Partial**.
 - **PostgreSQL CLI command spelling is inconsistent.** `sc28` calls
   `psql db-system-collection list-db-systems`; `cp09-01` and the CM-8 engine
   call `psql db-system list`. At most one is correct for a given OCI CLI build,
@@ -117,11 +116,12 @@ then convert each camelCase JSON name to kebab-case.
 - **`warn()` in `cm08-hw-sw-baseline.sh` is dead code** (defined at line 142,
   never called). It looks like error logging but writes nothing. Harmless, but
   do not assume it is capturing anything.
-- **Task 2 / SC-8 does not cover MySQL.** `mysql.models.DbSystem` exposes
-  `secure_connections` (`certificate-id`, `certificate-generation-type`), which
-  is in-transit TLS evidence. SC-28 covers MySQL at rest but SC-8 has no MySQL
-  check. Adding one is new service coverage, not a bug fix, so it was left for
-  an explicit decision.
+- **Task 6 needs live validation.** The corrective code and all five
+  acceptance-gate regressions in `CM07-CORRECTIVE-REVIEW.md` are done, but that
+  gate also requires a controlled compartment run and a controlled tenancy run
+  against known network objects, with counts reconciled to Console/CLI spot
+  checks. Mock success is explicitly not sufficient. Task 6 stays **Partial**
+  until those runs are recorded.
 
 ## Branches
 

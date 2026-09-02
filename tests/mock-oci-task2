@@ -103,6 +103,18 @@ case "$cmd" in
   "network drg-attachment list --compartment-id ocid1.compartment.oc1..test --attachment-type ALL --all")
     printf '%s\n' '{"data":[{"display-name":"ipsec-attachment","attachment-type":"IPSEC_TUNNEL","lifecycle-state":"ATTACHED","drg-id":"ocid1.drg.oc1..drg1","drg-route-table-id":"ocid1.drgroutetable.oc1..rt1","network-details":{"id":"ocid1.ipsectunnel.oc1..tunnel1","type":"IPSEC_TUNNEL"}}]}'
     ;;
+  "mysql db-system list --compartment-id ocid1.compartment.oc1..test --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.mysqldbsystem.oc1..byoc"},{"id":"ocid1.mysqldbsystem.oc1..system"},{"id":"ocid1.mysqldbsystem.oc1..silent"}]}'
+    ;;
+  "mysql db-system get --db-system-id ocid1.mysqldbsystem.oc1..byoc")
+    printf '%s\n' '{"data":{"display-name":"mysql-byoc","secure-connections":{"certificate-generation-type":"BYOC","certificate-id":"ocid1.certificate.oc1..mysql"}}}'
+    ;;
+  "mysql db-system get --db-system-id ocid1.mysqldbsystem.oc1..system")
+    printf '%s\n' '{"data":{"display-name":"mysql-system","secure-connections":{"certificate-generation-type":"SYSTEM"}}}'
+    ;;
+  "mysql db-system get --db-system-id ocid1.mysqldbsystem.oc1..silent")
+    printf '%s\n' '{"data":{"display-name":"mysql-silent"}}'
+    ;;
   *)
     echo "mock-oci-task2: unsupported command: $cmd" >&2
     exit 64

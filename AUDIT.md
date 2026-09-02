@@ -53,6 +53,69 @@ removed; the collector's read-only and no-secret safety boundary is unchanged.
 
 ---
 
+## 2026-09-02 — Task 6 corrective action and SC-8 MySQL coverage
+
+Closes the two items that had been carried as open and unassigned. Task 11 was
+excluded as Codex's in-flight work.
+
+### Task 6 / CM07-01 — both confirmed defects fixed
+
+1. **ICMP false-matched port-based restrictions.** `rule_port_range()` mapped
+   every non-TCP/UDP/ANY protocol to `0-65535`, so an ICMP rule overlapped every
+   port-scoped entry and matched a restriction such as protocol `ANY`, port
+   3389. Portless protocols now return `None` and match only protocol-scoped
+   entries; `icmp_type`/`icmp_code` narrow them. The schema rule is explicit: an
+   entry naming a range narrower than 0-65535 is transport-scoped and cannot
+   describe a portless protocol, and a portless entry that names ports is
+   rejected at input validation.
+
+2. **Cross-compartment network objects were missed.** Security Lists were listed
+   per target compartment, so a list in another compartment attached to an
+   in-scope subnet produced no rules at all — the collector's most serious
+   evidence-completeness gap. Referenced Security List OCIDs are now resolved
+   with read-only `get` calls and attributed to their owning compartment;
+   an unresolvable reference becomes `UNRESOLVED-SECURITY-LIST` with a retained
+   error rather than a silently absent rule. Separately, a partial scope cannot
+   prove that no subnet elsewhere attaches a list, so zero in-scope associations
+   is now `UNKNOWN` with an `UNRESOLVED-SUBNET-ASSOCIATION` coverage row instead
+   of `attachment_count=0`, which had made attached rules read as inactive. The
+   related-scope expansion is disclosed in the pre-scan plan before approval.
+
+The five required hardening items are also done: `-p/--profile` threaded through
+the single OCI wrapper and shown in the plan and evidence; a `semantic_rule_key`
+excluding `container_id`, so a recreated container yields
+`APPROVED-CONTAINER-RECREATED` (counted as unapproved, never silently approved)
+rather than being indistinguishable from drift; `peer_type` emitted alongside the
+egress-misleading `source_type`, which stays in the identity hash so existing
+baselines remain valid; the scan summary and counts published as
+`cm07-01_scan_summary_*.csv`; and the normalized live-key set hoisted out of the
+stale-mapping loop.
+
+Two further defects surfaced while fixing these. Returning `None` from
+`rule_port_range()` would have crashed `complete_service_mapping()` on an ICMP
+rule with a listener mapping, and demanding a listener port for a portless rule
+would make every ICMP rule permanently unverifiable; both are handled. A jq
+precedence error in the first draft of the resolver (`.a // [][]?` iterates the
+empty literal) was caught by the regression before it reached a commit.
+
+`tests/test-cm07-01-corrective.sh` covers all five mocked gate items and was
+verified to fail without each fix. **Task 6 stays Partial**: the gate also
+requires controlled compartment and tenancy runs against known objects with
+counts reconciled to Console/CLI, and mock success is explicitly not sufficient.
+
+### Task 2 / SC-8 — MySQL in-transit coverage added
+
+`mysql.models.DbSystem.secure_connections` (`certificate-id`,
+`certificate-generation-type`, values `SYSTEM` or `BYOC`) is in-transit TLS
+evidence, and SC-28 already covered MySQL at rest, but SC-8 collected nothing for
+it. `check_mysql` records a customer certificate, a service-managed certificate,
+or — when the response carries no `secure-connections` block —
+`MANUAL-VERIFY-TLS` with `encryption_enabled=UNKNOWN`, never a TLS or plaintext
+conclusion the response does not support. The SC-8 safety gate independently
+re-verified the wrapper call sites, now 29, as list/get only.
+
+---
+
 ## 2026-09-02 — second completed-task bug review
 
 A second review of the completed tasks (1, 2, 3, 7, 9 and the published Task 10

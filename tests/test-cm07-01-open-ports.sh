@@ -69,13 +69,15 @@ with open(target, "w", newline="", encoding="utf-8") as handle:
     writer = csv.DictWriter(handle, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
     writer.writeheader()
     writer.writerows(approved)
-assert len(rows) == 3, rows
+assert len(rows) == 5, rows
 assert len(approved) == 2, approved
 
 with open(service_source, newline="", encoding="utf-8-sig") as handle:
     service_rows = list(csv.DictReader(handle))
 service_fields = list(service_rows[0].keys())
-service_names = {"22": "SSH administration", "443": "HTTPS application", "1521": "Oracle database"}
+service_names = {"22": "SSH administration", "443": "HTTPS application",
+                 "1521": "Oracle database", "3389": "Remote desktop",
+                 "": "ICMP diagnostics"}
 for index, row in enumerate(service_rows, start=1):
     port = row["destination_port_min"]
     row.update(
@@ -88,7 +90,7 @@ for index, row in enumerate(service_rows, start=1):
             "listener_address": f"10.0.0.{10 + index}",
             "listener_port": port,
             "listener_protocol": row["protocol"],
-            "service_name": service_names[port],
+            "service_name": service_names.get(port, f"service on {port}"),
             "business_function": "Verified application function",
             "justification": "Required by the approved system design",
             "system_owner": "OCS System Owner",
@@ -102,7 +104,7 @@ with open(service_target, "w", newline="", encoding="utf-8") as handle:
     writer = csv.DictWriter(handle, fieldnames=service_fields, quoting=csv.QUOTE_ALL)
     writer.writeheader()
     writer.writerows(service_rows)
-assert len(service_rows) == 3, service_rows
+assert len(service_rows) == 5, service_rows
 PY
 
 python3 - "$TMP/restricted.csv" <<'PY'
@@ -160,7 +162,7 @@ def rows(path):
 
 inventory, approvals, restrictions, services, sources = map(rows, sys.argv[1:6])
 live = [row for row in inventory if row["collection_status"] == "OK"]
-assert len(live) == 3, live
+assert len(live) == 5, live
 by_port = {row["destination_port_min"]: row for row in live}
 assert by_port["443"]["approval_status"] == "APPROVED", by_port["443"]
 assert by_port["443"]["restricted_status"] == "NO-LIST-MATCH", by_port["443"]
@@ -168,9 +170,22 @@ assert by_port["1521"]["approval_status"] == "APPROVED", by_port["1521"]
 assert by_port["22"]["approval_status"] == "UNAPPROVED-DRIFT", by_port["22"]
 assert by_port["22"]["restricted_status"] == "RESTRICTED-MATCH", by_port["22"]
 assert by_port["22"]["review_result"] == "RESTRICTED-PORT-OR-PROTOCOL", by_port["22"]
-assert all(row["service_mapping_status"] == "SERVICE-VERIFIED" for row in live), live
-assert {row["mapping_status"] for row in services} == {"SERVICE-VERIFIED"}, services
+mapped_ports = {"22", "443", "1521"}
+assert all(row["service_mapping_status"] == "SERVICE-VERIFIED"
+           for row in live if row["destination_port_min"] in mapped_ports), live
 assert all(row["attachment_count"] == "1" for row in live), live
+
+# The ICMP rule must not match the port-scoped restricted entry.
+icmp = [row for row in live if row["protocol"] == "ICMP"]
+assert len(icmp) == 1, icmp
+assert icmp[0]["restricted_status"] != "RESTRICTED-MATCH", icmp[0]
+
+# The cross-compartment Security List rule is inventoried and attributed to the
+# compartment that owns it.
+cross = [row for row in live if row["container_type"] == "SecurityList(cross-compartment)"]
+assert len(cross) == 1, cross
+assert cross[0]["destination_port_min"] == "3389", cross[0]
+assert cross[0]["compartment_id"].endswith("shared"), cross[0]
 assert {row["reconciliation_status"] for row in approvals} >= {"APPROVED", "UNAPPROVED-DRIFT"}
 assert len(restrictions) == 1, restrictions
 assert restrictions[0]["entry_id"] == "SSH-22", restrictions
@@ -184,7 +199,8 @@ assert source_by_type["SERVICE-MAPPING"]["provided_by"] == "Application Administ
 assert source_by_type["SERVICE-MAPPING"]["sha256"]
 PY
 
-grep -q '"SecurityListRule".*"1","OK"' "$coverage"
+# The in-scope Security List now carries two ingress rules (TLS and ICMP).
+grep -q '"SecurityListRule".*"2","OK"' "$coverage"
 grep -q '"NSGRule".*"2","OK"' "$coverage"
 [ "$(stat -c '%a' "$evidence")" = "600" ]
 

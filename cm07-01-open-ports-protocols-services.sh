@@ -131,6 +131,7 @@ source "$SCOPE_HELPER"
 SINGLE_COMP=""
 COMP_NAMES_FILTER=""
 REGION_OVERRIDE=""
+PROFILE=""
 OUTDIR="."
 DIRECTION="both"
 APPROVAL_FILE=""
@@ -155,6 +156,7 @@ while [ "$#" -gt 0 ]; do
     -c|--compartment-id) need_value "$@"; SINGLE_COMP="$2"; shift 2 ;;
     -n|--compartment-names) need_value "$@"; COMP_NAMES_FILTER="$2"; shift 2 ;;
     -r|--region) need_value "$@"; REGION_OVERRIDE="$2"; shift 2 ;;
+    -p|--profile) need_value "$@"; PROFILE="$2"; shift 2 ;;
     -d|--direction) need_value "$@"; DIRECTION="$2"; shift 2 ;;
     -o|--output-dir) need_value "$@"; OUTDIR="$2"; shift 2 ;;
     -a|--approval-baseline) need_value "$@"; APPROVAL_FILE="$2"; shift 2 ;;
@@ -233,6 +235,10 @@ readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
 
 REGION_ARG=()
 [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")
+# Every OCI call goes through oci_capture, so threading the profile there covers
+# all of them. The selected profile is shown in the plan and in the evidence.
+PROFILE_ARG=()
+[ -n "$PROFILE" ] && PROFILE_ARG=(--profile "$PROFILE")
 
 umask 077
 mkdir -p -- "$OUTDIR" 2>/dev/null || {
@@ -248,11 +254,12 @@ RESTRICTED_OUT="$OUTDIR/cm07-01_restricted_findings_${TS}.csv"
 SERVICE_TEMPLATE="$OUTDIR/cm07-01_service_mapping_template_${TS}.csv"
 SERVICE_OUT="$OUTDIR/cm07-01_service_mapping_reconciliation_${TS}.csv"
 SOURCES_OUT="$OUTDIR/cm07-01_input_sources_${TS}.csv"
+SUMMARY_OUT="$OUTDIR/cm07-01_scan_summary_${TS}.csv"
 COVERAGE="$OUTDIR/cm07-01_coverage_${TS}.csv"
 ERROUT="$OUTDIR/cm07-01_collection_errors_${TS}.csv"
 
 for candidate in "$OUT" "$BASELINE_TEMPLATE" "$APPROVAL_OUT" "$RESTRICTED_OUT" \
-  "$SERVICE_TEMPLATE" "$SERVICE_OUT" \
+  "$SERVICE_TEMPLATE" "$SERVICE_OUT" "$SUMMARY_OUT" \
   "$SOURCES_OUT" "$COVERAGE" "$ERROUT"; do
   [ ! -e "$candidate" ] || {
     echo "ERROR: refusing to overwrite existing output: $candidate" >&2
@@ -291,6 +298,7 @@ csv_escape() {
 }
 
 declare -A COMP_NAME
+declare -A SEEN_SECURITY_LISTS
 INCOMPLETE=0
 CUR_COMP="<tenancy>"
 COLLECT_OUT=""
@@ -314,7 +322,7 @@ oci_capture() {
     exit 1
   }
   TEMP_ERR_FILE="$errf"
-  out="$(oci "${REGION_ARG[@]}" "$@" 2>"$errf")"; rc=$?
+  out="$(oci "${REGION_ARG[@]}" "${PROFILE_ARG[@]}" "$@" 2>"$errf")"; rc=$?
   err="$(tr '\n\r' '  ' < "$errf" 2>/dev/null | sed 's/  */ /g' | cut -c1-500)"
   rm -f -- "$errf" 2>/dev/null
   TEMP_ERR_FILE=""
@@ -623,10 +631,17 @@ while IFS= read -r cid; do
   TARGET_CATALOG+="$cid"$'\t'"${COMP_NAME[$cid]:-<unknown>}"$'\n'
 done <<< "$COMPS"
 
+# Network objects cross compartment boundaries in OCI. Subnet-to-Security-List
+# associations are only provably complete when every compartment is in scope;
+# under a partial scope an association set can be missing rows, which would make
+# a live attached rule read as unattached and inactive.
+SCOPE_COVERS_TENANCY=0
+
 if [ "$SELECT_SCOPE" -eq 1 ]; then
   SCOPE_TYPE="$OCI_SCOPE_SELECTED_KIND"
   SCOPE_NAME="$OCI_SCOPE_SELECTED_NAME"
   SCOPE_OCID="$OCI_SCOPE_SELECTED_OCID"
+  [ "$OCI_SCOPE_SELECTED_KIND" = "TENANCY" ] && SCOPE_COVERS_TENANCY=1
 elif [ -n "$SINGLE_COMP" ]; then
   if [ "$NON_INTERACTIVE" -eq 1 ]; then
     SCOPE_TYPE="AUTOMATION-COMPARTMENT"
@@ -661,8 +676,17 @@ SERVICE_INPUT_LABEL="NOT PROVIDED — actual services/listeners cannot be verifi
   SERVICE_INPUT_LABEL="intentionally skipped in inventory-only mode"
 }
 
-WORK_ITEMS="Security Lists, ingress/egress rules and subnet associations
+if [ "$SCOPE_COVERS_TENANCY" -eq 1 ]; then
+  ASSOCIATION_NOTE="Subnet associations resolvable across all compartments (tenancy scope)"
+else
+  ASSOCIATION_NOTE="PARTIAL SCOPE: subnet associations outside the target compartments cannot be enumerated and are reported UNKNOWN, never as unattached"
+fi
+
+WORK_ITEMS="OCI CLI profile: ${PROFILE:-ambient/default profile}
+Security Lists, ingress/egress rules and subnet associations
 Network Security Groups, ingress/egress rules and VNIC associations
+Related-scope expansion: referenced Security List OCIDs outside the target compartments are resolved with read-only get calls so their rules are not missed
+$ASSOCIATION_NOTE
 Direction filter: $DIRECTION
 Approval baseline: $APPROVAL_INPUT_LABEL
 Restricted list: $RESTRICTED_INPUT_LABEL
@@ -674,6 +698,7 @@ $RESTRICTED_OUT
 $SERVICE_TEMPLATE
 $SERVICE_OUT
 $SOURCES_OUT
+$SUMMARY_OUT
 $COVERAGE
 $ERROUT (retained only when OCI calls or post-processing fail)"
 
@@ -870,6 +895,7 @@ collect_security_lists() {
   while IFS= read -r sl; do
     [ -z "$sl" ] && continue
     sl_id="$(printf '%s' "$sl" | jq -r '.id // "<unknown-security-list>"')"
+    SEEN_SECURITY_LISTS["$sl_id"]=1
     sl_name="$(printf '%s' "$sl" | jq -r '."display-name" // "<unnamed-security-list>"')"
     defined_tags="$(printf '%s' "$sl" | jq -c '."defined-tags" // {}')"
     freeform_tags="$(printf '%s' "$sl" | jq -c '."freeform-tags" // {}')"
@@ -900,6 +926,18 @@ collect_security_lists() {
     else
       applies="UNKNOWN — subnet association collection failed"
       attachment_count="UNKNOWN"
+    fi
+
+    # A partial scope cannot prove that nothing else attaches this list. Zero
+    # in-scope matches is therefore not evidence that the container is
+    # unattached, and must not be recorded as attachment_count 0.
+    if [ "$SCOPE_COVERS_TENANCY" -eq 0 ] && [ "$attachment_count" = "0" ]; then
+      INCOMPLETE=1
+      applies="UNKNOWN — no association in the scanned compartments; subnets in other compartments were not enumerated"
+      attachment_count="UNKNOWN"
+      coverage_row "$comp" "UNRESOLVED-SUBNET-ASSOCIATION" "$sl_id" "$sl_name" \
+        "UNKNOWN" "PARTIAL-SCOPE" \
+        "Security List has no association in the scanned compartments; run a tenancy scope to prove it is unattached"
     fi
 
     if [ "$DIRECTION" = "both" ] || [ "$DIRECTION" = "ingress" ]; then
@@ -997,6 +1035,90 @@ collect_nsgs() {
   done <<< "$(printf '%s' "$nsgs_json" | jq -c "$LIST_ITER" 2>/dev/null)"
 }
 
+# A subnet may attach a Security List that lives in another compartment, so
+# listing Security Lists per target compartment can miss rules that are live on
+# an in-scope subnet. Every referenced OCID that the per-compartment listing did
+# not already inventory is resolved with a read-only get; one that cannot be
+# resolved becomes an explicit UNRESOLVED-SECURITY-LIST row rather than a
+# silently absent rule.
+resolve_referenced_security_lists() {
+  local comp="$1" vcn_id="$2" vcn_name="$3" subnets_json="$4" subnet_status="$5"
+  local referenced sl_id sl_json sl_comp sl_name defined_tags freeform_tags
+  local applies attachment_count rule direction resolved=0
+
+  [ "$subnet_status" = "OK" ] || return 0
+
+  referenced="$(printf '%s' "$subnets_json" | jq -r "
+    [$LIST_ITER | (.[\"security-list-ids\"] // [])[]?] | unique | .[]?
+  " 2>/dev/null)" || return 0
+
+  while IFS= read -r sl_id; do
+    [ -z "$sl_id" ] && continue
+    [ -n "${SEEN_SECURITY_LISTS[$sl_id]:-}" ] && continue
+    SEEN_SECURITY_LISTS["$sl_id"]=1
+
+    oci_capture "Security List get [cross-compartment $sl_id]" \
+      network security-list get --security-list-id "$sl_id"
+    if [ "$COLLECT_STATUS" != "OK" ]; then
+      INCOMPLETE=1
+      coverage_row "$comp" "UNRESOLVED-SECURITY-LIST" "$sl_id" "<referenced-by-in-scope-subnet>" \
+        "UNKNOWN" "$COLLECT_STATUS" "$COLLECT_ERROR"
+      collection_failure_row "$comp" "UNRESOLVED-SECURITY-LIST" "$sl_id" \
+        "<referenced-by-in-scope-subnet>" "$COLLECT_STATUS" "$COLLECT_ERROR"
+      continue
+    fi
+    sl_json="$COLLECT_OUT"
+    sl_comp="$(printf '%s' "$sl_json" | jq -r '.data."compartment-id" // empty')"
+    # Name the owning compartment so the evidence row is readable. One cached
+    # read-only get per previously unseen compartment.
+    if [ -n "$sl_comp" ] && [ -z "${COMP_NAME[$sl_comp]:-}" ]; then
+      oci_capture "compartment name [$sl_comp]" iam compartment get \
+        --compartment-id "$sl_comp" --query data.name --raw-output
+      if [ "$COLLECT_STATUS" = "OK" ] && [ -n "$COLLECT_OUT" ]; then
+        COMP_NAME["$sl_comp"]="$COLLECT_OUT"
+      else
+        COMP_NAME["$sl_comp"]="<outside scanned scope>"
+      fi
+    fi
+    sl_name="$(printf '%s' "$sl_json" | jq -r '.data."display-name" // "<unnamed-security-list>"')"
+    defined_tags="$(printf '%s' "$sl_json" | jq -c '.data."defined-tags" // {}')"
+    freeform_tags="$(printf '%s' "$sl_json" | jq -c '.data."freeform-tags" // {}')"
+
+    attachment_count="$(printf '%s' "$subnets_json" | jq --arg id "$sl_id" "
+      [$LIST_ITER | select((.[\"security-list-ids\"] // []) | index(\$id))] | length
+    " 2>/dev/null || echo UNKNOWN)"
+    applies="$(printf '%s' "$subnets_json" | jq -r --arg id "$sl_id" "
+      [$LIST_ITER | select((.[\"security-list-ids\"] // []) | index(\$id)) |
+        ((.[\"display-name\"] // \"<unnamed-subnet>\") + \" (\" + (.id // \"<unknown>\") + \")\")]
+      | if length == 0 then \"<none>\" else join(\"; \") end
+    " 2>/dev/null || printf '%s' "UNKNOWN")"
+
+    resolved=$((resolved+1))
+    coverage_row "$comp" "CrossCompartmentSecurityList" "$sl_id" "$sl_name" \
+      "1" "OK" "resolved by read-only get; owning compartment ${sl_comp:-<unknown>}"
+
+    # Attribute the rules to the owning compartment so the evidence does not
+    # claim the list lives in the scanned compartment.
+    for direction in INGRESS EGRESS; do
+      [ "$DIRECTION" = "both" ] || [ "$DIRECTION" = "$(printf '%s' "$direction" | tr 'A-Z' 'a-z')" ] || continue
+      # The parentheses matter: `.a // [][]?` iterates the empty literal and
+      # yields the whole array as one item, which then fails normalization.
+      local jq_path
+      if [ "$direction" = "INGRESS" ]; then jq_path='(.data["ingress-security-rules"] // [])[]?'
+      else jq_path='(.data["egress-security-rules"] // [])[]?'; fi
+      while IFS= read -r rule; do
+        [ -z "$rule" ] && continue
+        emit_rule "${sl_comp:-$comp}" "$vcn_id" "$vcn_name" "$sl_id" "$sl_name" \
+          "SecurityList(cross-compartment)" "$attachment_count" "$applies" "$direction" \
+          "$defined_tags" "$freeform_tags" "$rule"
+      done <<< "$(printf '%s' "$sl_json" | jq -c "$jq_path" 2>/dev/null)"
+    done
+  done <<< "$referenced"
+
+  [ "$resolved" -gt 0 ] && echo "[CM-7]   resolved $resolved cross-compartment Security List(s) for $vcn_name"
+  return 0
+}
+
 collect_compartment() {
   local comp="$1" vcns_json vcn_count vcn vcn_id vcn_name
   local subnets_json subnet_status subnet_count
@@ -1037,6 +1159,7 @@ collect_compartment() {
     fi
 
     collect_security_lists "$comp" "$vcn_id" "$vcn_name" "$subnets_json" "$subnet_status"
+    resolve_referenced_security_lists "$comp" "$vcn_id" "$vcn_name" "$subnets_json" "$subnet_status"
     collect_nsgs "$comp" "$vcn_id" "$vcn_name"
   done <<< "$(printf '%s' "$vcns_json" | jq -c "$LIST_ITER" 2>/dev/null)"
 }
@@ -1088,6 +1211,8 @@ from datetime import date, datetime
 inventory_only = inventory_only_raw == "1"
 today = datetime.utcnow().date()
 
+PORTLESS_PROTOCOLS = {"ICMP", "ICMPV6"}
+
 IDENTITY_FIELDS = [
     "compartment_id",
     "vcn_id",
@@ -1104,6 +1229,10 @@ IDENTITY_FIELDS = [
     "icmp_type",
     "icmp_code",
 ]
+
+# Same identity without the container OCID, so a recreated Security List or NSG
+# is distinguishable from genuine permission drift.
+SEMANTIC_IDENTITY_FIELDS = [f for f in IDENTITY_FIELDS if f != "container_id"]
 
 APPROVAL_FIELDS = [
     "approval_status",
@@ -1146,9 +1275,33 @@ def read_csv(path):
 def normalized(value):
     return str(value or "").strip()
 
+def peer_type_of(row):
+    """source_type names the peer at both ends; peer_type is the clearer name.
+
+    The column is kept for baseline compatibility -- it is part of the identity
+    hash -- so a baseline may supply either name and both are emitted.
+    """
+    value = normalized(row.get("source_type"))
+    return value or normalized(row.get("peer_type"))
+
 def identity_key(row):
-    canonical = "|".join(normalized(row.get(field)) for field in IDENTITY_FIELDS)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    values = []
+    for field in IDENTITY_FIELDS:
+        values.append(peer_type_of(row) if field == "source_type" else normalized(row.get(field)))
+    return hashlib.sha256("|".join(values).encode("utf-8")).hexdigest()
+
+def semantic_identity_key(row):
+    """Identity excluding container_id.
+
+    A Security List or NSG that is deleted and recreated keeps its rules but
+    gets a new OCID, so the strict key changes and the rule reads as drift. The
+    semantic key stays stable across that, which lets a recreated container be
+    labelled for review instead of reported as new unapproved permission.
+    """
+    values = []
+    for field in SEMANTIC_IDENTITY_FIELDS:
+        values.append(peer_type_of(row) if field == "source_type" else normalized(row.get(field)))
+    return hashlib.sha256("|".join(values).encode("utf-8")).hexdigest()
 
 def parse_date(value, field, context):
     value = normalized(value)
@@ -1164,12 +1317,21 @@ def unique_values(rows, field):
 
 raw_rows = read_csv(raw_path)
 for row in raw_rows:
-    row["rule_key"] = identity_key(row) if row.get("collection_status") == "OK" else ""
+    row["peer_type"] = peer_type_of(row)
+    if row.get("collection_status") == "OK":
+        row["rule_key"] = identity_key(row)
+        row["semantic_rule_key"] = semantic_identity_key(row)
+    else:
+        row["rule_key"] = ""
+        row["semantic_rule_key"] = ""
 
 approval_rows = read_csv(approval_input) if approval_input else []
 approval_by_key = {}
 approval_duplicate_keys = set()
+approval_by_semantic = {}
 for index, row in enumerate(approval_rows, start=2):
+    row["peer_type"] = peer_type_of(row)
+    approval_by_semantic.setdefault(semantic_identity_key(row), []).append(row)
     key = identity_key(row)
     if key in approval_by_key:
         approval_duplicate_keys.add(key)
@@ -1241,6 +1403,23 @@ for index, row in enumerate(restricted_rows, start=2):
     if effective and expiration and expiration < effective:
         raise ValueError(f"{context}: expiration_date precedes effective_date")
 
+    # An entry that names a narrower range than the whole transport port space
+    # is transport-scoped: it cannot describe a portless protocol such as ICMP.
+    # An entry left at the full range (or with blank ports) is protocol-scoped
+    # and does cover portless protocols. This is the schema rule that stops
+    # "protocol ANY, port 3389" from matching an ICMP rule.
+    port_scoped = not (port_min == 0 and port_max == 65535)
+    if proto in PORTLESS_PROTOCOLS and port_scoped:
+        raise ValueError(
+            f"{context}: protocol {proto} has no transport ports; leave port_min/port_max "
+            "blank or set 0-65535 and use icmp_type/icmp_code to narrow it"
+        )
+
+    icmp_type = normalized(row.get("icmp_type"))
+    icmp_code = normalized(row.get("icmp_code"))
+    if (icmp_type or icmp_code) and proto not in PORTLESS_PROTOCOLS | {"ANY"}:
+        raise ValueError(f"{context}: icmp_type/icmp_code only apply to ICMP, ICMPV6 or ANY")
+
     enriched = dict(row)
     enriched.update(
         {
@@ -1249,6 +1428,9 @@ for index, row in enumerate(restricted_rows, start=2):
             "_category": category,
             "_port_min": port_min,
             "_port_max": port_max,
+            "_port_scoped": port_scoped,
+            "_icmp_type": icmp_type,
+            "_icmp_code": icmp_code,
         }
     )
     restricted_entries.append(enriched)
@@ -1302,8 +1484,14 @@ def complete_service_mapping(row, rule):
     ]
     missing = [field for field in required if not normalized(row.get(field))]
     listener_status = normalized(row.get("listener_status")).upper()
+    # A portless rule (ICMP/ICMPv6) has no listener port to verify, so demanding
+    # one would make every ICMP rule permanently unverifiable.
+    rule_ports = rule_port_range(rule)
+    listener_fields = ["listener_address", "listener_protocol"]
+    if rule_ports is not None:
+        listener_fields.append("listener_port")
     if listener_status == "LISTENING":
-        for field in ("listener_address", "listener_port", "listener_protocol"):
+        for field in listener_fields:
             if not normalized(row.get(field)):
                 missing.append(field)
     if missing:
@@ -1315,10 +1503,18 @@ def complete_service_mapping(row, rule):
     if listener_status == "NOT-APPLICABLE" and normalized(rule.get("attachment_count")) != "0":
         return False, "NOT-APPLICABLE is only valid for an unattached rule container"
     if listener_status == "LISTENING":
-        listener_port = int(normalized(row.get("listener_port")))
-        rule_min, rule_max = rule_port_range(rule)
-        if not rule_min <= listener_port <= rule_max:
-            return False, f"listener port {listener_port} is outside live rule range {rule_min}-{rule_max}"
+        listener_port_raw = normalized(row.get("listener_port"))
+        if rule_ports is None:
+            if listener_port_raw:
+                return False, (
+                    f"listener port {listener_port_raw} was supplied for a portless "
+                    f"{normalized(rule.get('protocol')).upper()} rule; leave it blank"
+                )
+        else:
+            listener_port = int(listener_port_raw)
+            rule_min, rule_max = rule_ports
+            if not rule_min <= listener_port <= rule_max:
+                return False, f"listener port {listener_port} is outside live rule range {rule_min}-{rule_max}"
         listener_protocol = normalized(row.get("listener_protocol")).upper()
         rule_protocol = normalized(rule.get("protocol")).upper()
         if rule_protocol != "ANY" and listener_protocol != rule_protocol:
@@ -1349,6 +1545,15 @@ def match_approval(rule):
     key = rule["rule_key"]
     candidates = approval_by_key.get(key, [])
     if not candidates:
+        semantic = approval_by_semantic.get(rule.get("semantic_rule_key", ""), [])
+        if semantic:
+            return (
+                "APPROVED-CONTAINER-RECREATED",
+                semantic[0] if len(semantic) == 1 else {},
+                "Baseline has an identical rule under a different container OCID. "
+                "The Security List or NSG was recreated or replaced; confirm the "
+                "new container is the approved one before accepting this rule.",
+            )
         return "UNAPPROVED-DRIFT", {}, "Live rule is absent from the supplied baseline"
     if key in approval_duplicate_keys or len(candidates) != 1:
         return "AMBIGUOUS-BASELINE", {}, "Multiple baseline rows match the live rule"
@@ -1364,31 +1569,67 @@ def match_approval(rule):
     return "PENDING-REVIEW", row, "Baseline row is not approved"
 
 def rule_port_range(rule):
+    """Transport port range for a live rule, or None when the protocol has none.
+
+    ICMP and ICMPv6 carry type/code, not ports. This used to return 0-65535 for
+    them, which made every ICMP rule overlap every port-scoped restriction --
+    so a restriction on protocol ANY port 3389 matched an ICMP rule.
+    """
     proto = normalized(rule.get("protocol")).upper()
+    if proto in PORTLESS_PROTOCOLS:
+        return None
     minimum = parse_port(rule.get("destination_port_min"), 0, "live rule")
     maximum = parse_port(rule.get("destination_port_max"), 65535, "live rule")
     if proto not in {"TCP", "UDP", "ANY"}:
-        minimum, maximum = 0, 65535
+        # Another portless IP protocol (ESP, AH, ...). Treat it as protocol
+        # scoped rather than as covering the whole transport port space.
+        return None
     return minimum, maximum
+
+def icmp_field_matches(entry_value, rule_value):
+    """An unset restriction field matches any value; a set one must be equal."""
+    if not entry_value:
+        return True
+    return normalized(rule_value) == entry_value
 
 def restricted_matches(rule):
     if not restricted_input:
         return []
     rule_proto = normalized(rule.get("protocol")).upper()
     rule_direction = normalized(rule.get("direction")).upper()
-    rule_min, rule_max = rule_port_range(rule)
+    rule_ports = rule_port_range(rule)
     matches = []
     for entry in restricted_entries:
         if entry["_protocol"] not in {"ANY", rule_proto} and rule_proto != "ANY":
             continue
         if entry["_direction"] not in {"ANY", rule_direction}:
             continue
+
+        if rule_ports is None:
+            # Portless live rule (ICMP/ICMPv6/other). A transport-scoped entry
+            # cannot describe it, so only a protocol-scoped entry can match,
+            # and any ICMP type/code the entry names must agree.
+            if entry["_port_scoped"]:
+                continue
+            if not icmp_field_matches(entry["_icmp_type"], rule.get("icmp_type")):
+                continue
+            if not icmp_field_matches(entry["_icmp_code"], rule.get("icmp_code")):
+                continue
+            matches.append(entry)
+            continue
+
+        # Port-based live rule. An entry that names an ICMP type/code is about
+        # ICMP, not about this rule.
+        if entry["_icmp_type"] or entry["_icmp_code"]:
+            continue
+        rule_min, rule_max = rule_ports
         if max(rule_min, entry["_port_min"]) <= min(rule_max, entry["_port_max"]):
             matches.append(entry)
     return matches
 
 inventory_fields = [
     "rule_key",
+    "semantic_rule_key",
     "compartment_id",
     "compartment_name",
     "vcn_id",
@@ -1402,6 +1643,7 @@ inventory_fields = [
     "stateless",
     "protocol",
     "source_type",
+    "peer_type",
     "source_or_dest",
     "source_port_min",
     "source_port_max",
@@ -1433,6 +1675,7 @@ inventory_fields = [
 approval_output_fields = [
     "reconciliation_status",
     "rule_key",
+    "semantic_rule_key",
     "compartment_id",
     "compartment_name",
     "vcn_id",
@@ -1443,6 +1686,7 @@ approval_output_fields = [
     "direction",
     "protocol",
     "source_type",
+    "peer_type",
     "source_or_dest",
     "source_port_min",
     "source_port_max",
@@ -1455,6 +1699,7 @@ approval_output_fields = [
 restricted_output_fields = [
     "severity",
     "rule_key",
+    "semantic_rule_key",
     "compartment_id",
     "compartment_name",
     "vcn_id",
@@ -1488,6 +1733,7 @@ service_mapping_fields = [
     "mapping_status",
     "mapping_id",
     "rule_key",
+    "semantic_rule_key",
     "compartment_id",
     "compartment_name",
     "vcn_id",
@@ -1522,6 +1768,7 @@ service_template_fields = [field for field in service_mapping_fields if field no
 
 template_fields = [
     "rule_key",
+    "semantic_rule_key",
     "compartment_id",
     "compartment_name",
     "vcn_id",
@@ -1533,6 +1780,7 @@ template_fields = [
     "stateless",
     "protocol",
     "source_type",
+    "peer_type",
     "source_or_dest",
     "source_port_min",
     "source_port_max",
@@ -1570,6 +1818,7 @@ counts = {
     "inactive": 0,
     "service_verified": 0,
     "service_incomplete": 0,
+    "container_recreated": 0,
 }
 
 for rule in raw_rows:
@@ -1625,7 +1874,12 @@ for rule in raw_rows:
     if approval_status == "APPROVED":
         counts["approved"] += 1
     else:
+        # APPROVED-CONTAINER-RECREATED is deliberately not approved: the rule
+        # matches an approved one but sits in a container the baseline does not
+        # name, which needs a reviewer before it counts.
         counts["unapproved"] += 1
+        if approval_status == "APPROVED-CONTAINER-RECREATED":
+            counts["container_recreated"] += 1
     if rule.get("exposure_flag") == "INTERNET-WIDE":
         counts["internet_wide"] += 1
     if normalized(rule.get("attachment_count")) == "0":
@@ -1773,8 +2027,9 @@ for key, candidates in approval_by_key.items():
 
 # Service mappings that no longer correspond to a live rule remain visible so
 # stale attestations cannot silently survive a configuration change.
+seen_live_keys_lower = {value.lower() for value in seen_live_keys}
 for key, mappings in service_by_key.items():
-    if key in {value.lower() for value in seen_live_keys}:
+    if key in seen_live_keys_lower:
         continue
     for mapping in mappings:
         stale = dict(mapping)
@@ -1902,8 +2157,36 @@ if [ -n "$SERVICE_GAPS" ] && [ "$SERVICE_GAPS" -gt 0 ] 2>/dev/null; then
   echo "WARNING: $SERVICE_GAPS live rule(s) lack complete actual-service/listener verification." >&2
 fi
 
+# The counts and scan provenance belong in the evidence package, not only on
+# the operator's console: a reviewer reading the archived package otherwise has
+# no record of scope, profile, region or what the run actually counted.
+TMP_SUMMARY_CSV="$WORKDIR/scan_summary.csv"
+{
+  printf '%s\n' 'metric,value'
+  printf '%s,%s\n' "$(csv_escape collector)" "$(csv_escape "cm07-01-open-ports-protocols-services.sh")"
+  printf '%s,%s\n' "$(csv_escape controls)" "$(csv_escape "CM-7 / CM-7(1) / PPSM")"
+  printf '%s,%s\n' "$(csv_escape collector_timestamp)" "$(csv_escape "$TS")"
+  printf '%s,%s\n' "$(csv_escape region)" "$(csv_escape "$REGION_OVERRIDE")"
+  printf '%s,%s\n' "$(csv_escape oci_cli_profile)" "$(csv_escape "${PROFILE:-ambient/default profile}")"
+  printf '%s,%s\n' "$(csv_escape scope_type)" "$(csv_escape "$SCOPE_TYPE")"
+  printf '%s,%s\n' "$(csv_escape scope_name)" "$(csv_escape "$SCOPE_NAME")"
+  printf '%s,%s\n' "$(csv_escape scope_ocid)" "$(csv_escape "$SCOPE_OCID")"
+  printf '%s,%s\n' "$(csv_escape compartments_scanned)" "$(csv_escape "$COMP_COUNT")"
+  printf '%s,%s\n' "$(csv_escape scope_covers_tenancy)" "$(csv_escape "$([ "$SCOPE_COVERS_TENANCY" -eq 1 ] && echo YES || echo NO)")"
+  printf '%s,%s\n' "$(csv_escape subnet_association_completeness)" "$(csv_escape "$ASSOCIATION_NOTE")"
+  printf '%s,%s\n' "$(csv_escape direction_filter)" "$(csv_escape "$DIRECTION")"
+  printf '%s,%s\n' "$(csv_escape inventory_only)" "$(csv_escape "$([ "$INVENTORY_ONLY" -eq 1 ] && echo YES || echo NO)")"
+  if [ -r "$TMP_SUMMARY" ]; then
+    while IFS='=' read -r key value; do
+      [ -n "$key" ] || continue
+      printf '%s,%s\n' "$(csv_escape "$key")" "$(csv_escape "$value")"
+    done < "$TMP_SUMMARY"
+  fi
+} > "$TMP_SUMMARY_CSV"
+
 for pair in \
   "$TMP_OUT|$OUT" \
+  "$TMP_SUMMARY_CSV|$SUMMARY_OUT" \
   "$TMP_BASELINE|$BASELINE_TEMPLATE" \
   "$TMP_APPROVAL|$APPROVAL_OUT" \
   "$TMP_RESTRICTED|$RESTRICTED_OUT" \
@@ -1962,6 +2245,7 @@ echo "Restricted findings          : $RESTRICTED_OUT"
 echo "Service mapping template     : $SERVICE_TEMPLATE"
 echo "Service mapping results      : $SERVICE_OUT"
 echo "Input-source provenance      : $SOURCES_OUT"
+echo "Scan summary                 : $SUMMARY_OUT"
 echo "Coverage                     : $COVERAGE"
 [ ! -e "$ERROUT" ] || echo "Collection errors            : $ERROUT"
 echo

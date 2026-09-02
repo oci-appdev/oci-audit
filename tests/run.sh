@@ -32,6 +32,7 @@ bash -n \
   tests/test-encryption-at-rest.sh \
   tests/test-scope-selection.sh \
   tests/test-cm07-01-open-ports.sh \
+  tests/test-cm07-01-corrective.sh \
   tests/test-cm11-01-software-installation-control.sh \
   tests/test-cm02-01-configuration-baseline.sh \
   tests/test-cm08-01-component-inventory.sh
@@ -61,6 +62,7 @@ bash tests/test-sc08-02-in-transit-encryption.sh
 bash tests/test-encryption-at-rest.sh
 bash tests/test-scope-selection.sh
 bash tests/test-cm07-01-open-ports.sh
+bash tests/test-cm07-01-corrective.sh
 bash tests/test-cm11-01-software-installation-control.sh
 bash tests/test-cm02-01-configuration-baseline.sh
 bash tests/test-cm08-01-component-inventory.sh

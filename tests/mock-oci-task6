@@ -2,11 +2,18 @@
 set -uo pipefail
 
 args=("$@")
-if [ "${args[0]:-}" = "--region" ]; then
-  args=("${args[@]:2}")
-fi
+seen_profile="NO"
+while [ "${#args[@]}" -ge 2 ]; do
+  case "${args[0]}" in
+    --region) args=("${args[@]:2}") ;;
+    --profile) seen_profile="${args[1]}"; args=("${args[@]:2}") ;;
+    *) break ;;
+  esac
+done
 cmd="${args[*]}"
 [ -z "${MOCK_TASK6_LOG:-}" ] || printf '%s\n' "$cmd" >> "$MOCK_TASK6_LOG"
+# One line per call recording whether the profile reached the CLI.
+[ -z "${MOCK_TASK6_PROFILE_LOG:-}" ] || printf '%s\t%s\n' "$seen_profile" "$cmd" >> "$MOCK_TASK6_PROFILE_LOG"
 
 TENANCY='ocid1.tenancy.oc1..task6'
 COMP='ocid1.compartment.oc1..vcn'
@@ -14,6 +21,7 @@ SHARED='ocid1.compartment.oc1..shared'
 VCN='ocid1.vcn.oc1..task6'
 SL='ocid1.securitylist.oc1..task6'
 NSG='ocid1.networksecuritygroup.oc1..task6'
+XSL='ocid1.securitylist.oc1..crosscomp'
 
 case "$cmd" in
   "iam compartment list --access-level ANY --limit 1 --query "*)
@@ -45,13 +53,20 @@ case "$cmd" in
     ;;
   "network subnet list --compartment-id $COMP --vcn-id $VCN --all")
     if [ "${MOCK_TASK6_SUBNET_ITEMS:-0}" = "1" ]; then
-      printf '%s\n' "{\"data\":{\"items\":[{\"id\":\"ocid1.subnet.oc1..task6\",\"display-name\":\"app-subnet\",\"security-list-ids\":[\"$SL\"]}]}}"
+      printf '%s\n' "{\"data\":{\"items\":[{\"id\":\"ocid1.subnet.oc1..task6\",\"display-name\":\"app-subnet\",\"security-list-ids\":[\"$SL\",\"$XSL\"]}]}}"
     else
-      printf '%s\n' "{\"data\":[{\"id\":\"ocid1.subnet.oc1..task6\",\"display-name\":\"app-subnet\",\"security-list-ids\":[\"$SL\"]}]}"
+      printf '%s\n' "{\"data\":[{\"id\":\"ocid1.subnet.oc1..task6\",\"display-name\":\"app-subnet\",\"security-list-ids\":[\"$SL\",\"$XSL\"]}]}"
     fi
     ;;
   "network security-list list --compartment-id $COMP --vcn-id $VCN --all")
-    printf '%s\n' "{\"data\":[{\"id\":\"$SL\",\"display-name\":\"app-security-list\",\"defined-tags\":{\"PPSM\":{\"Owner\":\"NetworkTeam\"}},\"freeform-tags\":{},\"ingress-security-rules\":[{\"protocol\":\"6\",\"source\":\"0.0.0.0/0\",\"source-type\":\"CIDR_BLOCK\",\"is-stateless\":false,\"description\":\"public TLS\",\"tcp-options\":{\"destination-port-range\":{\"min\":443,\"max\":443}}}],\"egress-security-rules\":[{\"protocol\":\"all\",\"destination\":\"0.0.0.0/0\",\"destination-type\":\"CIDR_BLOCK\",\"is-stateless\":false,\"description\":\"default egress\"}]}]}"
+    printf '%s\n' "{\"data\":[{\"id\":\"$SL\",\"display-name\":\"app-security-list\",\"defined-tags\":{\"PPSM\":{\"Owner\":\"NetworkTeam\"}},\"freeform-tags\":{},\"ingress-security-rules\":[{\"protocol\":\"6\",\"source\":\"0.0.0.0/0\",\"source-type\":\"CIDR_BLOCK\",\"is-stateless\":false,\"description\":\"public TLS\",\"tcp-options\":{\"destination-port-range\":{\"min\":443,\"max\":443}}},{\"protocol\":\"1\",\"source\":\"10.0.0.0/8\",\"source-type\":\"CIDR_BLOCK\",\"is-stateless\":false,\"description\":\"ping\",\"icmp-options\":{\"type\":8,\"code\":0}}],\"egress-security-rules\":[{\"protocol\":\"all\",\"destination\":\"0.0.0.0/0\",\"destination-type\":\"CIDR_BLOCK\",\"is-stateless\":false,\"description\":\"default egress\"}]}]}"
+    ;;
+  "network security-list get --security-list-id $XSL")
+    if [ "${MOCK_TASK6_DENY_XSL:-0}" = "1" ]; then
+      echo 'ServiceError: Authorization failed. status: 403' >&2
+      exit 1
+    fi
+    printf '%s\n' "{\"data\":{\"id\":\"$XSL\",\"compartment-id\":\"$SHARED\",\"display-name\":\"shared-security-list\",\"defined-tags\":{},\"freeform-tags\":{},\"ingress-security-rules\":[{\"protocol\":\"6\",\"source\":\"0.0.0.0/0\",\"source-type\":\"CIDR_BLOCK\",\"is-stateless\":false,\"description\":\"cross-compartment RDP\",\"tcp-options\":{\"destination-port-range\":{\"min\":3389,\"max\":3389}}}],\"egress-security-rules\":[]}}"
     ;;
   "network nsg list --compartment-id $COMP --vcn-id $VCN --all")
     printf '%s\n' "{\"data\":[{\"id\":\"$NSG\",\"display-name\":\"admin-nsg\",\"defined-tags\":{},\"freeform-tags\":{\"Approval\":\"review\"}}]}"

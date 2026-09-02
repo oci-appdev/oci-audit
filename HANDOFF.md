@@ -18,6 +18,26 @@ that head — check the workflow before treating it as gated.
 collectors implement the strict contract; the `-c`/`-n` bypass is gone from the
 codebase and from the shared helper. See the milestone below.
 
+## 2026-09-02 milestone — Task 6 corrective action and SC-8 MySQL
+
+Both previously open, unassigned items are closed in code.
+
+CM07-01: ICMP no longer false-matches port-based restrictions (portless
+protocols are modelled separately); Security Lists referenced from in-scope
+subnets but owned by other compartments are resolved with read-only gets, and a
+partial scope reports associations UNKNOWN instead of claiming a container is
+unattached. Plus `-p/--profile`, `semantic_rule_key`, `peer_type`, the published
+scan summary and the hoisted key set. `tests/test-cm07-01-corrective.sh` covers
+all five mocked acceptance-gate items.
+
+**Task 6 remains Partial.** The gate also requires controlled compartment and
+tenancy runs against known network objects with counts reconciled to
+Console/CLI. That is the only thing left, and mock success does not substitute.
+
+SC-8 now collects MySQL `secure-connections` TLS evidence, closing the asymmetry
+with SC-28. A response without that block is `MANUAL-VERIFY-TLS`, not a TLS or
+plaintext conclusion.
+
 ## 2026-09-02 milestone — second completed-task bug review
 
 Reviewed Tasks 1, 2, 3, 7, 9 and the published RA-5 collector against

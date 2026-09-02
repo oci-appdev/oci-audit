@@ -1,1 +1,1 @@
-entry_id,protocol,port_min,port_max,direction,category,service,function,authority,provided_by,source_reference,effective_date,expiration_date,notes
+entry_id,protocol,port_min,port_max,icmp_type,icmp_code,direction,category,service,function,authority,provided_by,source_reference,effective_date,expiration_date,notes

@@ -2,7 +2,14 @@
 
 **Review date:** 2026-08-28
 
-**Status:** corrective patch and controlled live validation required before
+**Status update 2026-09-02:** the corrective patch and every mocked item in the
+acceptance gate below are complete (`tests/test-cm07-01-corrective.sh`). What
+remains is the part mock success cannot satisfy: a controlled compartment run
+and a controlled tenancy run against known network objects, with counts
+reconciled to Console/CLI spot checks and a reviewer disposition recorded.
+Task 6 stays **Partial** until those are done.
+
+**Original status:** corrective patch and controlled live validation required before
 `cm07-01-open-ports-protocols-services.sh` can be promoted again as the
 canonical Task 6 evidence collector.
 
@@ -69,17 +76,17 @@ missing-helper concern is already resolved and is not a current defect.
 
 Task 6 remains **Partial** until all of the following pass:
 
-- unit/mocked regression for a subnet and Security List in compartments other
+- [x] unit/mocked regression for a subnet and Security List in compartments other
   than the VCN compartment, including fail-closed unresolved-reference rows;
-- regression proving an ICMP rule does not match a narrow TCP/UDP/ANY port
+- [x] regression proving an ICMP rule does not match a narrow TCP/UDP/ANY port
   restriction;
-- regression distinguishing exact rule identity from container-recreated
+- [x] regression distinguishing exact rule identity from container-recreated
   semantic identity;
-- named-profile regression and static proof that every OCI call receives it;
-- full repository test suite;
-- a controlled compartment run and a controlled tenancy run against known
+- [x] named-profile regression and static proof that every OCI call receives it;
+- [x] full repository test suite;
+- [ ] a controlled compartment run and a controlled tenancy run against known
   network objects, with the approved pre-scan plan retained;
-- reconciliation of counts against OCI Console/CLI spot checks and documented
+- [ ] reconciliation of counts against OCI Console/CLI spot checks and documented
   reviewer disposition.
 
 Mock success alone is not sufficient to close this corrective action.
