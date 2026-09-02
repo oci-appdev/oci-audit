@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-09-02
 
-**Current branch:** `codex/task10-ra05-sdk`
+**Current branch:** `main`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 

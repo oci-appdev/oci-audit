@@ -2,13 +2,13 @@
 
 **Updated:** 2026-09-02
 
-**Working branch:** `codex/task10-ra05-sdk`
+**Published branch:** `main`
 
 **Base commit:** `ec973ceb8b9dd70e05627a435712bd35e196eee7`
 
 **Current milestone:** Tasks 1–3, 7, 9 and 10 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-**Delivery:** RA05-01 SDK collector is under final repository validation before publication
+**Delivery:** RA05-01 SDK collector published in `bc91d6f975bf4bc5cbc35de042e7f5b6a9d69585`; focused and full repository gates passed
 
 ## Latest milestone — Task 10 vulnerability tracking
 
