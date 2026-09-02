@@ -2,13 +2,13 @@
 
 **Updated:** 2026-09-02
 
-**Published branch:** `main`
+**Current branch:** `copilot/review-repo`
 
-**Base commit:** `ec973ceb8b9dd70e05627a435712bd35e196eee7`
+**Current head:** `4f63cd467d9273c31190c4942df0f2c76d76c413`
 
 **Current milestone:** Tasks 1–3, 7, 9 and 10 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-**Delivery:** RA05-01 SDK collector published in `bc91d6f975bf4bc5cbc35de042e7f5b6a9d69585`; focused and full repository gates passed
+**Delivery:** RA05-01 SDK collector landed in `bc91d6f975bf4bc5cbc35de042e7f5b6a9d69585`; current branch head `4f63cd467d9273c31190c4942df0f2c76d76c413` does not change collector/task status
 
 ## Latest milestone — Task 10 vulnerability tracking
 
@@ -497,11 +497,19 @@ Do not commit live OCI CSVs or screenshots to this public repository.
 Do not commit live OCI CSVs, key-administrator identities or screenshots to
 this public repository.
 
-## Next implementation task for Claude
+## Next implementation task
 
-Task 10 implementation is complete after the final local/published gate. The
-next worksheet item is Task 11 configuration-change tracking: Remedy CRQs,
-system-owner approval and representative approved change samples.
+Task 10 implementation is complete after the final local/published gate. Keep
+the next-work guidance split into three lanes so Codex and Claude make the same
+choice:
+
+1. earliest unimplemented worksheet item: Task 5 Continuous Monitoring Form
+   review/feedback;
+2. highest-priority corrective collector work: Task 6 CM07-01 fixes from
+   `CM07-CORRECTIVE-REVIEW.md`;
+3. next net-new implementation item after the current implemented collector set:
+   Task 11 configuration-change tracking with Remedy CRQs, system-owner
+   approval and representative approved change samples.
 
 The outstanding corrective item is Task 6. Patch CM07-01 according to
 `CM07-CORRECTIVE-REVIEW.md`, extend the mock suite and complete known-object
@@ -515,7 +523,7 @@ follow-up, rescans, monthly review and non-VSS/third-party coverage described in
 `TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`.
 
 Task 5 Continuous Monitoring Form review/feedback remains the earliest
-unimplemented worksheet item because the user chose to advance Tasks 6–9
+unimplemented worksheet item because the user chose to advance Tasks 6–10
 first. Do not represent it as complete; return to it when the user directs.
 
 ## Resolved Task 6 blocker

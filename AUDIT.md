@@ -2,7 +2,9 @@
 
 **Last updated:** 2026-09-02
 
-**Current branch:** `main`
+**Current branch:** `copilot/review-repo`
+
+**Current head:** `4f63cd467d9273c31190c4942df0f2c76d76c413`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 

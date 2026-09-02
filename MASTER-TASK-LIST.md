@@ -52,10 +52,10 @@ Continue in worksheet order:
 1. Execute and close Task 1 operational evidence.
 2. Execute and close Task 2 operational/manual evidence.
 3. Execute and close Task 3 operational/manual evidence.
-4. Skip Task 4 as N/A and complete Task 5 form review/feedback.
-5. Correct and live-validate Task 6, then close its operational, approval and restricted-list evidence.
+4. Skip Task 4 as N/A and complete Task 5 form review/feedback; this remains the earliest unimplemented worksheet item.
+5. Correct and live-validate Task 6, then close its operational, approval and restricted-list evidence; this remains the highest-priority corrective collector work.
 6. Execute and close Task 7 operational, identity, approval and restriction evidence.
 7. Execute and close Task 8 configuration-baseline and monthly-review evidence.
 8. Execute and close Task 9 component-inventory and monthly-review evidence.
 9. Execute and close Task 10 vulnerability-tracking evidence.
-10. Continue Tasks 11–14, skip Task 15, then complete Tasks 16–18.
+10. If the user wants the next net-new implementation after the current collector set, start Task 11 configuration change tracking; then continue Tasks 12–14, skip Task 15, and complete Tasks 16–18.
