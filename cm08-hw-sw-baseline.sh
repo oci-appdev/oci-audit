@@ -24,6 +24,10 @@
 # SAFETY
 #   READ-ONLY. Only list/get operations are issued.
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) for raw OCI collection when called by CM02-01 or
+#   CM08-01. This internal engine does not use the OCI Python SDK.
+#
 # CANONICAL USE
 #   This is an internal raw engine. It refuses direct execution unless the
 #   guarded CM02-01 or CM08-01 workflow passes the approved caller, exact scope

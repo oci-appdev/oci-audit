@@ -10,6 +10,12 @@
 # right now? It does not require governance CSVs and does not perform approval,
 # drift, System Design Form or monthly-review reconciliation.
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) plus `lib/oci-scope-selector.sh` for scope
+#   discovery and confirmation, then delegates raw collection to
+#   `cm08-hw-sw-baseline.sh`. This Task 8 workflow does not use the OCI Python
+#   SDK.
+#
 # READ-ONLY CLOUD BOUNDARY: OCI calls are list/get operations. Collection is
 # delegated, after approval, to the existing CM-8 inventory engine. Nothing is
 # created, updated, attached, detached or deleted in OCI.

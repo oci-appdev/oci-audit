@@ -10,6 +10,12 @@
 # creates monthly review and change-disposition evidence. It never treats a
 # current cloud value or generated template as an approval.
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) plus `lib/oci-scope-selector.sh` for scope
+#   discovery and confirmation, then delegates raw collection to
+#   `cm08-hw-sw-baseline.sh`. This Task 9 workflow does not use the OCI Python
+#   SDK.
+#
 # Usage:
 #   bash cm08-01-component-inventory-baseline.sh -r us-langley-1 --inventory-only
 #   bash cm08-01-component-inventory-baseline.sh -i -r us-langley-1 --inventory-only

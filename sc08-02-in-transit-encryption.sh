@@ -20,6 +20,11 @@
 #   oke      OKE Kubernetes API endpoint posture
 #   ipsec    CPEs, IPSec connections/tunnels and DRG attachment/route context
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) plus `lib/oci-scope-selector.sh` for scope
+#   discovery and confirmation. This Task 2 collector does not use the OCI
+#   Python SDK.
+#
 # READ-ONLY: every OCI call is a list/get. The script never retrieves an IPSec
 # pre-shared key. Nothing is created, modified, attached, detached or deleted.
 #

@@ -13,6 +13,11 @@
 #   cp09-02         who can access the backup files
 #   cp09-03         backup replication, retention & versioning (DR)
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) plus `lib/oci-scope-selector.sh` for scope
+#   discovery and confirmation. This Task 1 collector does not use the OCI
+#   Python SDK.
+#
 # READ-ONLY. Every OCI call is list/get. Nothing is created, modified, or
 # deleted. Verified against this file's own source at startup; --selfcheck
 # reproduces that proof on its own.

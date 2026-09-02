@@ -17,6 +17,11 @@
 # break-glass access and software installed outside OS Management Hub remain
 # explicit evidence boundaries.
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) plus `lib/oci-scope-selector.sh` for scope
+#   discovery and confirmation. This Task 7 collector does not use the OCI
+#   Python SDK.
+#
 # READ-ONLY CLOUD BOUNDARY: every OCI call is list/get. The script never
 # installs, updates, removes, pushes, creates, attaches or deletes software or
 # OCI resources.

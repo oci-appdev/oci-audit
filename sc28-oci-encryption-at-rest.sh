@@ -18,6 +18,11 @@
 #   postgres OCI Database with PostgreSQL
 #   vault    Vaults, KMS keys, auto-rotation and key versions
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) plus `lib/oci-scope-selector.sh` for scope
+#   discovery and confirmation. This Task 3 collector does not use the OCI
+#   Python SDK.
+#
 # READ-ONLY: every OCI call is a list/get. The script never retrieves key
 # material or secrets and never creates, rotates, changes or deletes a key.
 #

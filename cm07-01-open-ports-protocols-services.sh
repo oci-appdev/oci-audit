@@ -19,6 +19,11 @@
 # Network Firewall, ZPR, load balancers, host firewalls and application
 # listeners require separate reconciliation.
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) plus `lib/oci-scope-selector.sh` for scope
+#   discovery and confirmation. This Task 6 collector does not use the OCI
+#   Python SDK.
+#
 # READ-ONLY CLOUD BOUNDARY: every OCI call is list/get. The script never creates,
 # updates, deletes, attaches or detaches OCI resources.
 #

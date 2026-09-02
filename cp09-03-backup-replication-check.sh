@@ -23,6 +23,11 @@
 #   6. Autonomous DB   - backup retention + cross-region/Data Guard copy
 #   7. Base DB         - backup recovery window + Data Guard association
 #
+# OCI TOOLING:
+#   Uses the OCI CLI (`oci`) plus `lib/oci-scope-selector.sh` for scope
+#   discovery and confirmation. This Task 1 collector does not use the OCI
+#   Python SDK.
+#
 # Usage:
 #   ./cp09-03-backup-replication-check.sh                  # interactive scope + approval
 #   ./cp09-03-backup-replication-check.sh --select-scope   # discover + confirm scope
