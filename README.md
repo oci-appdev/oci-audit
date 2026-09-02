@@ -213,6 +213,13 @@ PostgreSQL DB-system model does not expose an equivalent customer-key field, so
 the row records platform encryption and requires manual custody verification
 instead of inventing a key OCID.
 
+Autonomous Database custody is not decided from `kms-key-id` alone. The
+collector also reads `encryption-key.provider`, `key-store-id` and
+`kms-key-version-id`, so a database keyed from AWS, Azure or Oracle Key Vault is
+recorded as `CUSTOMER-MANAGED-EXTERNAL` with a manual custody action rather than
+being reported as Oracle-managed. A response that establishes custody neither
+way is recorded `UNKNOWN`, never `ORACLE-MANAGED`.
+
 KMS key rows include HSM/software protection, algorithm/length, lifecycle and
 deletion posture, automatic-rotation schedule/status and key-version history.
 A failed API call yields an attributed `COLLECTION-FAILED` row, non-OK coverage,
@@ -459,12 +466,15 @@ bash tests/run.sh
 The suite performs Bash syntax and read-only checks for CP-9, SC-8, SC-28,
 CM-7, CM-11, CM-2 and CM-8. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
-against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
+against mock OCI CLIs. The `cp09-01` regression proves that block-volume
+schedule retention, `retention-period` and the `is-retention-lock-enabled` /
+`is-prevent-deletion-enabled` immutability posture reach the evidence CSV. The SC-8 safety gate independently parses all 27 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
 interactive plan approval/refusal, checks malformed response handling and
 validates private/formula-safe CSV output. Task 3 exercises all data-store/KMS paths, the current
 MySQL and PostgreSQL schemas, rotation success/failure and a denied key-list
-call. Task 2 requires both IPSec tunnels and separately proves the
+call, and proves that an Autonomous Database keyed by an external provider or
+key store is not reported as Oracle-managed. Task 2 requires both IPSec tunnels and separately proves the
 incomplete-pair finding. Denied-call regressions prove that unavailable replica,
 IPSec tunnel or KMS key data becomes an incomplete row and exit code `3`, never
 a fabricated negative finding. Scope-selection regressions prove confirmed
@@ -473,6 +483,8 @@ CM07-01 regressions cover rule/association inventory, input provenance,
 approval reconciliation, restricted-list matches, denied calls, malformed JSON,
 private/formula-safe evidence and exact-OCID/exact-`YES` refusal gates.
 CM11-01 regressions cover IAM entitlement expansion, package/image inventory,
+installed-package software-source attribution from the `software-sources`
+model,
 installer and software approval reconciliation, prohibited-software matches,
 OSMH control coverage, denied/malformed calls, identity-domain gaps,
 private/formula-safe output, tenancy expansion and fail-closed manual/automation

@@ -904,8 +904,8 @@ collect_osmh() {
             "$(printf '%s' "$pkg" | jq -r '.name // ."display-name" // ."package-name" // "<unnamed-package>"')" \
             "$(printf '%s' "$pkg" | jq -r '.version // ."installed-version" // ""')" \
             "$(printf '%s' "$pkg" | jq -r '.architecture // ."arch-type" // ""')" \
-            "$(printf '%s' "$pkg" | jq -r '."software-source-name" // .vendor // .type // ""')" \
-            "" "$(printf '%s' "$pkg" | jq -r '."software-source-id" // ""')" \
+            "$(printf '%s' "$pkg" | jq -r '([."software-sources"[]?."display-name"] | join("; ")) as $s | if $s != "" then $s else (."software-source-name" // .type // "") end')" \
+            "" "$(printf '%s' "$pkg" | jq -r '([."software-sources"[]?.id] | join("; ")) as $s | if $s != "" then $s else (."software-source-id" // "") end')" \
             "$(printf '%s' "$pkg" | jq -r '."time-installed" // ""')" \
             "PACKAGE_TIME_INSTALLED" "INSTALLED" "OSMH=$mstatus; OS=$os; location=$location" "" "" "OK" ""
         done <<< "$(printf '%s' "$packages_json" | jq -c "$LIST_ITER" 2>/dev/null)"

@@ -504,8 +504,14 @@ check_fss() {
   coverage_row "$comp" "FSS" "$count" "$status" "$error"
 }
 
+# Autonomous Database key custody cannot be decided from kms-key-id alone. The
+# current model also exposes encryption-key.provider (AWS, AZURE, OCI,
+# ORACLE_MANAGED, OKV), key-store-id and kms-key-version-id. An Autonomous
+# Database keyed from an external provider or an Oracle Key Vault key store has
+# no kms-key-id, so treating an empty kms-key-id as Oracle-managed would report
+# a customer-managed database as a REVIEW-USE-CMK finding.
 check_adb() {
-  local comp="$1" json status error count=0 item name kid
+  local comp="$1" json status error count=0 item name kid provider keystore keyver detail
   oci_capture "list Autonomous Databases" db autonomous-database list --compartment-id "$comp" --all
   json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
   if [ "$status" != "OK" ]; then
@@ -518,7 +524,34 @@ check_adb() {
     count=$((count+1))
     name="$(jq -r '."db-name" // ."display-name" // "autonomous-db"' <<< "$item")"
     kid="$(jq -r '."kms-key-id" // empty' <<< "$item")"
-    emit_store_key "$comp" "AutonomousDB" "$name" "YES(TDE)" "$kid" "SC-28(1)/SC-12"
+    provider="$(jq -r '."encryption-key".provider // empty' <<< "$item")"
+    keystore="$(jq -r '."key-store-id" // empty' <<< "$item")"
+    keyver="$(jq -r '."kms-key-version-id" // empty' <<< "$item")"
+    if [ -n "$kid" ] && [ "$kid" != "null" ]; then
+      row "$comp" "AutonomousDB" "$name" "YES(TDE)" "CUSTOMER-MANAGED" \
+        "$kid${keyver:+;key-version=$keyver}" \
+        "REFER-TO-KMS-KEY-ROW" "REFER-TO-KMS-KEY-ROW" "OK-CMK" "SC-28(1)/SC-12" "OK" ""
+    elif [ -n "$provider" ] && [ "$provider" != "ORACLE_MANAGED" ]; then
+      # AWS, AZURE, OKV or an OCI provider without a listed key OCID.
+      detail="encryption-key-provider=$provider${keystore:+;key-store-id=$keystore}"
+      row "$comp" "AutonomousDB" "$name" "YES(TDE)" "CUSTOMER-MANAGED-EXTERNAL" \
+        "$detail" "EXTERNAL-TO-OCI-KMS" "EXTERNAL-TO-OCI-KMS" \
+        "MANUAL-VERIFY-EXTERNAL-KEY-CUSTODY" "SC-28(1)/SC-12" "OK" ""
+    elif [ -n "$keystore" ]; then
+      row "$comp" "AutonomousDB" "$name" "YES(TDE)" "CUSTOMER-MANAGED-EXTERNAL" \
+        "key-store-id=$keystore" "EXTERNAL-TO-OCI-KMS" "EXTERNAL-TO-OCI-KMS" \
+        "MANUAL-VERIFY-EXTERNAL-KEY-CUSTODY" "SC-28(1)/SC-12" "OK" ""
+    elif [ "$provider" = "ORACLE_MANAGED" ]; then
+      row "$comp" "AutonomousDB" "$name" "YES(TDE)" "ORACLE-MANAGED" \
+        "encryption-key-provider=ORACLE_MANAGED" "PLATFORM-MANAGED" "PROVIDER-MANAGED" \
+        "REVIEW-USE-CMK" "SC-28(1)/SC-12" "OK" ""
+    else
+      # No key OCID and no provider field: the response does not establish
+      # custody either way, so it must not be recorded as Oracle-managed.
+      row "$comp" "AutonomousDB" "$name" "YES(TDE)" "UNKNOWN" \
+        "no-kms-key-id;no-encryption-key-provider" "UNKNOWN" "UNKNOWN" \
+        "MANUAL-VERIFY-KEY-CUSTODY" "SC-28(1)/SC-12" "OK" ""
+    fi
   done < <(jq -c "$LIST_ITER" <<< "$json" 2>/dev/null)
   coverage_row "$comp" "AutonomousDB" "$count" "OK" ""
 }

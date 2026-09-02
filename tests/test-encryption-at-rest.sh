@@ -49,6 +49,33 @@ mysql = one("MySQL", "mysql1")
 assert mysql["key_management"] == "CUSTOMER-MANAGED"
 assert mysql["key_ocid_or_detail"] == "ocid1.key.oc1..data"
 
+# Autonomous Database key custody must come from the full current model, not
+# from kms-key-id alone. An external-provider or key-store database is
+# customer-managed even though it has no kms-key-id.
+adb_cmk = one("AutonomousDB", "ADB1")
+assert adb_cmk["key_management"] == "CUSTOMER-MANAGED"
+assert adb_cmk["finding"] == "OK-CMK"
+assert "ocid1.keyversion.oc1..v2" in adb_cmk["key_ocid_or_detail"]
+
+adb_external = one("AutonomousDB", "ADB-EXTERNAL")
+assert adb_external["key_management"] == "CUSTOMER-MANAGED-EXTERNAL", adb_external
+assert adb_external["finding"] == "MANUAL-VERIFY-EXTERNAL-KEY-CUSTODY"
+assert "encryption-key-provider=AWS" in adb_external["key_ocid_or_detail"]
+
+adb_okv = one("AutonomousDB", "ADB-OKV")
+assert adb_okv["key_management"] == "CUSTOMER-MANAGED-EXTERNAL", adb_okv
+assert "ocid1.keystore.oc1..okv1" in adb_okv["key_ocid_or_detail"]
+
+adb_oracle = one("AutonomousDB", "ADB-ORACLE")
+assert adb_oracle["key_management"] == "ORACLE-MANAGED"
+assert adb_oracle["finding"] == "REVIEW-USE-CMK"
+
+# A response that establishes no custody either way must not be recorded as
+# Oracle-managed, which would be a fabricated negative CMK finding.
+adb_silent = one("AutonomousDB", "ADB-SILENT")
+assert adb_silent["key_management"] == "UNKNOWN", adb_silent
+assert adb_silent["finding"] == "MANUAL-VERIFY-KEY-CUSTODY"
+
 postgres = one("PostgreSQL", "postgres1")
 assert postgres["key_management"] == "PLATFORM-MANAGED"
 assert postgres["finding"] == "MANUAL-VERIFY-KEY-CUSTODY"

@@ -436,9 +436,16 @@ load_bv_policy() {  # $1 = policy id
         (if ."month"         != null then " month="+ (."month"|tostring)        else "" end) +
         (if ."offset-type"   != null then " offset=" + (."offset-type"|tostring) else "" end)
       ),
-      (if ."retention-seconds" != null
-         then ((."retention-seconds"/86400)|floor|tostring) + "d (" + (."retention-seconds"|tostring) + "s)"
-         else "" end),
+      ( (if ."retention-seconds" != null
+           then ((."retention-seconds"/86400)|floor|tostring) + "d (" + (."retention-seconds"|tostring) + "s)"
+           elif ."retention-period" != null
+           then "retention-period=" + (."retention-period"|tostring)
+           else "" end) +
+        (if ."is-retention-lock-enabled" != null
+           then ";retention-lock=" + (."is-retention-lock-enabled"|tostring) else "" end) +
+        (if ."is-prevent-deletion-enabled" != null
+           then ";prevent-deletion=" + (."is-prevent-deletion-enabled"|tostring) else "" end)
+      ),
       (."time-zone"//"")
     ] | @tsv')
   POLICY_SCHED_CACHE["$pid"]="$acc"

@@ -155,6 +155,14 @@ assert {row["install_capability"] for row in entitlements} == {
 }
 assert all(row["analysis_confidence"] == "CANDIDATE-NOT-EFFECTIVE-PERMISSION" for row in entitlements)
 assert len(reconciliation) == 4, reconciliation
+# The installed-package software source comes from the softwareSources list in
+# the current OSMH model. It must carry the real source name and OCID, not the
+# package type.
+telnet_pkg = next(row for row in software if row["software_name"] == "telnet")
+assert telnet_pkg["repository_or_publisher"] == "ol9_appstream", telnet_pkg
+assert telnet_pkg["source_or_image_id"] == "ocid1.ossoftwaresource.oc1..appstream", telnet_pkg
+assert telnet_pkg["repository_or_publisher"] != "RPM", telnet_pkg
+
 telnet = next(row for row in reconciliation if row["software_name"] == "telnet")
 assert telnet["approval_status"] == "APPROVED", telnet
 assert telnet["restriction_status"] == "PROHIBITED-MATCH", telnet

@@ -76,7 +76,9 @@ case "$args" in
     fi
     package_name='openssl'
     [ "${MOCK_TASK7_FORMULA_NAME:-0}" = "1" ] && package_name='=2+3'
-    printf '{"data":{"items":[{"name":"%s","version":"3.0.7-28.0.1.el9_4","architecture":"x86_64","software-source-name":"ol9_baseos_latest","time-installed":"2026-08-01T10:00:00Z"},{"name":"telnet","version":"0.17-85.el9","architecture":"x86_64","software-source-name":"ol9_appstream","time-installed":"2026-08-02T10:00:00Z"}]}}\n' "$package_name"
+    # Mirrors the current OS Management Hub InstalledPackageSummary model:
+    # the software source is a softwareSources list, not a flat name field.
+    printf '{"data":{"items":[{"name":"%s","version":"3.0.7-28.0.1.el9_4","architecture":"x86_64","type":"RPM","software-sources":[{"id":"ocid1.ossoftwaresource.oc1..baseos","display-name":"ol9_baseos_latest"}],"time-installed":"2026-08-01T10:00:00Z"},{"name":"telnet","version":"0.17-85.el9","architecture":"x86_64","type":"RPM","software-sources":[{"id":"ocid1.ossoftwaresource.oc1..appstream","display-name":"ol9_appstream"}],"time-installed":"2026-08-02T10:00:00Z"}]}}\n' "$package_name"
     ;;
   *"os-management-hub managed-instance list"*)
     if [ "${MOCK_TASK7_NO_OSMH:-0}" = "1" ]; then

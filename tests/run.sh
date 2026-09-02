@@ -23,6 +23,8 @@ bash -n \
   tests/mock-oci-task7 \
   tests/mock-oci-task8 \
   tests/mock-oci-scope \
+  tests/mock-oci-cp0901 \
+  tests/test-cp09-01-backup-config.sh \
   tests/test-cp09-03.sh \
   tests/test-sc08-02-in-transit-encryption.sh \
   tests/test-sc8-safety.sh \
@@ -46,6 +48,7 @@ bash cm07-01-open-ports-protocols-services.sh --selfcheck
 bash cm11-01-software-installation-control.sh --selfcheck
 bash cm02-01-configuration-baseline.sh --selfcheck
 bash cm08-01-component-inventory-baseline.sh --selfcheck
+bash tests/test-cp09-01-backup-config.sh
 bash tests/test-cp09-03.sh
 bash tests/test-sc8-safety.sh
 bash tests/test-sc08-02-in-transit-encryption.sh

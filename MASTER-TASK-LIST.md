@@ -4,6 +4,12 @@
 
 **Tracking basis:** repository implementation plus evidence artifacts visible in this repository
 
+**Collector API verification:** the Task 1, 2, 3, 7 and 9 collectors were
+rechecked field-by-field against `oracle/oci-python-sdk` v2.185.1 on 2026-09-02.
+Three defects were found and fixed; see the 2026-09-02 entry in `AUDIT.md`.
+Verification confirms the collectors read the current API models. It is not a
+substitute for a controlled live run.
+
 **Rule:** a collector is not proof of control operation until it has been run, reviewed and linked to the approved evidence location.
 
 ## Status legend
@@ -20,7 +26,7 @@
 | # | Worksheet task | Status | Repository coverage | Required next evidence/action |
 |---:|---|---|---|---|
 | 1 | Backup type/frequency, access and replication for VCN, Shared Services and CD3 | Implementation complete | Canonical `cp09-01`, `cp09-02`, `cp09-03` family; read-only self-checks; failure-aware CSVs; default interactive tenancy/compartment discovery, double-OCID, resolved plan and exact-`YES` gate on all three scripts; refusal/no-workload-call regressions; CP-9 mock suite | Run in every in-scope region and compartment; retain the approved scan plan; review exit codes, coverage, findings, unresolved identities and exceptions; store signed evidence package |
-| 2 | Encryption in transit, including IPSec screenshots and overall proof | Implementation complete | Safety-reviewed `sc08-02-in-transit-encryption.sh`; default interactive tenancy/compartment discovery, double-OCID and final scan-summary/`YES` gate; 27 list/get call sites with mutation and PSK-read injection gates; failure-aware/response-shape-validated CSVs; private/formula-safe evidence; LB frontend/backend, NLB, databases, Object Storage, volumes, FSS, API Gateway, OKE, CPE/IPSec tunnels and DRG context; two-tunnel/denied-call gates; safety report and manual checklist | Run in every in-scope region/compartment under a read-only principal; retain approved scan summary; reconcile coverage/findings; require both IPSec tunnels or disposition `IPSEC-TUNNEL-PAIR-INCOMPLETE`; complete screenshots, Base DB `sqlnet.ora`, FSS mounts and NLB backend proof; review and store signed evidence package |
+| 2 | Encryption in transit, including IPSec screenshots and overall proof | Implementation complete | Safety-reviewed `sc08-02-in-transit-encryption.sh`; default interactive tenancy/compartment discovery, double-OCID and final scan-summary/`YES` gate; 27 list/get call sites with mutation and PSK-read injection gates; failure-aware/response-shape-validated CSVs; private/formula-safe evidence; LB frontend/backend, NLB, databases, Object Storage, volumes, FSS, API Gateway, OKE, CPE/IPSec tunnels and DRG context; two-tunnel/denied-call gates; safety report and manual checklist | Run in every in-scope region/compartment under a read-only principal; retain approved scan summary; reconcile coverage/findings; require both IPSec tunnels or disposition `IPSEC-TUNNEL-PAIR-INCOMPLETE`; complete screenshots, Base DB `sqlnet.ora`, FSS mounts and NLB backend proof; decide whether to add MySQL `secure-connections` in-transit coverage, which SC-8 does not currently collect; review and store signed evidence package |
 | 3 | Encryption at rest | Implementation complete | Failure-aware `sc28-oci-encryption-at-rest.sh`; default interactive tenancy/compartment discovery, double-OCID, resolved plan and exact-`YES` gate; storage/database key custody; current MySQL/PostgreSQL handling; Vault type/lifecycle/deletion; KMS HSM, AES key shape, automatic rotation and key-version evidence; refusal/no-workload-call, denied-call and rotation regressions; manual evidence checklist | Run in every in-scope region/compartment; retain the approved scan plan; reconcile CMK data stores to keys; resolve non-OK rows and CMK/HSM/rotation findings; complete key-admin, Audit-log, procedure and reviewer evidence; store signed package |
 | 4 | N/A | N/A | None required | None |
 | 5 | Continuous Monitoring Form review/feedback | Not started | None | Add reviewed form, feedback log, owner, disposition and approval |

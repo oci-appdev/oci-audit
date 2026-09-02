@@ -10,6 +10,40 @@
 
 **Delivery:** simple CM02 technical collector published after focused and full local gates passed
 
+## Latest milestone — completed-task recheck against the OCI Python SDK
+
+The Task 1, 2, 3, 7 and 9 collectors were verified against
+`oracle/oci-python-sdk` v2.185.1 (commit `33c54ebf`) by indexing every model's
+`attribute_map` and matching it to every jq field access and every CLI
+operation the scripts issue. Task 10 was excluded as Codex's in-flight work.
+
+All 50 CLI operations and 140 of 144 field reads were confirmed current. Three
+defects were fixed, each guarded by a regression proven to fail without its fix:
+
+- `sc28-oci-encryption-at-rest.sh` — Autonomous Database key custody now reads
+  `encryption-key.provider`, `key-store-id` and `kms-key-version-id`. An
+  externally keyed database is `CUSTOMER-MANAGED-EXTERNAL`, not a
+  `REVIEW-USE-CMK` finding against Oracle-managed encryption.
+- `cm11-01-software-installation-control.sh` — installed-package software source
+  now comes from the `software-sources` list. It previously read two fields that
+  do not exist and recorded the package type instead.
+- `cp09-01-backup-type-config-frequency.sh` — volume backup schedules now record
+  `is-retention-lock-enabled`, `is-prevent-deletion-enabled` and
+  `retention-period`, the CP-9 immutability evidence.
+
+`tests/mock-oci-task7` had encoded the same non-existent field as the collector,
+so the suite passed while the evidence was wrong. Mock payloads must now be
+copied from the SDK model, a rule recorded in `AGENTS.md` along with the
+agent ownership boundaries.
+
+`cp09-01` had no collection regression before this change; `tests/test-cp09-01-backup-config.sh`
+and `tests/mock-oci-cp0901` are new and wired into `tests/run.sh`.
+
+Two items were deliberately not changed: the Task 6 CM07-01 defects remain open
+per `CM07-CORRECTIVE-REVIEW.md`, and SC-8 still collects no MySQL
+`secure-connections` in-transit evidence, which is new service coverage rather
+than a correctness fix.
+
 ## Mandatory scope-selection standard
 
 Root-cause correction: the earlier CP-9 and SC-28 implementations only set

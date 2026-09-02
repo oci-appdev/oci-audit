@@ -49,6 +49,104 @@ removed; the collector's read-only and no-secret safety boundary is unchanged.
 
 ---
 
+## 2026-09-02 — completed-task recheck against oci-python-sdk
+
+The Task 1, 2, 3, 7 and 9 collectors were rechecked field-by-field against
+`oracle/oci-python-sdk` v2.185.1 (commit `33c54ebf`). Each service model's
+`attribute_map` was treated as the authoritative list of response fields; the
+OCI CLI emits those JSON names in kebab-case, so SDK `lifecycle_state` is CLI
+`lifecycle-state`. Task 10 was excluded — it is Codex's in-flight work.
+
+### Method
+
+- Every `attribute_map` in the SDK was indexed: 171 services, 16,307 models,
+  14,229 distinct kebab-case field names.
+- Every quoted jq field access in the eight completed-task scripts was
+  extracted and matched against that index: 144 distinct kebab-case keys.
+- Every OCI CLI service/resource/action triple the scripts issue (50 distinct)
+  was matched against the corresponding SDK client's operation list.
+
+### Verified correct
+
+- All 50 CLI operations correspond to real SDK operations.
+- 140 of 144 field reads exist in the current models. The four that do not
+  (`architecture-type`, `network-id`, `software-source-name`,
+  `storage-system-type`) are all non-first alternatives in `//` chains whose
+  primary path is correct, except the CM-11 case below.
+- MySQL `encrypt-data.{key-id,key-generation-type}` is current, so the README's
+  MySQL custody claim holds.
+- `psql.models.DbSystem` genuinely exposes no customer-key field, so the
+  README's PostgreSQL claim — record platform encryption and require manual
+  custody verification rather than invent a key OCID — is accurate.
+- KMS `Key` and `AutoKeyRotationDetails` field reads are complete and correct.
+- `DrgAttachment.network-details.{id,type}` and
+  `psql StorageDetails.system-type` are correct.
+
+### Defects found and fixed
+
+1. **SC-28 / Task 3 — Autonomous Database key custody was decided from
+   `kms-key-id` alone.** `AutonomousDatabaseSummary` also exposes
+   `encryption-key` (provider `AWS`, `AZURE`, `OCI`, `ORACLE_MANAGED`, `OKV`),
+   `key-store-id`, `vault-id` and `kms-key-version-id`. An Autonomous Database
+   keyed from an external provider or an Oracle Key Vault key store has no
+   `kms-key-id`, so `emit_store_key()` classified it `ORACLE-MANAGED` with a
+   `REVIEW-USE-CMK` finding. That is a fabricated negative finding against a
+   database that is in fact customer-managed — the exact failure mode the rest
+   of this repository is built to prevent. `check_adb()` now classifies
+   `CUSTOMER-MANAGED`, `CUSTOMER-MANAGED-EXTERNAL`, `ORACLE-MANAGED` or
+   `UNKNOWN`, and never asserts Oracle custody from a silent response.
+
+2. **CM-11 / Task 7 — installed-package software source was never captured.**
+   The collector read `software-source-name` and `software-source-id`, neither
+   of which exists on `InstalledPackageSummary`. The real field is the
+   `software-sources` list of `SoftwareSourceDetails`. The chain silently fell
+   through to the package `type`, so `repository_or_publisher` recorded `RPM`
+   and `source_or_image_id` was empty — the repository attribution that shows a
+   package came from an approved source was absent from the evidence.
+
+3. **CP-9 / Task 1 — volume backup immutability was not collected.**
+   `VolumeBackupSchedule` exposes `is-retention-lock-enabled` and
+   `is-prevent-deletion-enabled`, the WORM evidence for CP-9, plus
+   `retention-period` as an alternative to `retention-seconds`. None were read,
+   so a retention-locked policy was indistinguishable from an unlocked one and
+   a `retention-period` policy showed blank retention.
+
+### Test defect found
+
+`tests/mock-oci-task7` returned the same non-existent `software-source-name`
+field the collector read. The mock agreed with the bug, so the suite passed
+while the collector wrote the wrong value into evidence. The mock now mirrors
+the SDK model. `AGENTS.md` records the rule: mock payload field names come from
+the SDK model, never from the script under test.
+
+### Regression coverage added
+
+Each fix is guarded by a regression that was verified to fail without it:
+
+- `tests/test-encryption-at-rest.sh` — five Autonomous Databases covering
+  `kms-key-id`, external provider, key store, `ORACLE_MANAGED` and a silent
+  response.
+- `tests/test-cm11-01-software-installation-control.sh` — asserts the package
+  repository and source OCID come from `software-sources` and are not the
+  package type.
+- `tests/test-cp09-01-backup-config.sh` and `tests/mock-oci-cp0901` — new.
+  `cp09-01` previously had no collection regression at all; only its syntax,
+  self-check and scope gates were exercised.
+
+### Open, not fixed
+
+- Task 6 / CM07-01 still carries both defects in `CM07-CORRECTIVE-REVIEW.md`:
+  `rule_port_range()` maps every non-TCP/UDP/ANY protocol to `0-65535`, so ICMP
+  false-matches port-based restrictions, and there is still no `-p/--profile`.
+  Task 6 remains Partial.
+- Task 2 / SC-8 collects no MySQL evidence, although
+  `mysql.models.DbSystem.secure_connections` (`certificate-id`,
+  `certificate-generation-type`) is in-transit TLS evidence and SC-28 already
+  covers MySQL at rest. Adding a service to SC-8 is new coverage rather than a
+  correctness fix, so it is left for an explicit decision.
+
+---
+
 ## 2026-09-01 — CM02 simplified to technical collection
 
 The user selected a simple CM02 workflow after the prior evidence-completeness

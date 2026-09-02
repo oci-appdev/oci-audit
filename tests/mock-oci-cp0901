@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+#
+# Mock OCI CLI for the cp09-01 backup configuration collector.
+#
+# Payload shapes mirror the current oci-python-sdk models:
+#   core.models.VolumeBackupPolicy    (schedules)
+#   core.models.VolumeBackupSchedule  (backup-type, period, hour-of-day,
+#                                      retention-seconds, retention-period,
+#                                      is-retention-lock-enabled,
+#                                      is-prevent-deletion-enabled, time-zone)
+set -uo pipefail
+
+args=("$@")
+while [ "${#args[@]}" -ge 2 ]; do
+  case "${args[0]}" in
+    --region|--profile) args=("${args[@]:2}") ;;
+    *) break ;;
+  esac
+done
+cmd="${args[*]}"
+
+COMP='ocid1.compartment.oc1..test'
+
+case "$cmd" in
+  "iam compartment list --access-level ANY --limit 1 --query "*)
+    printf '%s\n' 'ocid1.tenancy.oc1..cp0901'
+    ;;
+  "iam compartment get --compartment-id $COMP --query data.name --raw-output")
+    printf '%s\n' 'Shared Services'
+    ;;
+  "bv volume list --compartment-id $COMP --all")
+    printf '%s\n' '{"data":[{"id":"ocid1.volume.oc1..locked","display-name":"worm-volume"},{"id":"ocid1.volume.oc1..plain","display-name":"plain-volume"}]}'
+    ;;
+  "bv backup list --compartment-id $COMP --all")
+    printf '%s\n' '{"data":[{"volume-id":"ocid1.volume.oc1..locked","time-created":"2026-08-30T03:00:00Z"}]}'
+    ;;
+  "bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment --asset-id ocid1.volume.oc1..locked")
+    printf '%s\n' '{"data":[{"policy-id":"ocid1.volumebackuppolicy.oc1..gold"}]}'
+    ;;
+  "bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment --asset-id ocid1.volume.oc1..plain")
+    printf '%s\n' '{"data":[{"policy-id":"ocid1.volumebackuppolicy.oc1..bronze"}]}'
+    ;;
+  "bv volume-backup-policy get --policy-id ocid1.volumebackuppolicy.oc1..gold")
+    printf '%s\n' '{"data":{"display-name":"gold-worm","schedules":[{"backup-type":"INCREMENTAL","period":"ONE_DAY","hour-of-day":3,"retention-seconds":2592000,"is-retention-lock-enabled":true,"is-prevent-deletion-enabled":true,"time-zone":"UTC"}]}}'
+    ;;
+  "bv volume-backup-policy get --policy-id ocid1.volumebackuppolicy.oc1..bronze")
+    printf '%s\n' '{"data":{"display-name":"bronze","schedules":[{"backup-type":"FULL","period":"ONE_MONTH","retention-period":"P1Y","is-retention-lock-enabled":false,"time-zone":"UTC"}]}}'
+    ;;
+  *)
+    echo "mock-oci-cp0901: unsupported command: $cmd" >&2
+    exit 64
+    ;;
+esac
