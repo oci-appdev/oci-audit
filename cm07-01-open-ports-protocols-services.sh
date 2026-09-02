@@ -39,6 +39,7 @@
 #   bash cm07-01-open-ports-protocols-services.sh -r us-langley-1
 #   bash cm07-01-open-ports-protocols-services.sh -d ingress
 #   bash cm07-01-open-ports-protocols-services.sh -o ./evidence
+#       Writes into ./evidence/cm07-01/
 #   bash cm07-01-open-ports-protocols-services.sh \
 #       -a approved_ports.csv -x restricted_ports.csv \
 #       -s verified_services.csv
@@ -137,6 +138,7 @@ SINGLE_COMP=""
 COMP_NAMES_FILTER=""
 REGION_OVERRIDE=""
 OUTDIR="."
+TASK_DIR="cm07-01"
 DIRECTION="both"
 APPROVAL_FILE=""
 RESTRICTED_FILE=""
@@ -232,6 +234,14 @@ fi
 # A manual run without -c or -n always requires interactive discovery.
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
   SELECT_SCOPE=1
+fi
+
+OUTROOT="${OUTDIR%/}"
+[ -n "$OUTROOT" ] || OUTROOT="/"
+if [ "$(basename -- "$OUTROOT")" != "$TASK_DIR" ]; then
+  OUTDIR="$OUTROOT/$TASK_DIR"
+else
+  OUTDIR="$OUTROOT"
 fi
 
 readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }

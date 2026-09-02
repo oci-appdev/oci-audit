@@ -36,7 +36,7 @@
 #   bash sc08-02-in-transit-encryption.sh -n 'VCN,Shared Services,CD3' # approved automation
 #   bash sc08-02-in-transit-encryption.sh -r us-langley-1
 #   bash sc08-02-in-transit-encryption.sh -s 'lb ipsec'
-#   bash sc08-02-in-transit-encryption.sh -o ./evidence
+#   bash sc08-02-in-transit-encryption.sh -o ./evidence      # writes into ./evidence/sc08-02/
 #   bash sc08-02-in-transit-encryption.sh --selfcheck
 #
 # Interactive runs:
@@ -110,6 +110,7 @@ SINGLE_COMP=""
 COMP_NAMES_FILTER=""
 REGION_OVERRIDE=""
 OUTDIR="."
+TASK_DIR="sc08-02"
 SERVICES="lb nlb adb basedb object volumes fss apigw oke ipsec"
 SELECT_SCOPE=0
 
@@ -156,6 +157,14 @@ fi
 # prevents an accidental no-argument invocation from sweeping the tenancy.
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
   SELECT_SCOPE=1
+fi
+
+OUTROOT="${OUTDIR%/}"
+[ -n "$OUTROOT" ] || OUTROOT="/"
+if [ "$(basename -- "$OUTROOT")" != "$TASK_DIR" ]; then
+  OUTDIR="$OUTROOT/$TASK_DIR"
+else
+  OUTDIR="$OUTROOT"
 fi
 
 for requested_service in $SERVICES; do

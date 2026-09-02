@@ -98,6 +98,7 @@ SINGLE_COMP=""
 COMP_NAMES_FILTER=""
 REGION=""
 OUTDIR="."
+TASK_DIR="cm08-01"
 PROFILE=""
 APPROVED_INVENTORY=""
 DISPOSITIONS=""
@@ -179,6 +180,14 @@ fi
 
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
   SELECT_SCOPE=1
+fi
+
+OUTROOT="${OUTDIR%/}"
+[ -n "$OUTROOT" ] || OUTROOT="/"
+if [ "$(basename -- "$OUTROOT")" != "$TASK_DIR" ]; then
+  OUTDIR="$OUTROOT/$TASK_DIR"
+else
+  OUTDIR="$OUTROOT"
 fi
 readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
 

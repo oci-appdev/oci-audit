@@ -36,20 +36,22 @@ set -e
 grep -q 'prohibited call found' "$TEST_TMP/injected.out"
 
 # One simple command, with no governance inputs or mode flag, produces only the
-# technical snapshot, coverage, plan, summary and raw evidence at the top level.
+# technical snapshot, coverage, plan, summary and raw evidence inside the
+# collector-specific output folder.
 PATH="$TEST_TMP/bin:$PATH" MOCK_TASK8_LOG="$TEST_TMP/simple.log" \
   bash "$SCRIPT" -c "$COMP" -r us-langley-1 -p DOJ-GOV \
     "${AUTOMATION[@]}" -o "$TEST_TMP/simple" > "$TEST_TMP/simple.out"
 
-items="$(find "$TEST_TMP/simple" -maxdepth 1 -name 'cm02-01_configuration_items_*.csv' -print -quit)"
-attrs="$(find "$TEST_TMP/simple" -maxdepth 1 -name 'cm02-01_configuration_attributes_*.csv' -print -quit)"
-coverage="$(find "$TEST_TMP/simple" -maxdepth 1 -name 'cm02-01_coverage_*.csv' -print -quit)"
-summary="$(find "$TEST_TMP/simple" -maxdepth 1 -name 'cm02-01_summary_*.txt' -print -quit)"
-plan="$(find "$TEST_TMP/simple" -maxdepth 1 -name 'cm02-01_approved_scan_plan_*.txt' -print -quit)"
+items="$(find "$TEST_TMP/simple" -name 'cm02-01_configuration_items_*.csv' -print -quit)"
+attrs="$(find "$TEST_TMP/simple" -name 'cm02-01_configuration_attributes_*.csv' -print -quit)"
+coverage="$(find "$TEST_TMP/simple" -name 'cm02-01_coverage_*.csv' -print -quit)"
+summary="$(find "$TEST_TMP/simple" -name 'cm02-01_summary_*.txt' -print -quit)"
+plan="$(find "$TEST_TMP/simple" -name 'cm02-01_approved_scan_plan_*.txt' -print -quit)"
 [ -n "$items" ] && [ -n "$attrs" ] && [ -n "$coverage" ]
 [ -n "$summary" ] && [ -n "$plan" ]
-! find "$TEST_TMP/simple" -maxdepth 1 -name '*template*.csv' -print -quit | grep -q .
-! find "$TEST_TMP/simple" -maxdepth 1 -name '*reconciliation*.csv' -print -quit | grep -q .
+[ -d "$TEST_TMP/simple/cm02-01" ]
+! find "$TEST_TMP/simple" -name '*template*.csv' -print -quit | grep -q .
+! find "$TEST_TMP/simple" -name '*reconciliation*.csv' -print -quit | grep -q .
 grep -q 'Mode            : SIMPLE TECHNICAL COLLECTION' "$plan"
 grep -q 'OCI CLI profile : DOJ-GOV' "$plan"
 grep -q -- '--profile DOJ-GOV' "$TEST_TMP/simple.log"
@@ -95,9 +97,9 @@ PATH="$TEST_TMP/bin:$PATH" MOCK_TASK8_DENY_COMPUTE=1 bash "$SCRIPT" \
 rc=$?
 set -e
 [ "$rc" -eq 3 ]
-denied_coverage="$(find "$TEST_TMP/denied" -maxdepth 1 -name 'cm02-01_coverage_*.csv' -print -quit)"
-denied_errors="$(find "$TEST_TMP/denied" -maxdepth 1 -name 'cm02-01_collection_errors_*.csv' -print -quit)"
-denied_summary="$(find "$TEST_TMP/denied" -maxdepth 1 -name 'cm02-01_summary_*.txt' -print -quit)"
+denied_coverage="$(find "$TEST_TMP/denied" -name 'cm02-01_coverage_*.csv' -print -quit)"
+denied_errors="$(find "$TEST_TMP/denied" -name 'cm02-01_collection_errors_*.csv' -print -quit)"
+denied_summary="$(find "$TEST_TMP/denied" -name 'cm02-01_summary_*.txt' -print -quit)"
 grep -q '"FAILED"' "$denied_coverage"
 grep -q 'AUTHZ_OR_ABSENT' "$denied_errors"
 grep -q 'COLLECTION STATUS      : INCOMPLETE' "$denied_summary"
@@ -108,7 +110,7 @@ grep -Fq "Review: $denied_coverage" "$TEST_TMP/denied.out"
 PATH="$TEST_TMP/bin:$PATH" MOCK_TASK8_FORMULA_NAME=1 bash "$SCRIPT" \
   -c "$COMP" -r us-langley-1 "${AUTOMATION[@]}" \
   -o "$TEST_TMP/formula" >/dev/null
-grep -q "'=2+3" "$(find "$TEST_TMP/formula" -maxdepth 1 -name 'cm02-01_configuration_items_*.csv' -print -quit)"
+grep -q "'=2+3" "$(find "$TEST_TMP/formula" -name 'cm02-01_configuration_items_*.csv' -print -quit)"
 grep -q "'=2+3" "$(find "$TEST_TMP/formula" -name 'compute_instances.csv' -print -quit)"
 
 # A Compute image keeps its owner compartment while the instance keeps its own.
@@ -121,7 +123,7 @@ import sys
 from pathlib import Path
 
 root, tenancy, comp = sys.argv[1:]
-path = next(Path(root).glob("cm02-01_configuration_items_*.csv"))
+path = next(Path(root).rglob("cm02-01_configuration_items_*.csv"))
 with path.open(newline="", encoding="utf-8-sig") as handle:
     items = list(csv.DictReader(handle))
 images = [row for row in items if row["resource_type"] == "COMPUTE_IMAGE"]

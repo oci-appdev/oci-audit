@@ -53,6 +53,11 @@ twice, display the complete resolved scan plan, and require exact uppercase
 `YES` before service collection starts. The same mandatory interface is
 implemented by the Task 2, Task 3, Task 6, Task 7, Task 8, Task 9 and Task 10 collectors:
 
+Every canonical collector writes into its own collector-specific subdirectory
+beneath the supplied output root, so `-o ./evidence` produces task-grouped
+packages such as `./evidence/cp09-01/`, `./evidence/cm07-01/` and
+`./evidence/ra05-01/`.
+
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
   -r us-langley-1 -o ./evidence

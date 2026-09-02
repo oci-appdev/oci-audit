@@ -100,6 +100,7 @@ SINGLE_COMP=""
 COMP_NAMES_FILTER=""
 REGION=""
 OUTDIR="."
+TASK_DIR="cm02-01"
 PROFILE=""
 SELECT_SCOPE=0
 NON_INTERACTIVE=0
@@ -160,6 +161,14 @@ case "$REGION" in *[!A-Za-z0-9-]*) echo "ERROR: one explicit OCI region is requi
 
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
   SELECT_SCOPE=1
+fi
+
+OUTROOT="${OUTDIR%/}"
+[ -n "$OUTROOT" ] || OUTROOT="/"
+if [ "$(basename -- "$OUTROOT")" != "$TASK_DIR" ]; then
+  OUTDIR="$OUTROOT/$TASK_DIR"
+else
+  OUTDIR="$OUTROOT"
 fi
 readonly_selfcheck || { echo "Refusing to run." >&2; exit 1; }
 

@@ -36,7 +36,7 @@
 #   ./cp09-03-backup-replication-check.sh -n VCN,CD3       # compartment names
 #   ./cp09-03-backup-replication-check.sh -r us-langley-1  # GovCloud region
 #   ./cp09-03-backup-replication-check.sh -s "object fss"  # service subset
-#   ./cp09-03-backup-replication-check.sh -o ./evidence    # output directory
+#   ./cp09-03-backup-replication-check.sh -o ./evidence    # output root; writes into ./evidence/cp09-03/
 #   ./cp09-03-backup-replication-check.sh --selfcheck      # prove read-only
 #
 # Output: three timestamped CSVs + console summary.
@@ -88,6 +88,7 @@ command -v jq  >/dev/null 2>&1 || { echo "ERROR: jq not found."; exit 1; }
 source "$SCOPE_HELPER"
 
 SINGLE_COMP=""; COMP_NAMES_FILTER=""; REGION_OVERRIDE=""; OUTDIR="."
+TASK_DIR="cp09-03"
 SERVICES="object volumes bootvol backups fss adb basedb"
 SELECT_SCOPE=0
 
@@ -134,6 +135,14 @@ fi
 # the exact OCID. Explicit -c/-n remain the approved automation path.
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
   SELECT_SCOPE=1
+fi
+
+OUTROOT="${OUTDIR%/}"
+[ -n "$OUTROOT" ] || OUTROOT="/"
+if [ "$(basename -- "$OUTROOT")" != "$TASK_DIR" ]; then
+  OUTDIR="$OUTROOT/$TASK_DIR"
+else
+  OUTDIR="$OUTROOT"
 fi
 
 REGION_ARG=(); [ -n "$REGION_OVERRIDE" ] && REGION_ARG=(--region "$REGION_OVERRIDE")

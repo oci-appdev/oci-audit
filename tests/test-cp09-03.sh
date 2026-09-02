@@ -13,11 +13,11 @@ PATH="$TMP/bin:$PATH"
 export PATH
 
 evidence_csv() {
-  find "$1" -maxdepth 1 -type f -name 'oci_backup_dr_[0-9]*.csv' -print -quit
+  find "$1" -type f -name 'oci_backup_dr_[0-9]*.csv' -print -quit
 }
 
 coverage_csv() {
-  find "$1" -maxdepth 1 -type f -name 'oci_backup_dr_coverage_*.csv' -print -quit
+  find "$1" -type f -name 'oci_backup_dr_coverage_*.csv' -print -quit
 }
 
 assert_csv_row() {
@@ -64,7 +64,7 @@ assert {row["service"] for row in coverage} == expected, coverage
 assert all(row["collection_status"] == "OK" for row in evidence), evidence
 assert all(row["collection_status"] == "OK" for row in coverage), coverage
 PY
-if find "$TMP/success" -maxdepth 1 -type f -name '*collection_errors*' | grep -q .; then
+if find "$TMP/success" -type f -name '*collection_errors*' | grep -q .; then
   echo "clean run retained an error file" >&2
   exit 1
 fi
@@ -81,7 +81,7 @@ set -e
 
 DENIED_EVIDENCE="$(evidence_csv "$TMP/denied")"
 DENIED_COVERAGE="$(coverage_csv "$TMP/denied")"
-DENIED_ERRORS="$(find "$TMP/denied" -maxdepth 1 -type f -name '*collection_errors*' -print -quit)"
+DENIED_ERRORS="$(find "$TMP/denied" -type f -name '*collection_errors*' -print -quit)"
 [ -n "$DENIED_EVIDENCE" ] && [ -n "$DENIED_COVERAGE" ] && [ -n "$DENIED_ERRORS" ]
 assert_csv_row "$DENIED_EVIDENCE" \
   'row["service"] == "BlockVolume" and row["replicated"] == "UNKNOWN" and row["finding"] == "COLLECTION-FAILED" and row["collection_status"] == "DENIED"'

@@ -34,7 +34,7 @@
 #   ./cp09-01-backup-type-config-frequency.sh -r us-langley-1  # region override
 #   ./cp09-01-backup-type-config-frequency.sh -p AUDITOR       # config-file profile
 #   ./cp09-01-backup-type-config-frequency.sh -s "volumes fss" # subset of services
-#   ./cp09-01-backup-type-config-frequency.sh -o ./evidence    # output directory
+#   ./cp09-01-backup-type-config-frequency.sh -o ./evidence    # output root; writes into ./evidence/cp09-01/
 #   ./cp09-01-backup-type-config-frequency.sh --selfcheck      # prove read-only, exit
 #
 # Services (-s): volumes bootvol volgroup fss object basedb adb mysql postgres
@@ -121,6 +121,7 @@ COMP_NAMES_FILTER=""
 REGION_OVERRIDE=""
 PROFILE=""
 OUTDIR="."
+TASK_DIR="cp09-01"
 SERVICES="volumes bootvol volgroup fss object basedb adb mysql postgres"
 SELECT_SCOPE=0
 
@@ -169,6 +170,14 @@ fi
 # the exact OCID. Explicit -c/-n remain the approved automation path.
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
   SELECT_SCOPE=1
+fi
+
+OUTROOT="${OUTDIR%/}"
+[ -n "$OUTROOT" ] || OUTROOT="/"
+if [ "$(basename -- "$OUTROOT")" != "$TASK_DIR" ]; then
+  OUTDIR="$OUTROOT/$TASK_DIR"
+else
+  OUTDIR="$OUTROOT"
 fi
 
 has_svc() { case " $SERVICES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }

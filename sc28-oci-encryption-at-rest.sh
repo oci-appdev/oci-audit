@@ -34,7 +34,7 @@
 #   bash sc28-oci-encryption-at-rest.sh -n 'VCN,Shared Services,CD3'
 #   bash sc28-oci-encryption-at-rest.sh -r us-langley-1
 #   bash sc28-oci-encryption-at-rest.sh -s 'volumes vault'
-#   bash sc28-oci-encryption-at-rest.sh -o ./evidence
+#   bash sc28-oci-encryption-at-rest.sh -o ./evidence        # writes into ./evidence/sc28/
 #   bash sc28-oci-encryption-at-rest.sh --selfcheck
 #
 # Output:
@@ -95,6 +95,7 @@ SINGLE_COMP=""
 COMP_NAMES_FILTER=""
 REGION_OVERRIDE=""
 OUTDIR="."
+TASK_DIR="sc28"
 SERVICES="volumes bootvol object fss adb basedb mysql postgres vault"
 SELECT_SCOPE=0
 
@@ -141,6 +142,14 @@ fi
 # the exact OCID. Explicit -c/-n remain the approved automation path.
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
   SELECT_SCOPE=1
+fi
+
+OUTROOT="${OUTDIR%/}"
+[ -n "$OUTROOT" ] || OUTROOT="/"
+if [ "$(basename -- "$OUTROOT")" != "$TASK_DIR" ]; then
+  OUTDIR="$OUTROOT/$TASK_DIR"
+else
+  OUTDIR="$OUTROOT"
 fi
 
 REGION_ARG=()
