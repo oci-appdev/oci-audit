@@ -53,6 +53,38 @@ removed; the collector's read-only and no-secret safety boundary is unchanged.
 
 ---
 
+## 2026-09-02 — read-only gate extended to SDK method names
+
+Prompted by a request to review Codex's Task 13 federation collector, which is
+committed locally on `codex/task13-ia02-federation` but not pushed, so it could
+not be read. Checking what such a collector would touch exposed a real gap in
+the gate added earlier the same day.
+
+`tests/test-readonly-proof.sh` matched secret-returning reads only in the
+kebab spelling the OCI CLI uses (`auth-token`). A Python SDK collector writes
+`client.get_auth_token(...)`, which did not match — verified by injection: the
+gate passed a snake-case secret read. Since the standard now directs new
+collectors to the SDK, that blind spot covered every future collector.
+
+The gate now screens both spellings and blocks 47 secret-returning SDK reads by
+name. Identity Domains is the sharpest case: 162 read operations, of which
+`get_identity_propagation_trust` (returns a client secret), the auth-token,
+API-key, customer-secret-key, SMTP-credential, user-DB-credential, OAuth
+credential and OAuth certificate families, and their `list_*`, `search_*` and
+`*_my_*` variants all return material that must not reach an evidence CSV in a
+public repository. Verified by injection: four federation-shaped secret reads
+are blocked, and `list_password_policies` is correctly allowed, since password
+policy is complexity and expiry configuration and is legitimate AC-2/IA-5
+evidence.
+
+One further finding for whoever reviews Task 13: all 43 Identity Domains
+`search_*` operations issue POST rather than GET. They are genuine reads with
+the filter in the request body. The gate therefore permits a `search_` prefix
+in an SDK allowlist and then screens the name for sensitivity, rather than
+treating the prefix as either automatically safe or automatically a mutation.
+
+---
+
 ## 2026-09-02 — CM07-01 closed out except live validation
 
 Everything in Task 6 that can be finished without a tenancy is finished.

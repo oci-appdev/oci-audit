@@ -42,7 +42,11 @@ POST_READS = {
     "get-secret-bundle-by-name",
 }
 
-# Reads that return credential or key material.
+# Reads that return credential or key material, in both the kebab spelling the
+# OCI CLI uses and the snake spelling the Python SDK uses. Both are needed: a
+# shell collector writes "iam auth-token list" while an SDK collector writes
+# client.get_auth_token(...), and matching only one spelling leaves the other
+# unchecked.
 SECRET_READS = [
     "ip-sec-psk", "auth-token", "api-key", "customer-secret-key",
     "swift-password", "smtp-credential", "db-credential",
@@ -51,6 +55,41 @@ SECRET_READS = [
     "secret-bundle", "named-credential", "preferred-credential",
     "user-credential", "bds-api-key", "deployment-wallets",
 ]
+
+# Identity Domains is the sharpest case: 162 of its read operations are
+# legitimate identity evidence, but these return client secrets, tokens, raw
+# certificates or federation trust material. A federation or account-management
+# collector sits directly beside them.
+SECRET_SDK_METHODS = {
+    "get_api_key", "list_api_keys", "search_api_keys",
+    "get_auth_token", "list_auth_tokens", "search_auth_tokens",
+    "get_customer_secret_key", "list_customer_secret_keys",
+    "search_customer_secret_keys",
+    "get_identity_propagation_trust", "list_identity_propagation_trusts",
+    "get_o_auth2_client_credential", "list_o_auth2_client_credentials",
+    "search_o_auth2_client_credentials",
+    "get_o_auth_client_certificate", "list_o_auth_client_certificates",
+    "search_o_auth_client_certificates",
+    "get_o_auth_partner_certificate", "list_o_auth_partner_certificates",
+    "search_o_auth_partner_certificates",
+    "get_smtp_credential", "list_smtp_credentials", "search_smtp_credentials",
+    "get_user_db_credential", "list_user_db_credentials",
+    "search_user_db_credentials",
+    "get_my_api_key", "list_my_api_keys",
+    "get_my_auth_token", "list_my_auth_tokens",
+    "get_my_customer_secret_key", "list_my_customer_secret_keys",
+    "get_my_o_auth2_client_credential", "list_my_o_auth2_client_credentials",
+    "get_my_smtp_credential", "list_my_smtp_credentials",
+    "get_my_user_db_credential", "list_my_user_db_credentials",
+    "get_secret_bundle", "get_secret_bundle_by_name",
+    "get_windows_instance_initial_credentials",
+    "get_console_history_content",
+    "get_autonomous_database_wallet", "get_autonomous_database_regional_wallet",
+    "get_user_ui_password_information",
+    "list_swift_passwords", "list_db_credentials",
+}
+# Deliberately NOT secret: password *policy* operations return complexity and
+# expiry configuration, which is legitimate AC-2/IA-5 evidence.
 
 MUTATING = re.compile(
     r'^(create|update|delete|change|move|restore|enable|disable|rotate|assign|'
@@ -118,6 +157,9 @@ for path in shell_files + py_files:
         for term in SECRET_READS:
             if term in s and "prohibited" not in s.lower():
                 failures.append(f"{path}:{lineno}: secret-returning read {term!r}")
+        for name in re.findall(r'\b([a-z][a-z0-9_]*)\s*\(', s):
+            if name in SECRET_SDK_METHODS:
+                failures.append(f"{path}:{lineno}: secret-returning SDK read {name!r}")
         if "raw-request" in s and "http-method" not in s.lower():
             failures.append(f"{path}:{lineno}: raw-request")
 
@@ -126,10 +168,15 @@ for path in py_files:
     text = pathlib.Path(path).read_text(errors="replace")
     for m in re.finditer(r'ALLOW[A-Z_]*\s*=\s*[({]([^)}]*)[)}]', text):
         for name in re.findall(r'["\']([a-z_][a-z0-9_]*)["\']', m.group(1)):
-            if not name.startswith(("list_", "get_")):
+            # search_* is a real read in Identity Domains but issues POST, so it
+            # is allowed by prefix and then screened for sensitivity like the
+            # others rather than being waved through on its name.
+            if not name.startswith(("list_", "get_", "search_")):
                 failures.append(f"{path}: allowlist contains non-read {name!r}")
             if name.replace("_", "-") in POST_READS:
                 failures.append(f"{path}: allowlist contains POST-read {name!r}")
+            if name in SECRET_SDK_METHODS:
+                failures.append(f"{path}: allowlist contains secret-returning read {name!r}")
 
 if failures:
     print("READ-ONLY PROOF: FAILED", file=sys.stderr)
@@ -140,6 +187,8 @@ if failures:
 print(f"Scanned {len(shell_files)} shell and {len(py_files)} Python files.")
 print(f"Verified {sites} OCI wrapper call sites; every one uses a list/get action.")
 print(f"Distinct actions in use: {', '.join(sorted(actions))}")
+print(f"Screened against {len(SECRET_SDK_METHODS)} secret-returning SDK reads "
+      f"and {len(SECRET_READS)} CLI spellings.")
 print("No mutating verb, no POST-shaped read, no secret-returning read, no raw-request.")
 PY
 

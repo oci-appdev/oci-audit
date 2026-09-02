@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-02 (CM07-01 closed out except live validation)
+**Last updated:** 2026-09-02 (read-only gate extended to SDK method names)
 
 ## Non-negotiable repository rules
 
@@ -42,7 +42,33 @@ the single source of truth.
      tokens, API keys, PSKs, initial passwords). **Read-only is not the same as
      safe to write into evidence**, and this repository is public. The SC-8
      collector already blocked `ip-sec-psk`; this generalises it everywhere.
+   Since 2026-09-02 it matches **both spellings**: the kebab form the OCI CLI
+   uses (`iam auth-token list`) and the snake form the Python SDK uses
+   (`client.get_auth_token(...)`). Matching only one left SDK collectors
+   unchecked. 47 secret-returning SDK reads are screened by name.
    Do not add an exemption to get a call past this gate. The call is wrong.
+
+### Identity Domains: read the note before building an identity collector
+
+Identity Domains has 162 read operations. Most are legitimate identity
+evidence, but a specific set returns client secrets, tokens, raw certificates
+or federation trust material, and an IA-2 or AC-2 collector sits directly
+beside them. `get_identity_propagation_trust` returns a client secret;
+`get_auth_token`, `get_customer_secret_key`, `get_smtp_credential`,
+`get_user_db_credential`, the `o_auth*_credential` and `o_auth*_certificate`
+families and all their `list_*`/`search_*`/`*_my_*` variants are blocked by
+name in `tests/test-readonly-proof.sh`.
+
+Password **policy** operations (`list_password_policies`,
+`get_password_policy`) are deliberately **not** blocked: they return complexity
+and expiry configuration, which is exactly the AC-2/IA-5 evidence such a
+collector should gather.
+
+Note also that all 43 Identity Domains `search_*` operations issue **POST**,
+not GET. They are genuine reads — the filter travels in the body — so the gate
+permits a `search_` prefix in an SDK allowlist, then screens the name for
+sensitivity like any other. Do not assume a `search_*` call fails the read-only
+rule, and do not assume it passes it either.
 
 ## Ownership boundaries — read before you edit
 
@@ -53,7 +79,9 @@ making it.
 | Area | Owner | Status |
 |---|---|---|
 | Task 10 — vulnerability tracking (RA-5/SI-2) | **Codex** | Delivered to `main` (`030af450`). `ra05-01-vulnerability-tracking.py`, `lib/oci_audit_sdk.py`, `tests/test-ra05-01-vulnerability-tracking.py`, `TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`. Claude did not review it. |
-| Task 11 — configuration change tracking | **Codex** | In progress, OCI Python SDK. Claude must not touch it. |
+| Task 11 — configuration change tracking | **Codex** | Reported built; **not on origin**. Claude must not touch it. |
+| Task 12 — account management | **Codex** | Reported built; **not on origin**. Claude must not touch it. |
+| Task 13 — OKTA/DOJLogin federation (IA-2) | **Codex** | Reported implementation-complete on `codex/task13-ia02-federation` (`719b5c9`, `c31bae0`); **not pushed, so not reviewable**. `ia02-01-federation-configuration.py`. |
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |
