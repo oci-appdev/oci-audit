@@ -532,12 +532,20 @@ Run the repository regression suite with:
 bash tests/run.sh
 ```
 
+`tests/test-readonly-proof.sh` is the repository-wide read-only gate. Unlike the
+per-collector `--selfcheck` denylists it is an **allowlist**: every OCI wrapper
+call site in every shell file, canonical and legacy, must use a `list`/`get`
+action. It also blocks the 18 SDK operations that are named like reads but issue
+POST, and the 51 reads that return credential or key material — read-only is not
+the same as safe to write into an evidence file, and this repository is public.
+The gate is verified by injection, not just by passing.
+
 The suite performs Bash/Python syntax and read-only checks for CP-9, SC-8,
 SC-28, CM-7, CM-11, CM-2, CM-8 and RA-5. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. The `cp09-01` regression proves that block-volume
 schedule retention, `retention-period` and the `is-retention-lock-enabled` /
-`is-prevent-deletion-enabled` immutability posture reach the evidence CSV. The SC-8 safety gate independently parses all 27 OCI
+`is-prevent-deletion-enabled` immutability posture reach the evidence CSV. The SC-8 safety gate independently parses all 29 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
 interactive plan approval/refusal, checks malformed response handling and
 validates private/formula-safe CSV output. Task 3 exercises all data-store/KMS paths, the current
