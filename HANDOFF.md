@@ -10,6 +10,10 @@
 
 **Delivery:** RA05-01 SDK collector landed in `bc91d6f975bf4bc5cbc35de042e7f5b6a9d69585`; current branch head `4f63cd467d9273c31190c4942df0f2c76d76c413` does not change collector/task status
 
+**Guard rail:** The user has now set Oracle's OCI Python SDK as the required
+implementation standard for all scripts going forward. Do not add or extend
+OCI CLI-based collectors; migrate toward SDK implementations instead.
+
 ## Latest milestone — Task 10 vulnerability tracking
 
 `ra05-01/ra05-01-vulnerability-tracking.py` is the canonical RA-5/SI-2 workflow and the

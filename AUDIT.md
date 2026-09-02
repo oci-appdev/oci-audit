@@ -23,7 +23,10 @@ report and source review identified material CM07-01 defects. Task 8 is also
 Partial after the user selected a simple technical-collection-only CM02 script;
 approved baseline and monthly-review reconciliation are now external evidence.
 
-Task 10 is implemented with Oracle's official OCI Python SDK. Live VSS,
+Task 10 is implemented with Oracle's official OCI Python SDK. The current user
+direction is that this SDK-only approach is now the guard rail for all script
+work going forward, even though several earlier collectors still predate that
+standard. Live VSS,
 approved SLA/tracker/monthly-review and non-VSS evidence remain pending, so it
 is not audit-complete.
 

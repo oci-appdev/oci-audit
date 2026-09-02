@@ -18,6 +18,10 @@ See [MASTER-TASK-LIST.md](MASTER-TASK-LIST.md) for the control-by-control status
 and [HANDOFF.md](HANDOFF.md) for the latest implementation handoff. All future
 collector work must follow [SCRIPT-DESIGN-STANDARD.md](SCRIPT-DESIGN-STANDARD.md).
 
+Going forward, the repository guard rail is Oracle's OCI Python SDK for
+collector implementation work. Existing OCI CLI collectors remain for current
+coverage, but future script changes should migrate toward SDK implementations.
+
 ## Canonical Task 1 workflow
 
 Use these three scripts together under `cp09/`. Legacy `cp09/cp09-01/legacy/backup-storage.sh` and

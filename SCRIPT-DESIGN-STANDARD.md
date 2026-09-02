@@ -2,12 +2,14 @@
 
 **Effective:** 2026-08-27; OCI Python SDK requirement added 2026-09-02
 
-This standard applies to every new or materially redesigned collector in this
-repository. Existing scripts should adopt it when they are next hardened.
+This standard applies to every collector in this repository. Going forward, the
+OCI Python SDK-only requirement is a guard rail for all script work, including
+new collectors, material redesigns and future hardening/migration of existing
+collectors.
 
 ## Required OCI Python SDK foundation
 
-Every new or materially rewritten collector must use Oracle's official
+Every collector implemented or updated going forward must use Oracle's official
 `oci-python-sdk`. Use the version pinned in `ra05-01/requirements-oci-sdk.txt` unless a
 documented service requirement needs a newer Oracle release.
 

@@ -6,6 +6,9 @@
 
 **Rule:** a collector is not proof of control operation until it has been run, reviewed and linked to the approved evidence location.
 
+**Guard rail:** Going forward, collector implementation work in this repository
+must use Oracle's OCI Python SDK rather than the OCI CLI.
+
 ## Status legend
 
 | Status | Meaning |
