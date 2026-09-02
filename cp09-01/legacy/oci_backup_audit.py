@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-oci_backup_audit.py
+cp09-01/legacy/oci_backup_audit.py
 
 DEPRECATED — compatibility/reference collector only. Use the canonical
 cp09-01, cp09-02 and cp09-03 shell collectors for audit evidence. This SDK
@@ -21,10 +21,10 @@ Services covered:
 Output: console summary + timestamped CSV in the current dir.
 
 Usage (in Cloud Shell):
-    python3 oci_backup_audit.py                 # all compartments, all services
-    python3 oci_backup_audit.py -c <ocid>       # single compartment (no subtree)
-    python3 oci_backup_audit.py -s volumes db   # only selected services
-    python3 oci_backup_audit.py --region us-langley-1   # override region
+    python3 cp09-01/legacy/oci_backup_audit.py                 # all compartments, all services
+    python3 cp09-01/legacy/oci_backup_audit.py -c <ocid>       # single compartment (no subtree)
+    python3 cp09-01/legacy/oci_backup_audit.py -s volumes db   # only selected services
+    python3 cp09-01/legacy/oci_backup_audit.py --region us-langley-1   # override region
 
 Auth: uses Cloud Shell delegation token by default. Falls back to config file
 with --profile if run outside Cloud Shell.

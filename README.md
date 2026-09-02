@@ -20,8 +20,8 @@ collector work must follow [SCRIPT-DESIGN-STANDARD.md](SCRIPT-DESIGN-STANDARD.md
 
 ## Canonical Task 1 workflow
 
-Use these three scripts together. Legacy `backup-storage.sh` and
-`oci_backup_audit.py` are retained only for reference.
+Use these three scripts together. Legacy `cp09-01/legacy/backup-storage.sh` and
+`cp09-01/legacy/oci_backup_audit.py` are retained only for reference.
 
 | Script | Evidence dimension |
 |---|---|
@@ -297,8 +297,8 @@ An OCI rule permits traffic but does not prove that a host process is listening
 or that the path is reachable. Complete the layered-control and actual-listener
 checks in [cm07-01/TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md](cm07-01/TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md).
 
-The older `cm07-openports.sh`, `cm07-ppsm.sh` and
-`cm07-proof-opened-ports.sh` files are retained as legacy references. They
+The older `cm07-01/legacy/cm07-openports.sh`, `cm07-01/legacy/cm07-ppsm.sh` and
+`cm07-01/legacy/cm07-proof-opened-ports.sh` files are retained as legacy references. They
 are not canonical evidence collectors because they suppress OCI errors and do
 not enforce the mandatory scope-confirmation boundary.
 

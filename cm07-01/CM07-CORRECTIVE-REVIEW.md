@@ -8,10 +8,10 @@ canonical Task 6 evidence collector.
 
 ## Operator-reported result
 
-- `cm07-openports.sh` produced useful live output.
+- `cm07-01/legacy/cm07-openports.sh` produced useful live output.
 - `cm07-01/cm07-01-open-ports-protocols-services.sh` did not work in the operator's
   environment.
-- `cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` did not work.
+- `cm07-01/legacy/cm07-ppsm.sh` and `cm07-01/legacy/cm07-proof-opened-ports.sh` did not work.
 
 The legacy scripts remain reference implementations only. Their successful or
 failed execution does not override their known error-handling and scope-

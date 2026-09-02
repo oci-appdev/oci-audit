@@ -6,7 +6,7 @@
 #
 # Consolidates and supersedes four earlier scripts in this repo:
 #   backup-storage-access.sh / oci-backup-access.sh  (access surface)
-#   backup-storage.sh        / oci-backup-audit.sh   (where the backups live)
+#   cp09-01/legacy/backup-storage.sh        / oci-backup-audit.sh   (where the backups live)
 #
 # The earlier access scripts stopped at the group name and said so:
 #   "It does not resolve group membership. To see actual humans, cross-reference

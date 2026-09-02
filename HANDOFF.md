@@ -296,8 +296,8 @@ evidence sources.
 
 The expanded CM07-01 mock suite passes locally, but mock success did not expose
 the cross-compartment coverage or ICMP restricted-match defects found during
-controlled use and source review. The legacy `cm07-openports.sh` produced useful
-live output; `cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` did not. Use the
+controlled use and source review. The legacy `cm07-01/legacy/cm07-openports.sh` produced useful
+live output; `cm07-01/legacy/cm07-ppsm.sh` and `cm07-01/legacy/cm07-proof-opened-ports.sh` did not. Use the
 legacy query behavior only as a comparison fixture. Static validation still
 confirms all OCI wrapper sites are restricted to list/get.
 
@@ -453,7 +453,7 @@ bash tests/run.sh
 
 ### Legacy collectors
 
-`backup-storage.sh` and `oci_backup_audit.py` are now explicitly marked
+`cp09-01/legacy/backup-storage.sh` and `cp09-01/legacy/oci_backup_audit.py` are now explicitly marked
 deprecated. They remain as reference implementations but are not canonical
 evidence sources because they lack the CP-9 family's row-level collection
 integrity.
@@ -528,7 +528,7 @@ first. Do not represent it as complete; return to it when the user directs.
 
 ## Resolved Task 6 blocker
 
-The legacy `cm07-proof-opened-ports.sh` stdin collision is superseded by the
+The legacy `cm07-01/legacy/cm07-proof-opened-ports.sh` stdin collision is superseded by the
 canonical CM07-01 collector. Its post-processor receives the baseline path as
 an argument and opens the CSV directly, while the embedded Python program alone
 uses standard input.

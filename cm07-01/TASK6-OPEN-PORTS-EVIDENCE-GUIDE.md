@@ -144,7 +144,7 @@ Approval dates cannot be in the future, and expiration cannot precede approval.
 ## Phase 4 — obtain the authoritative restricted list
 
 Start with
-`templates/cm07-01-restricted-ports-list-template.csv`. The authoritative
+`cm07-01/templates/cm07-01-restricted-ports-list-template.csv`. The authoritative
 PPSM/security-policy owner supplies each entry and must populate:
 
 - unique entry ID;

@@ -34,7 +34,7 @@ implemented next at the user's direction.
 
 ### Task 6 corrective status
 
-The operator reported that legacy `cm07-openports.sh` produced useful output,
+The operator reported that legacy `cm07-01/legacy/cm07-openports.sh` produced useful output,
 while CM07-01 and the legacy PPSM/proof scripts did not work in the target
 environment. Source review confirmed two high-severity correctness defects:
 
@@ -468,7 +468,7 @@ or confirmation boundary.
 
 ## Original SDK collector review
 
-**Script:** `oci_backup_audit.py`
+**Script:** `cp09-01/legacy/oci_backup_audit.py`
 
 **Original review date:** 2026-07-14
 
@@ -555,7 +555,7 @@ replication — all OCS assets (VCN, Shared Services, CD3)"*.
 
 A 7-lens review of `cp09-01/cp09-01-backup-type-config-frequency.sh` against the CP-9 evidence requirement "Backup type/frequency, access, replication — all OCS assets (VCN, Shared Services, CD3)" found several **blocker**-severity defects still open:
 
-- `oci fs snapshot-policy list` is not a real CLI command — every FSS row fails. The correct command (used by `backup-storage.sh`) is `oci fs filesystem-snapshot-policy list`.
+- `oci fs snapshot-policy list` is not a real CLI command — every FSS row fails. The correct command (used by `cp09-01/legacy/backup-storage.sh`) is `oci fs filesystem-snapshot-policy list`.
 - FSS schedules are read off the `list` response, which never carries `schedules` — every FSS policy reports `NO_SCHEDULES` even when one exists.
 - The default config path is `/.oci/config` instead of `$HOME/.oci/config`, so config-auth mode aborts on a normal workstation.
 - The volume→policy linkage relies on an unverified showoci CSV column instead of calling `oci bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment`.
@@ -625,12 +625,12 @@ Added to fill the empty slot between `cp09-01` (type/frequency) and `cp09-03` (r
 
 **Consolidated and removed** (superseded, no unique content lost — verified by diff before deletion):
 - `oci-backup-access.sh` — older duplicate of `backup-storage-access.sh`
-- `oci-backup-audit.sh` — older duplicate of `backup-storage.sh`
+- `oci-backup-audit.sh` — older duplicate of `cp09-01/legacy/backup-storage.sh`
 - `backup-storage-access.sh` — fully superseded by `cp09-02`
 
 **Later status:** `cp09-01` now covers Base DB, ADB, MySQL and PostgreSQL with
-failure-aware rows and a coverage ledger. `backup-storage.sh` and
-`oci_backup_audit.py` are therefore deprecated compatibility/reference
+failure-aware rows and a coverage ledger. `cp09-01/legacy/backup-storage.sh` and
+`cp09-01/legacy/oci_backup_audit.py` are therefore deprecated compatibility/reference
 collectors and are not canonical audit evidence sources.
 
 ### Gaps closed vs. the scripts it replaces
