@@ -269,4 +269,38 @@ assert int(summary["container_recreated"]) > 0, summary
 assert summary["unapproved"] == summary["rules"], summary
 PY
 
-echo "PASS: CM07-01 cross-compartment, ICMP, semantic identity and profile gates"
+# ---------------------------------------------------------------------------
+# 6. The retired CM-7 reference scripts refuse to run.
+# ---------------------------------------------------------------------------
+# They suppress OCI stderr, so a denied call would be recorded as "no rules
+# found". A comment header does not stop an operator running one.
+for legacy in cm07-openports.sh cm07-ppsm.sh cm07-proof-opened-ports.sh; do
+  set +e
+  out="$(bash "$ROOT/$legacy" 2>&1)"
+  rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || { echo "FAIL: $legacy did not refuse to run (rc=$rc)" >&2; exit 1; }
+  printf '%s' "$out" | grep -q 'retired CM-7 reference script' \
+    || { echo "FAIL: $legacy did not explain the refusal" >&2; exit 1; }
+done
+
+# The shipped templates must match what the collector generates, or an operator
+# fills in a schema the reconciler will not accept.
+mkdir -p "$TMP/tmpl"
+PATH="$TMP/bin:$PATH" bash "$SCRIPT" -c "$COMP" -r us-langley-1 \
+  -o "$TMP/tmpl" --inventory-only --non-interactive \
+  --confirm-scope-ocid "$COMP" --approve-scan YES > "$TMP/tmpl.log" 2>&1
+for pair in "cm07-01_approval_baseline_template_*.csv:templates/cm07-01-approval-baseline-template.csv" \
+            "cm07-01_service_mapping_template_*.csv:templates/cm07-01-service-mapping-template.csv"; do
+  gen="$(find "$TMP/tmpl" -name "${pair%%:*}" -print -quit)"
+  shipped="$ROOT/${pair#*:}"
+  a="$(head -1 "$gen" | tr -d '"')"
+  b="$(head -1 "$shipped")"
+  [ "$a" = "$b" ] || {
+    echo "FAIL: shipped template header differs from generated: $shipped" >&2
+    diff <(printf '%s' "$a" | tr ',' '\n') <(printf '%s' "$b" | tr ',' '\n') >&2 || true
+    exit 1
+  }
+done
+
+echo "PASS: CM07-01 cross-compartment, ICMP, semantic identity, profile, legacy and template gates"

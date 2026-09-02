@@ -321,10 +321,10 @@ An OCI rule permits traffic but does not prove that a host process is listening
 or that the path is reachable. Complete the layered-control and actual-listener
 checks in [TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md](TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md).
 
-The older `cm07-openports.sh`, `cm07-ppsm.sh` and
-`cm07-proof-opened-ports.sh` files are retained as legacy references. They
-are not canonical evidence collectors because they suppress OCI errors and do
-not enforce the mandatory scope-confirmation boundary.
+`cm07-openports.sh`, `cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` are
+retired. They **refuse to run and exit `2`**: they suppress OCI errors, so a
+denied call would be recorded as "no rules found", and they predate the
+mandatory scope-confirmation boundary. They remain readable as reference only.
 
 ## Canonical Task 7 workflow
 

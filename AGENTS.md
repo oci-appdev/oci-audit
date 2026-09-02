@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-02 (repository-wide read-only proof)
+**Last updated:** 2026-09-02 (CM07-01 closed out except live validation)
 
 ## Non-negotiable repository rules
 
@@ -56,7 +56,7 @@ making it.
 | Task 11 — configuration change tracking | **Codex** | In progress, OCI Python SDK. Claude must not touch it. |
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
-| Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Code and regressions complete; **live validation still required** before Task 6 leaves Partial. Runbook: `TASK6-LIVE-VALIDATION-RUNBOOK.md`. |
+| Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |
 
 ## SDK-verified changes — do not revert blindly (2026-09-02)
 
@@ -80,6 +80,8 @@ test must be updated with a stated reason, not deleted.
 | `os retention-rule list` and `os replication list-replication-policies` are paginated but were called without `--all` in five places. A truncated list became `repl=NO` / an understated WORM posture — a negative finding from an incomplete read. | `cp09-01`, `cp09-02`, `cp09-03` | `tests/test-cp09-03.sh`, `tests/test-cp09-01-backup-config.sh` |
 | CM07-01 `rule_port_range()` returned `0-65535` for ICMP, so every ICMP rule overlapped every port-scoped restriction and matched entries like "protocol ANY, port 3389". Portless protocols now return `None` and match only protocol-scoped entries, with optional `icmp_type`/`icmp_code` targeting. | `cm07-01-open-ports-protocols-services.sh` | `tests/test-cm07-01-corrective.sh` |
 | CM07-01 listed Security Lists per target compartment, so a list in another compartment attached to an in-scope subnet was missed entirely, and a partial scope could report an attached container as unattached. Referenced OCIDs are now resolved with read-only gets (`UNRESOLVED-SECURITY-LIST` when that fails), and a partial scope reports associations `UNKNOWN` rather than zero. | `cm07-01-open-ports-protocols-services.sh` | `tests/test-cm07-01-corrective.sh` |
+| The three retired CM-7 reference scripts (`cm07-openports.sh`, `cm07-ppsm.sh`, `cm07-proof-opened-ports.sh`) suppress OCI stderr on 14–17 call sites, so a denied call became "no rules found" — rule 3's exact prohibition — and `cm07-ppsm.sh` embedded a static restricted list. A "LEGACY REFERENCE" comment does not stop execution, so they now refuse to run and exit 2. | `cm07-openports.sh`, `cm07-ppsm.sh`, `cm07-proof-opened-ports.sh` | `tests/test-cm07-01-corrective.sh` |
+| The shipped CM07-01 CSV templates drifted from what the collector generates once `semantic_rule_key` and `peer_type` were added, so an operator would have filled in a schema the reconciler rejects. Templates are realigned and a drift gate compares shipped against generated headers. | `templates/cm07-01-*.csv` | `tests/test-cm07-01-corrective.sh` |
 | SC-8 collected no MySQL evidence although `mysql.models.DbSystem.secure_connections` is in-transit TLS configuration and SC-28 already covered MySQL at rest. | `sc08-02-in-transit-encryption.sh` | `tests/test-sc08-02-in-transit-encryption.sh` |
 | Volume backup schedules expose `is-retention-lock-enabled` and `is-prevent-deletion-enabled` (the CP-9 WORM evidence) and may express retention as `retention-period` instead of `retention-seconds`. None of these were collected. | `cp09-01-backup-type-config-frequency.sh` | `tests/test-cp09-01-backup-config.sh` (new) |
 

@@ -84,6 +84,11 @@ Task 6 remains **Partial** until all of the following pass:
   semantic identity;
 - [x] named-profile regression and static proof that every OCI call receives it;
 - [x] full repository test suite;
+- [x] SDK field cross-check of CM07-01 (was never done: the collector was
+  excluded from the 2026-09-02 sweep because it was Partial) — no defect found;
+- [x] shipped CSV templates realigned to the generated schema, with a drift gate;
+- [x] retired reference scripts disabled so they cannot produce misleading
+  evidence;
 - [ ] a controlled compartment run and a controlled tenancy run against known
   network objects, with the approved pre-scan plan retained;
 - [ ] reconciliation of counts against OCI Console/CLI spot checks and documented

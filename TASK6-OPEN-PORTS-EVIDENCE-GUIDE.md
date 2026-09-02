@@ -22,7 +22,8 @@ The collector reads:
 
 - VCNs;
 - subnets and their Security List associations;
-- Security Lists and embedded ingress/egress rules;
+- Security Lists and embedded ingress/egress rules, **including Security Lists
+  that live in another compartment but are attached to an in-scope subnet**;
 - NSGs and their ingress/egress rules;
 - VNIC membership for each NSG;
 - container tags that may help correlate ownership or approval records.
@@ -46,6 +47,14 @@ Oracle references:
 - <https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/network/nsg/rules/list.html>
 - <https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/network/nsg/vnics/list.html>
 - <https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/network/subnet/list.html>
+
+## Retired reference scripts
+
+`cm07-openports.sh`, `cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` refuse to
+run and exit `2`. They suppress OCI stderr, so a denied call would be recorded
+as "no rules found", and `cm07-ppsm.sh` additionally embeds a static restricted
+list that could be mistaken for current organizational policy. They remain in
+the repository as readable reference only.
 
 ## Safety and scope confirmation
 
@@ -185,8 +194,59 @@ The run generates:
 | Coverage | Scope and successful/failed collection by resource type |
 | Error ledger | Retained only when a call or local post-processing step fails |
 
+## Reading the 2026-09-02 corrective outputs
+
+Four things changed when the defects in `CM07-CORRECTIVE-REVIEW.md` were fixed.
+
+**Cross-compartment Security Lists.** A Security List owned by another
+compartment but attached to an in-scope subnet is now resolved with a read-only
+`get` and appears with `container_type` `SecurityList(cross-compartment)` and
+the `compartment_id` of its **owner**, not of the scanned compartment. If that
+resolution fails, you get an `UNRESOLVED-SECURITY-LIST` coverage row and exit
+`3` — never a silently missing rule.
+
+**`attachment_count` of `UNKNOWN` under a partial scope.** A compartment-scoped
+run cannot enumerate subnets elsewhere, so it cannot prove that nothing attaches
+a container. Zero in-scope associations is therefore recorded as `UNKNOWN` with
+an `UNRESOLVED-SUBNET-ASSOCIATION` coverage row. **Do not read this as an
+unattached container.** Run a tenancy scope to establish that; the scan summary
+records `scope_covers_tenancy`.
+
+**ICMP and other portless protocols.** ICMP and ICMPv6 carry type and code, not
+ports, so their `destination_port_min/max` are blank and they no longer match
+port-scoped restricted entries. In the restricted list, an entry naming a range
+narrower than `0-65535` is transport-scoped and cannot describe a portless
+protocol; an entry left at the full range (or blank) is protocol-scoped and does
+cover them. Use `icmp_type`/`icmp_code` to target ICMP specifically. A portless
+entry that names ports is rejected at input validation.
+
+**`semantic_rule_key` and `APPROVED-CONTAINER-RECREATED`.** `rule_key` binds a
+rule to its container OCID; `semantic_rule_key` is the same identity without it.
+When a Security List or NSG is deleted and recreated, its rules are unchanged
+but the OCID is new, so the strict key no longer matches the baseline. That case
+is now labelled `APPROVED-CONTAINER-RECREATED` instead of `UNAPPROVED-DRIFT`.
+**It is counted as unapproved, not approved.** Confirm the new container is the
+approved one, then update the baseline.
+
+`peer_type` is emitted alongside `source_type`; `source_type` names the peer at
+both ends and is misleading on egress rules. `source_type` remains part of the
+identity hash, so existing approved baselines stay valid and either column may
+be supplied.
+
+The run also writes `cm07-01_scan_summary_*.csv`, carrying the region, CLI
+profile, scope type and OCID, compartment count, `scope_covers_tenancy`, the
+subnet-association caveat and every count. Retain it: it is the only record in
+the evidence package of what the run actually covered.
+
+Pass `-p/--profile` when the approved run uses a named OCI CLI profile. It is
+shown in the pre-scan plan and recorded in the scan summary.
+
 ## Review rules
 
+- `APPROVED-CONTAINER-RECREATED` requires confirming the new container is the
+  approved one before the rule is accepted, and a baseline update.
+- `UNRESOLVED-SECURITY-LIST` and `UNRESOLVED-SUBNET-ASSOCIATION` coverage rows
+  mean the inventory is not provably complete for that object.
 - `UNAPPROVED-DRIFT`, `DENIED`, `EXPIRED`,
   `APPROVAL-INCOMPLETE` and `AMBIGUOUS-BASELINE` require disposition.
 - Every `RESTRICTED-MATCH` or `PROHIBITED-MATCH` requires review against
@@ -197,7 +257,9 @@ The run generates:
   `SERVICE-MAPPING-INCOMPLETE` or `UNKNOWN` listener status means actual service
   proof is incomplete and causes exit `3`.
 - Rules in containers with zero subnet/VNIC associations are not reported as
-  active exposure; they remain reviewable stale configuration.
+  active exposure; they remain reviewable stale configuration. Under a partial
+  scope this shows as `UNKNOWN`, not `0`, because absence of an in-scope
+  association does not prove absence of an association.
 - Exit code `3`, non-OK coverage or a retained error ledger means the
   evidence is incomplete.
 - Exit code `0` means collection completed. It does not mean the control

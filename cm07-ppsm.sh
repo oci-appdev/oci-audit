@@ -40,6 +40,35 @@
 #
 # Output: timestamped findings CSV + console summary ranked by severity.
 #
+
+# ---------------------------------------------------------------------------
+# EXECUTION GUARD — this legacy collector cannot produce audit evidence.
+#
+# It suppresses OCI stderr on its API calls, so a denied or failed call becomes
+# an empty result and then a "nothing found" conclusion. That is the exact
+# failure mode AGENTS.md rule 3 forbids: absence is only evidence when the
+# coverage ledger says OK. It also predates the mandatory scope-confirmation
+# boundary in SCRIPT-DESIGN-STANDARD.md.
+#
+# The file is retained as readable reference only. Use the canonical collector:
+#   bash cm07-01-open-ports-protocols-services.sh --selfcheck
+#   bash cm07-01-open-ports-protocols-services.sh -r <region> --inventory-only -o <dir>
+# ---------------------------------------------------------------------------
+cat >&2 <<'CM07_LEGACY_REFUSAL'
+ERROR: this is a retired CM-7 reference script and will not run.
+
+It suppresses OCI errors, so a denied call would be recorded as "no rules
+found". It also has no scope-confirmation gate. Evidence produced by it cannot
+be relied on.
+
+Use the canonical Task 6 collector instead:
+  bash cm07-01-open-ports-protocols-services.sh -r <region> --inventory-only -o <dir>
+
+See CM07-CORRECTIVE-REVIEW.md and TASK6-LIVE-VALIDATION-RUNBOOK.md.
+CM07_LEGACY_REFUSAL
+exit 2
+
+
 set -uo pipefail
 
 command -v oci >/dev/null 2>&1 || { echo "ERROR: oci CLI not found."; exit 1; }

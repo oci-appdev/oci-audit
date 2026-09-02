@@ -53,6 +53,47 @@ removed; the collector's read-only and no-secret safety boundary is unchanged.
 
 ---
 
+## 2026-09-02 — CM07-01 closed out except live validation
+
+Everything in Task 6 that can be finished without a tenancy is finished.
+
+**CM07-01 had never had the SDK field cross-check.** The 2026-09-02 sweep that
+found defects in CP-9, SC-8, SC-28, CM-11 and CM-8 excluded it because it was
+Partial at the time. Closing that gap: all 16 kebab-case field reads exist in
+the current models, the rule parser matches `IngressSecurityRule`,
+`EgressSecurityRule` and `SecurityRule` (including `udp-options`, which is
+handled alongside `tcp-options`), and `proto_name()` maps 1/6/17/58 correctly so
+ICMPv6 lands in the portless set. No defect found.
+
+**The retired reference scripts were live traps.** `cm07-openports.sh`,
+`cm07-ppsm.sh` and `cm07-proof-opened-ports.sh` suppress OCI stderr on 14 to 17
+call sites, so a denied call becomes an empty result and then a "no rules found"
+conclusion — rule 3's exact prohibition. `cm07-ppsm.sh` additionally embeds a
+static DISA-aligned restricted list, which `CM07-CORRECTIVE-REVIEW.md`
+specifically warned could be mistaken for current organizational policy. They
+carried "LEGACY REFERENCE" headers, but a comment does not stop execution, and
+the corrective review notes an operator did run `cm07-openports.sh` and got
+output that looked useful. All three now refuse to run and exit `2`, following
+the precedent set by the CM-8 raw engine. The source stays readable.
+
+**The shipped templates had drifted.** Adding `semantic_rule_key` and
+`peer_type` changed the generated headers but not the checked-in
+`templates/cm07-01-*.csv`, so an operator filling those in would have produced a
+schema the reconciler rejects. Realigned, with a gate that diffs shipped against
+generated headers so it cannot drift again silently.
+
+`TASK6-OPEN-PORTS-EVIDENCE-GUIDE.md` now explains the corrected outputs a
+reviewer will actually meet: cross-compartment rows and their owning
+compartment, `attachment_count=UNKNOWN` under a partial scope and why it is not
+an unattached container, the portless-protocol restricted-list semantics, and
+`APPROVED-CONTAINER-RECREATED` being counted as unapproved.
+
+**Task 6 remains Partial.** The only outstanding gate items are the controlled
+compartment and tenancy runs, which need OCI credentials no agent session has
+had. `TASK6-LIVE-VALIDATION-RUNBOOK.md` is the turnkey procedure.
+
+---
+
 ## 2026-09-02 — repository-wide read-only proof
 
 The per-collector `--selfcheck` gates are denylists: they grep the source for
