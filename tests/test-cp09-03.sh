@@ -36,6 +36,7 @@ PY
 # Complete collection: the asset and coverage rows must both be OK.
 bash "$ROOT/cp09-03-backup-replication-check.sh" \
   -c ocid1.compartment.oc1..test -r us-langley-1 -o "$TMP/success" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   >"$TMP/success.stdout" 2>"$TMP/success.stderr"
 
 SUCCESS_EVIDENCE="$(evidence_csv "$TMP/success")"
@@ -74,6 +75,7 @@ fi
 set +e
 MOCK_DENY_REPLICA=1 bash "$ROOT/cp09-03-backup-replication-check.sh" \
   -c ocid1.compartment.oc1..test -r us-langley-1 -s volumes -o "$TMP/denied" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   >"$TMP/denied.stdout" 2>"$TMP/denied.stderr"
 DENIED_RC=$?
 set -e

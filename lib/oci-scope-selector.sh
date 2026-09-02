@@ -167,12 +167,21 @@ oci_scope_print_scan_plan() {
   echo "======================================================================"
 }
 
-# Interactive/manual runs require exact uppercase YES. Explicit -c/-n runs are
-# the approved non-interactive automation path and still print the resolved
-# plan to their job log.
+# Every prompted run requires exact uppercase YES.
+#
+# This used to accept 0 to mean "explicit -c/-n is an approved non-interactive
+# path", which let a -c/-n run start collecting with no OCID confirmation and no
+# approval value. That bypass is removed: automation now goes through
+# oci_scope_validate_automation, and passing 0 here fails closed rather than
+# silently approving a scan.
 oci_scope_require_final_approval() {
   local interactive="$1" approval
   OCI_SCOPE_APPROVAL_ERROR=""
+
+  if [ "$interactive" -ne 1 ]; then
+    OCI_SCOPE_APPROVAL_ERROR="final approval was requested in a non-prompting mode; use oci_scope_validate_automation for automation"
+    return 2
+  fi
 
   if [ "$interactive" -eq 1 ]; then
     echo "Scope discovery is complete. No workload-service scan has started."
@@ -187,9 +196,93 @@ oci_scope_require_final_approval() {
     fi
     echo "SCAN APPROVED: starting read-only service collection."
     echo
-  else
-    echo "Approval mode   : approved non-interactive scope supplied with -c or -n"
-    echo
   fi
+  return 0
+}
+
+# Confirm every resolved target OCID twice for a manual -c/-n run.
+#
+# Supplying -c or -n selects a scope; it is not evidence that the scan was
+# approved. A manual run using those flags must therefore confirm each resolved
+# compartment OCID exactly, twice, before the plan is printed.
+#
+# Argument: the resolved target catalog as OCID<TAB>name, one row per target.
+# On refusal or mismatch this sets OCI_SCOPE_APPROVAL_ERROR and returns 2; the
+# caller aborts before any workload-service call so it can remove its own
+# header-only outputs.
+oci_scope_confirm_resolved_targets() {
+  local catalog="$1" cid cname first second
+  OCI_SCOPE_APPROVAL_ERROR=""
+
+  echo
+  echo "Resolved command-line scope requires interactive OCID confirmation."
+  while IFS=$'\t' read -r cid cname <&3; do
+    [ -n "$cid" ] || continue
+    echo
+    echo "Target: ${cname:-<unknown>}"
+    echo "OCID  : $cid"
+    echo "Enter this exact OCID to select the target."
+    if ! IFS= read -r first; then
+      OCI_SCOPE_APPROVAL_ERROR="scope OCID was not provided"
+      return 2
+    fi
+    first="$(oci_scope_trim "$first")"
+    if [ "$first" != "$cid" ]; then
+      OCI_SCOPE_APPROVAL_ERROR="scope OCID did not match $cid"
+      return 2
+    fi
+    echo "Re-enter the exact same OCID to confirm the target."
+    if ! IFS= read -r second; then
+      OCI_SCOPE_APPROVAL_ERROR="scope confirmation was not provided"
+      return 2
+    fi
+    second="$(oci_scope_trim "$second")"
+    if [ "$second" != "$cid" ]; then
+      OCI_SCOPE_APPROVAL_ERROR="scope confirmation did not match $cid"
+      return 2
+    fi
+  done 3<<< "$catalog"
+
+  echo
+  echo "All resolved target OCIDs were confirmed twice."
+  return 0
+}
+
+# Validate an explicit --non-interactive automation run.
+#
+# Scheduled runs cannot prompt, so the approved job definition must carry one
+# exact --confirm-scope-ocid for every resolved target and an exact
+# --approve-scan YES. Both are validated only after the plan is printed, and
+# both fail closed.
+#
+# Argument: the resolved target catalog as OCID<TAB>name.
+# Reads the caller's CONFIRM_SCOPE_OCIDS array and APPROVE_SCAN variable.
+oci_scope_validate_automation() {
+  local catalog="$1" cid cname index=0 expected actual
+  OCI_SCOPE_APPROVAL_ERROR=""
+
+  expected="$(printf '%s\n' "$catalog" | grep -c . || true)"
+  actual="${#CONFIRM_SCOPE_OCIDS[@]}"
+  if [ "$actual" -ne "$expected" ]; then
+    OCI_SCOPE_APPROVAL_ERROR="automation supplied $actual scope confirmations; expected $expected"
+    return 2
+  fi
+
+  while IFS=$'\t' read -r cid cname; do
+    [ -n "$cid" ] || continue
+    if [ "${CONFIRM_SCOPE_OCIDS[$index]}" != "$cid" ]; then
+      OCI_SCOPE_APPROVAL_ERROR="automation confirmation $((index+1)) did not match resolved OCID $cid"
+      return 2
+    fi
+    index=$((index+1))
+  done <<< "$catalog"
+
+  if [ "$APPROVE_SCAN" != "YES" ]; then
+    OCI_SCOPE_APPROVAL_ERROR="automation did not supply exact --approve-scan YES"
+    return 2
+  fi
+
+  echo "AUTOMATION APPROVED: every resolved OCID matched and --approve-scan was exact YES."
+  echo
   return 0
 }

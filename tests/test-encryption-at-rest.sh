@@ -11,7 +11,9 @@ ln -s "$ROOT/tests/mock-oci-task3" "$TMP/bin/oci"
 COMPARTMENT='ocid1.compartment.oc1..test'
 
 PATH="$TMP/bin:$PATH" bash "$ROOT/sc28-oci-encryption-at-rest.sh" \
-  -c "$COMPARTMENT" -r us-langley-1 -o "$TMP/success" > "$TMP/success.out"
+  -c "$COMPARTMENT" -r us-langley-1 -o "$TMP/success" \
+  --non-interactive --confirm-scope-ocid "$COMPARTMENT" --approve-scan YES \
+  > "$TMP/success.out"
 
 evidence="$(find "$TMP/success" -name 'oci_atrest_encryption_*.csv' ! -name '*coverage*' ! -name '*collection_errors*' -print -quit)"
 coverage="$(find "$TMP/success" -name 'oci_atrest_encryption_coverage_*.csv' -print -quit)"
@@ -102,7 +104,9 @@ grep -q 'RESULT   : COMPLETE' "$TMP/success.out"
 
 MOCK_ROTATION_FAILED=1 PATH="$TMP/bin:$PATH" \
   bash "$ROOT/sc28-oci-encryption-at-rest.sh" -c "$COMPARTMENT" \
-    -r us-langley-1 -s vault -o "$TMP/rotation" > "$TMP/rotation.out"
+    -r us-langley-1 -s vault -o "$TMP/rotation" \
+    --non-interactive --confirm-scope-ocid "$COMPARTMENT" --approve-scan YES \
+    > "$TMP/rotation.out"
 rotation_evidence="$(find "$TMP/rotation" -name 'oci_atrest_encryption_*.csv' ! -name '*coverage*' ! -name '*collection_errors*' -print -quit)"
 grep -q 'AUTO-ROTATION-FAILED' "$rotation_evidence"
 grep -q 'RESULT   : COMPLETE' "$TMP/rotation.out"
@@ -110,7 +114,9 @@ grep -q 'RESULT   : COMPLETE' "$TMP/rotation.out"
 set +e
 MOCK_DENY_KEY_LIST=1 PATH="$TMP/bin:$PATH" \
   bash "$ROOT/sc28-oci-encryption-at-rest.sh" -c "$COMPARTMENT" \
-    -r us-langley-1 -s vault -o "$TMP/denied" > "$TMP/denied.out" 2>&1
+    -r us-langley-1 -s vault -o "$TMP/denied" \
+    --non-interactive --confirm-scope-ocid "$COMPARTMENT" --approve-scan YES \
+    > "$TMP/denied.out" 2>&1
 rc=$?
 set -e
 [ "$rc" -eq 3 ]

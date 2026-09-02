@@ -25,6 +25,7 @@ bash -n \
   tests/mock-oci-scope \
   tests/mock-oci-cp0901 \
   tests/test-cp09-01-backup-config.sh \
+  tests/test-task1-3-automation-contract.sh \
   tests/test-cp09-03.sh \
   tests/test-sc08-02-in-transit-encryption.sh \
   tests/test-sc8-safety.sh \
@@ -53,6 +54,7 @@ bash cm02-01-configuration-baseline.sh --selfcheck
 bash cm08-01-component-inventory-baseline.sh --selfcheck
 python3 ra05-01-vulnerability-tracking.py --selfcheck
 bash tests/test-cp09-01-backup-config.sh
+bash tests/test-task1-3-automation-contract.sh
 bash tests/test-cp09-03.sh
 bash tests/test-sc8-safety.sh
 bash tests/test-sc08-02-in-transit-encryption.sh

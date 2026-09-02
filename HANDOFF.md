@@ -14,10 +14,47 @@ completed-task SDK recheck, merged up to `030af450`. Not yet merged to `main`.
 GitHub Actions has not reported a run for `030af450`, so CI is not verified for
 that head — check the workflow before treating it as gated.
 
-**Outstanding implementation item:** the CP-9, SC-8 and SC-28 collectors are not
-retrofitted to the strict automation contract in `SCRIPT-DESIGN-STANDARD.md`.
-Their `-c`/`-n` paths skip the double-OCID confirmation and exact
-`--approve-scan YES`. See `MASTER-TASK-LIST.md` and the README warning.
+**Scope-automation retrofit:** complete as of 2026-09-02. All nine canonical
+collectors implement the strict contract; the `-c`/`-n` bypass is gone from the
+codebase and from the shared helper. See the milestone below.
+
+## 2026-09-02 milestone — Task 1-3 scope-automation retrofit
+
+A documentation review found that the README presented `-c`/`-n` as an approved
+non-interactive automation mode for CP-9, SC-8 and SC-28. The scripts matched
+the README, not the standard: `grep -c 'confirm-scope-ocid'` returned 0 for all
+five, and `oci_scope_require_final_approval` accepted a 0 argument that printed
+"approved non-interactive scope supplied with -c or -n" and returned success
+without any confirmation. A `-c` run collected evidence with no OCID
+confirmation and no approval value.
+
+All five are retrofitted:
+
+- `--non-interactive`, repeatable `--confirm-scope-ocid` and `--approve-scan`
+  are parsed, and the automation options are rejected without
+  `--non-interactive`;
+- a manual `-c`/`-n` run confirms every resolved OCID twice through the new
+  shared `oci_scope_confirm_resolved_targets`, then requires exact uppercase
+  `YES` after the plan;
+- automation validates through the new shared `oci_scope_validate_automation`:
+  one exact confirmation per resolved target, in order, plus exact
+  `--approve-scan YES`;
+- `oci_scope_require_final_approval` no longer has a non-prompting branch. Every
+  caller passes 1, and any other value fails closed, so the bypass cannot be
+  reintroduced by changing one argument.
+
+**Breaking change.** Existing `-c`/`-n` job definitions for these five scripts
+now fail closed until they add `--non-interactive`, their confirmations and
+`--approve-scan YES`. That is the intended direction: an unconfirmed scheduled
+scan stops instead of collecting.
+
+`tests/test-task1-3-automation-contract.sh` is the fail-closed regression —
+manual run without an operator, refused plan, mismatched confirmation, missing /
+wrong / miscounted automation confirmation, five rejected approval values,
+options without `--non-interactive`, `--non-interactive` without a scope or
+combined with `-i`, a correct automation run that still collects, and a static
+check that no collector still advertises the bypass. The existing CP-9, SC-8 and
+SC-28 mock tests were converted to the automation form.
 
 ## 2026-09-02 milestone — Task 10 vulnerability tracking (current published head)
 
@@ -519,9 +556,7 @@ order:
    Remedy CRQs, system-owner approval and representative approved change
    samples.
 2. **Outstanding correction:** Task 6 CM07-01, per `CM07-CORRECTIVE-REVIEW.md`.
-3. **Outstanding implementation item:** retrofit the CP-9, SC-8 and SC-28
-   `-c`/`-n` paths to the strict automation contract.
-4. **Worksheet backlog:** Task 5 Continuous Monitoring Form review/feedback,
+3. **Worksheet backlog:** Task 5 Continuous Monitoring Form review/feedback,
    deferred by the user in favour of Tasks 6–9.
 
 Detail on each follows.

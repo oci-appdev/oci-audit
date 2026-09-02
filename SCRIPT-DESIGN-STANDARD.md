@@ -123,11 +123,18 @@ The shared double-OCID implementation and regression examples are:
 - `tests/test-cm02-01-configuration-baseline.sh`
 - `tests/test-cm08-01-component-inventory.sh`
 
-All nine canonical Task 1–3 and Task 6–9 collectors default no-scope manual runs to
-the shared interactive workflow and implement the pre-scan summary plus
-exact-`YES` gate. CM07-01 also implements the stricter explicit automation
-contract above, as do CM11-01, CM02-01 and CM08-01. Retrofit the earlier collectors before their next material
-change; every future collector must use the strict contract when introduced.
+All nine canonical Task 1–3 and Task 6–9 collectors default no-scope manual runs
+to the shared interactive workflow and implement the pre-scan summary plus
+exact-`YES` gate. As of 2026-09-02 all nine also implement the strict explicit
+automation contract above: the CP-9, SC-8 and SC-28 retrofit is complete, so
+there are no remaining collectors on the old `-c`/`-n` bypass. Every future
+collector must use the strict contract when introduced.
+
+The shared implementations are `oci_scope_confirm_resolved_targets` and
+`oci_scope_validate_automation` in `lib/oci-scope-selector.sh`.
+`oci_scope_require_final_approval` no longer has a non-prompting branch; passing
+anything other than `1` fails closed. The cross-collector fail-closed regression
+is `tests/test-task1-3-automation-contract.sh`.
 
 `ra05-01-vulnerability-tracking.py` is the first collector built on the Oracle
 SDK standard. Its shared SDK primitives are in `lib/oci_audit_sdk.py`, and its

@@ -93,14 +93,27 @@ OUTDIR="."
 SERVICES="volumes bootvol object fss adb basedb mysql postgres vault"
 SELECT_SCOPE=0
 
+NON_INTERACTIVE=0
+APPROVE_SCAN=""
+CONFIRM_SCOPE_OCIDS=()
+
+# Long options are consumed here so getopts only sees short options. The three
+# automation options take values, so this loop shifts rather than iterating.
 NORMALIZED_ARGS=()
-for arg in "$@"; do
-  case "$arg" in
-    --select-scope) SELECT_SCOPE=1 ;;
-    *) NORMALIZED_ARGS+=("$arg") ;;
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --select-scope) SELECT_SCOPE=1; shift ;;
+    --non-interactive) NON_INTERACTIVE=1; shift ;;
+    --confirm-scope-ocid)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "ERROR: --confirm-scope-ocid requires a value." >&2; exit 1; }
+      CONFIRM_SCOPE_OCIDS+=("$2"); shift 2 ;;
+    --approve-scan)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "ERROR: --approve-scan requires a value." >&2; exit 1; }
+      APPROVE_SCAN="$2"; shift 2 ;;
+    *) NORMALIZED_ARGS+=("$1"); shift ;;
   esac
 done
-set -- "${NORMALIZED_ARGS[@]}"
+set -- ${NORMALIZED_ARGS[@]+"${NORMALIZED_ARGS[@]}"}
 
 while getopts "ic:n:r:s:o:h" opt; do
   case "$opt" in
@@ -120,6 +133,21 @@ if [ "$SELECT_SCOPE" -eq 1 ] && { [ -n "$SINGLE_COMP" ] || [ -n "$COMP_NAMES_FIL
   exit 1
 fi
 
+if [ "$NON_INTERACTIVE" -eq 1 ] && [ "$SELECT_SCOPE" -eq 1 ]; then
+  echo "ERROR: --non-interactive cannot be combined with -i/--select-scope." >&2
+  exit 1
+fi
+
+if [ "$NON_INTERACTIVE" -eq 1 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
+  echo "ERROR: --non-interactive requires an explicit -c or -n scope." >&2
+  exit 1
+fi
+
+if [ "$NON_INTERACTIVE" -eq 0 ] && { [ "${#CONFIRM_SCOPE_OCIDS[@]}" -gt 0 ] || [ -n "$APPROVE_SCAN" ]; }; then
+  echo "ERROR: --confirm-scope-ocid and --approve-scan require --non-interactive." >&2
+  exit 1
+fi
+
 if [ -n "$SINGLE_COMP" ] && [ -n "$COMP_NAMES_FILTER" ]; then
   echo "ERROR: -c and -n are mutually exclusive scope modes." >&2
   exit 1
@@ -134,6 +162,10 @@ fi
 
 # A normal operator run always discovers the tenancy/compartments and asks for
 # the exact OCID. Explicit -c/-n remain the approved automation path.
+# Explicit -c/-n select a scope but do not approve a scan: a manual -c/-n run
+# still confirms every resolved OCID twice and requires exact uppercase YES.
+# Only --non-interactive is an automation path, and it carries its own
+# confirmations.
 if [ "$SELECT_SCOPE" -eq 0 ] && [ -z "$SINGLE_COMP" ] && [ -z "$COMP_NAMES_FILTER" ]; then
   SELECT_SCOPE=1
 fi
@@ -381,6 +413,12 @@ done <<< "$COMPS"
 PLAN_WORK=""
 for svc in $SERVICES; do PLAN_WORK+="${svc}"$'\n'; done
 
+# A manual -c/-n run selected a scope on the command line but has not confirmed
+# it. Do that before the plan is printed and before any workload call.
+if [ "$SELECT_SCOPE" -eq 0 ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
+  oci_scope_confirm_resolved_targets "$PLAN_TARGETS" || abort_before_scan "$OCI_SCOPE_APPROVAL_ERROR"
+fi
+
 oci_scope_print_scan_plan \
   "SC-28 ENCRYPTION AT REST" "sc28-oci-encryption-at-rest.sh" \
   "SC-28 / SC-28(1) / SC-12" "${REGION_OVERRIDE:-<cloud-shell-default>}" \
@@ -388,7 +426,11 @@ oci_scope_print_scan_plan \
   "$PLAN_TARGETS" "Requested service scans" "$PLAN_WORK" \
   "$OUT"$'\n'"$COVERAGE"$'\n'"$ERROUT" \
   "resource/key OCIDs, encryption mode, Vault lifecycle and rotation posture; no key material"
-if ! oci_scope_require_final_approval "$SELECT_SCOPE"; then
+# Passing 1 rather than $SELECT_SCOPE is the fix: a manual -c/-n run now
+# requires exact uppercase YES after the plan instead of proceeding silently.
+if [ "$NON_INTERACTIVE" -eq 1 ]; then
+  oci_scope_validate_automation "$PLAN_TARGETS" || abort_before_scan "$OCI_SCOPE_APPROVAL_ERROR"
+elif ! oci_scope_require_final_approval 1; then
   abort_before_scan "$OCI_SCOPE_APPROVAL_ERROR"
 fi
 

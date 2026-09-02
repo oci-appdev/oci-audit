@@ -18,7 +18,9 @@ ln -s "$ROOT/tests/mock-oci-cp0901" "$TMP/bin/oci"
 COMPARTMENT='ocid1.compartment.oc1..test'
 
 PATH="$TMP/bin:$PATH" bash "$ROOT/cp09-01-backup-type-config-frequency.sh" \
-  -c "$COMPARTMENT" -r us-langley-1 -s volumes -o "$TMP/out" > "$TMP/run.out" 2>&1
+  -c "$COMPARTMENT" -r us-langley-1 -s volumes -o "$TMP/out" \
+  --non-interactive --confirm-scope-ocid "$COMPARTMENT" --approve-scan YES \
+  > "$TMP/run.out" 2>&1
 
 config="$(find "$TMP/out" -name 'cp09-01_backup_config_config_*.csv' -print -quit)"
 coverage="$(find "$TMP/out" -name 'cp09-01_backup_config_coverage_*.csv' -print -quit)"

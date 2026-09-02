@@ -10,6 +10,7 @@ mkdir -p "$TMP/bin" "$TMP/success" "$TMP/single-tunnel" "$TMP/denied" \
 ln -s "$ROOT/tests/mock-oci-task2" "$TMP/bin/oci"
 
 PATH="$TMP/bin:$PATH" bash "$ROOT/sc08-02-in-transit-encryption.sh" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   -c ocid1.compartment.oc1..test \
   -r us-langley-1 \
   -o "$TMP/success" >/dev/null
@@ -38,6 +39,7 @@ fi
 # OCI Site-to-Site VPN creates two tunnels per connection. A successful list
 # that returns only one is a configuration finding, not a collection failure.
 PATH="$TMP/bin:$PATH" MOCK_SINGLE_TUNNEL=1 bash "$ROOT/sc08-02-in-transit-encryption.sh" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   -c ocid1.compartment.oc1..test \
   -r us-langley-1 \
   -s ipsec \
@@ -52,6 +54,7 @@ grep -q '"IPSecTunnel","1","OK",""' "$single_coverage"
 
 set +e
 PATH="$TMP/bin:$PATH" MOCK_DENY_TUNNEL=1 bash "$ROOT/sc08-02-in-transit-encryption.sh" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   -c ocid1.compartment.oc1..test \
   -r us-langley-1 \
   -s ipsec \
@@ -78,6 +81,7 @@ fi
 # verified zero-resource result.
 set +e
 PATH="$TMP/bin:$PATH" MOCK_BAD_SHAPE_LB=1 bash "$ROOT/sc08-02-in-transit-encryption.sh" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   -c ocid1.compartment.oc1..test -r us-langley-1 -s lb \
   -o "$TMP/bad-shape" > "$TMP/bad-shape.out" 2>&1
 rc=$?
@@ -94,6 +98,7 @@ grep -q 'unexpected data shape' "$bad_errors"
 # OCI-controlled names are neutralized before CSV output so opening evidence
 # in a spreadsheet cannot execute a leading formula character.
 PATH="$TMP/bin:$PATH" MOCK_FORMULA_NAME=1 bash "$ROOT/sc08-02-in-transit-encryption.sh" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   -c ocid1.compartment.oc1..test -r us-langley-1 -s lb \
   -o "$TMP/formula" >/dev/null
 formula_evidence="$(find "$TMP/formula" -name 'sc08-02_intransit_encryption_*.csv' \
@@ -103,6 +108,7 @@ grep -q '"'"'"'=2+3/https"' "$formula_evidence"
 
 # Backend TLS without peer verification is a review finding, not an OK row.
 PATH="$TMP/bin:$PATH" MOCK_BACKEND_VERIFY_FALSE=1 bash "$ROOT/sc08-02-in-transit-encryption.sh" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   -c ocid1.compartment.oc1..test -r us-langley-1 -s lb \
   -o "$TMP/backend-verify" >/dev/null
 verify_evidence="$(find "$TMP/backend-verify" -name 'sc08-02_intransit_encryption_*.csv' \
@@ -112,6 +118,7 @@ grep -q 'verify-peer-certificate=false","REVIEW-BACKEND-CERT-VERIFY-DISABLED"' "
 # Missing volume encryption fields remain UNKNOWN and require review; absence
 # must not be converted into a false DISABLED assertion.
 PATH="$TMP/bin:$PATH" MOCK_VOLUME_FIELD_MISSING=1 bash "$ROOT/sc08-02-in-transit-encryption.sh" \
+  --non-interactive --confirm-scope-ocid ocid1.compartment.oc1..test --approve-scan YES \
   -c ocid1.compartment.oc1..test -r us-langley-1 -s volumes \
   -o "$TMP/missing-volume-field" >/dev/null
 missing_evidence="$(find "$TMP/missing-volume-field" -name 'sc08-02_intransit_encryption_*.csv' \
