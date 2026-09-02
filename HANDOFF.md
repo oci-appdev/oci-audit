@@ -1,14 +1,41 @@
 # Implementation Handoff
 
-**Updated:** 2026-09-01
+**Updated:** 2026-09-02
 
-**Published branch:** `main`
+**Working branch:** `codex/task10-ra05-sdk`
 
-**Simplified CM02 implementation:** `57de7e34dc46e53461db34172ed066351c6b35f8`
+**Base commit:** `ec973ceb8b9dd70e05627a435712bd35e196eee7`
 
-**Current milestone:** Tasks 1–3, 7 and 9 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
+**Current milestone:** Tasks 1–3, 7, 9 and 10 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-**Delivery:** simple CM02 technical collector published after focused and full local gates passed
+**Delivery:** RA05-01 SDK collector is under final repository validation before publication
+
+## Latest milestone — Task 10 vulnerability tracking
+
+`ra05-01-vulnerability-tracking.py` is the canonical RA-5/SI-2 workflow and the
+first collector under the user-directed Oracle OCI Python SDK standard. The
+reviewed SDK is pinned in `requirements-oci-sdk.txt`; shared authentication,
+pagination, retry, guarded list/get, error and private-output primitives are in
+`lib/oci_audit_sdk.py`.
+
+The collector covers Compute and OCI Container Registry asset visibility, VSS
+host/container targets, latest scan results and detailed CVE/package findings.
+It resolves target objects across compartments on tenancy runs and uses
+`UNKNOWN`, never `NO`, when an exact-compartment run cannot exclude an
+out-of-scope target object.
+
+The workflow separates technical facts from organizational decisions. It
+generates an SLA-policy template and ingests only an authority-approved SLA;
+uses stable finding keys to reconcile remediation owner, ticket, planned date,
+follow-up and time-bound exceptions; and validates a monthly review against the
+exact snapshot SHA-256 and current counts. Collection errors retain OCI status,
+service code and request ID. Outputs are mode `0600` and formula-safe.
+
+The mock gate is `tests/test-ra05-01-vulnerability-tracking.py`. It covers SDK
+pagination, detailed host/container findings, cross-compartment target
+resolution, exact-scope conservatism, mutation injection, manual and automation
+refusal before workload clients, denied detailed reads and complete governed
+reconciliation.
 
 ## Mandatory scope-selection standard
 
@@ -472,9 +499,9 @@ this public repository.
 
 ## Next implementation task for Claude
 
-Task 9 implementation is complete. Confirm the published `origin/main` head
-contains the CM02 commit followed by the CM08 commit and confirm GitHub Actions
-on that exact head before using either workflow for controlled OCI evidence.
+Task 10 implementation is complete after the final local/published gate. The
+next worksheet item is Task 11 configuration-change tracking: Remedy CRQs,
+system-owner approval and representative approved change samples.
 
 The outstanding corrective item is Task 6. Patch CM07-01 according to
 `CM07-CORRECTIVE-REVIEW.md`, extend the mock suite and complete known-object
@@ -482,11 +509,10 @@ compartment and tenancy runs before promoting it again. Do not allow an
 unresolved cross-compartment association to produce `OK` coverage or an
 inactive-container conclusion, and do not apply transport-port overlap to ICMP.
 
-In the user's Task 7 → Task 8 → Task 9 progression, the next worksheet item is
-Task 10 — vulnerability tracking: monthly tracker, remediation SLA/owner,
-follow-up, exception and closure evidence. CM08 package/update counts are only
-technical inputs and must not be represented as the vulnerability tracker or
-proof of remediation.
+Do not represent a successful RA05 technical run as vulnerability-management
+approval. Complete the approved SLA, remediation tracker, exceptions,
+follow-up, rescans, monthly review and non-VSS/third-party coverage described in
+`TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`.
 
 Task 5 Continuous Monitoring Form review/feedback remains the earliest
 unimplemented worksheet item because the user chose to advance Tasks 6–9

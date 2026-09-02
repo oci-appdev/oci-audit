@@ -7,11 +7,11 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1, 2, 3, 7 and 9: implementation milestones complete;
+- Tasks 1, 2, 3, 7, 9 and 10: implementation milestones complete;
   live/approved evidence is still pending.
 - Tasks 6 and 8: partial collectors exist; Task 6 has corrective blockers and
   Task 8 is now intentionally technical-collection-only.
-- Tasks 5, 10–14 and 16–18: not yet implemented in this repository.
+- Tasks 5, 11–14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
 See [MASTER-TASK-LIST.md](MASTER-TASK-LIST.md) for the control-by-control status
@@ -51,7 +51,7 @@ Scripts 01, 02 and 03 default to interactive scope discovery. They discover
 the authenticated tenancy and active compartments, require the selected OCID
 twice, display the complete resolved scan plan, and require exact uppercase
 `YES` before service collection starts. The same mandatory interface is
-implemented by the Task 2, Task 3, Task 6, Task 7, Task 8 and Task 9 collectors:
+implemented by the Task 2, Task 3, Task 6, Task 7, Task 8, Task 9 and Task 10 collectors:
 
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
@@ -448,6 +448,53 @@ runtime-allowlisted read actions. See
 [TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md](TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md)
 for the monthly lifecycle and evidence boundaries.
 
+## Canonical Task 10 workflow
+
+`ra05-01-vulnerability-tracking.py` is the RA-5/SI-2 host and container
+vulnerability workflow and the first collector built on Oracle's official OCI
+Python SDK standard. Install the reviewed SDK version in an approved virtual
+environment when it is not already present:
+
+```bash
+python3 -m pip install -r requirements-oci-sdk.txt
+python3 ra05-01-vulnerability-tracking.py --selfcheck
+```
+
+Start with a guarded technical collection:
+
+```bash
+python3 ra05-01-vulnerability-tracking.py \
+  -r us-langley-1 \
+  -o ./evidence/task10-inventory
+```
+
+The collector uses generated Identity, Compute, Artifacts and Vulnerability
+Scanning clients, Oracle pagination and Oracle retries. Its runtime method
+allowlist contains only required `list_*` and `get_*` operations. The normal
+command requires an exact tenancy/compartment OCID twice, prints every target,
+SDK operation and output, then requires exact uppercase `YES`.
+
+The first run generates organization-owned SLA and remediation tracker
+templates. After supplying the approved SLA and completed tracker, run once
+without `--monthly-review`; the expected exit `3` produces the reconciled,
+current-count monthly-review template. After approval, supply all three inputs
+for the governed package:
+
+```bash
+python3 ra05-01-vulnerability-tracking.py \
+  -r us-langley-1 \
+  --sla-policy ./approved/ra05-sla-policy.csv \
+  --remediation-tracker ./approved/ra05-remediation-tracker.csv \
+  --monthly-review ./approved/ra05-monthly-review.csv \
+  -o ./evidence/task10-final
+```
+
+The workflow uses stable finding keys, validates owners/tickets/follow-up and
+exceptions, calculates due dates only from the supplied approved SLA, and
+binds the monthly review to exact snapshot SHA-256 and counts. See
+[TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md](TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md)
+for the full run/review sequence and non-VSS coverage requirements.
+
 ## Tests
 
 Run the repository regression suite with:
@@ -456,8 +503,8 @@ Run the repository regression suite with:
 bash tests/run.sh
 ```
 
-The suite performs Bash syntax and read-only checks for CP-9, SC-8, SC-28,
-CM-7, CM-11, CM-2 and CM-8. It
+The suite performs Bash/Python syntax and read-only checks for CP-9, SC-8,
+SC-28, CM-7, CM-11, CM-2, CM-8 and RA-5. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
@@ -487,6 +534,12 @@ identity, approved prior-inventory matching, exact addition/removal/change
 dispositions, count-bound monthly review, guest/provider coverage gaps, denied
 collection, installed-package/profile propagation, formula safety and all
 manual/automation scope refusal paths.
+RA05-01 regressions mock Oracle SDK clients and prove official pagination,
+host/container CVE and package extraction, cross-compartment scan-target
+resolution, conservative exact-scope evidence, structured service failures,
+private/formula-safe output, double-OCID/plan/`YES` refusal, strict automation,
+approved SLA ingestion, stable-key remediation reconciliation and exact
+snapshot/count-bound monthly review validation.
 
 ## Evidence handling
 

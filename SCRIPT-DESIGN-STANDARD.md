@@ -1,9 +1,36 @@
 # OCI Audit Collector Design Standard
 
-**Effective:** 2026-08-27
+**Effective:** 2026-08-27; OCI Python SDK requirement added 2026-09-02
 
 This standard applies to every new or materially redesigned collector in this
 repository. Existing scripts should adopt it when they are next hardened.
+
+## Required OCI Python SDK foundation
+
+Every new or materially rewritten collector must use Oracle's official
+`oci-python-sdk`. Use the version pinned in `requirements-oci-sdk.txt` unless a
+documented service requirement needs a newer Oracle release.
+
+- Use generated service clients and model attributes. Do not implement custom
+  REST requests or duplicate SDK response models.
+- Use `oci.pagination.list_call_get_all_results` for paginated list operations.
+- Use `oci.retry.DEFAULT_RETRY_STRATEGY` unless the collector documents why a
+  narrower Oracle SDK strategy is required.
+- Use supported SDK authentication: config profiles, instance principals or
+  resource principals. Require and record one explicit region.
+- Put every cloud method behind an explicit runtime allowlist containing only
+  required `list_*` and `get_*` methods. The self-check must fail if a mutating
+  method enters that allowlist.
+- Retain OCI HTTP status, service code and `opc-request-id` in the collection
+  error ledger. A denied or malformed response must never become an empty or
+  compliant result.
+- Mock generated clients in regressions; prove that refusal and confirmation
+  failure make no workload-client calls.
+
+Do not recreate pagination, retries, signing, endpoints, request serialization
+or service schemas unless the official SDK lacks the required capability. If
+that happens, record the exact SDK limitation in `AUDIT.md` before adding a
+custom implementation.
 
 ## Required scope-selection interface
 
@@ -14,7 +41,8 @@ Every collector must support both of these modes:
 2. **Non-interactive:** an explicit automation mode plus compartment
    OCID/name flags, resolved-OCID confirmations and an exact approval value
 
-Interactive mode must use `lib/oci-scope-selector.sh` and follow this sequence:
+Shell collectors use `lib/oci-scope-selector.sh`. Python SDK collectors must
+implement the same sequence through their shared SDK safety helper:
 
 1. Resolve the authenticated tenancy OCID using a read-only OCI call.
 2. List all active child compartments visible with `--access-level ANY` and
@@ -100,3 +128,7 @@ the shared interactive workflow and implement the pre-scan summary plus
 exact-`YES` gate. CM07-01 also implements the stricter explicit automation
 contract above, as do CM11-01, CM02-01 and CM08-01. Retrofit the earlier collectors before their next material
 change; every future collector must use the strict contract when introduced.
+
+`ra05-01-vulnerability-tracking.py` is the first collector built on the Oracle
+SDK standard. Its shared SDK primitives are in `lib/oci_audit_sdk.py`, and its
+mock-client gate is `tests/test-ra05-01-vulnerability-tracking.py`.

@@ -1,8 +1,8 @@
 # OCI Audit Implementation Review
 
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-02
 
-**Current branch:** `codex/task10-vulnerability-tracking`
+**Current branch:** `codex/task10-ra05-sdk`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -10,7 +10,7 @@
 
 ## Current audit position
 
-Tasks 1, 2, 3, 7 and 9 have implementation-complete collector workflows and
+Tasks 1, 2, 3, 7, 9 and 10 have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
 custody/rotation proof, Task 7 identity/host/manual proof, Task 9 approved prior inventory,
@@ -20,6 +20,10 @@ produced in this repository. Task 6 remains Partial after a controlled-use
 report and source review identified material CM07-01 defects. Task 8 is also
 Partial after the user selected a simple technical-collection-only CM02 script;
 approved baseline and monthly-review reconciliation are now external evidence.
+
+Task 10 is implemented with Oracle's official OCI Python SDK. Live VSS,
+approved SLA/tracker/monthly-review and non-VSS evidence remain pending, so it
+is not audit-complete.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
@@ -46,6 +50,44 @@ On 2026-08-28 the Task 2 collector was normalized to the canonical
 `sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
 `sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
 removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+---
+
+## 2026-09-02 — Task 10 RA-5/SI-2 vulnerability tracking
+
+The user directed all new or materially rewritten OCI collectors to use
+Oracle's official Python SDK and to avoid custom implementations unless the SDK
+cannot satisfy a requirement. `SCRIPT-DESIGN-STANDARD.md` now requires the
+pinned Oracle SDK, generated clients/models, official pagination/retries,
+supported signers, runtime list/get allowlists and structured service errors.
+
+`ra05-01-vulnerability-tracking.py` implements Task 10 with:
+
+- config-profile, instance-principal and resource-principal authentication;
+- explicit region, default interactive tenancy/compartment discovery, exact
+  double-OCID, full SDK method/output plan and exact uppercase `YES`;
+- strict automation requiring every resolved OCID and `--approve-scan YES`;
+- Compute-instance and OCIR-repository asset inventory;
+- VSS host/container target inventory, latest results and detailed
+  per-resource/per-package CVE rows;
+- cross-compartment target resolution for tenancy runs and conservative
+  `UNKNOWN` target status for incomplete exact-scope visibility;
+- organization-owned SLA ingestion and source hash, with no built-in policy
+  represented as authoritative;
+- stable finding-key remediation owner/ticket/follow-up/exception validation;
+- snapshot-SHA/count-bound monthly review validation;
+- coverage and structured service-error ledgers with `opc-request-id`;
+- mode-`0600`, formula-safe outputs and fail-closed collection status.
+
+The collector deliberately does not claim coverage for non-OCI hosts,
+appliances, managed services, application scanning or third-party scanner
+sources. Those boundaries, remediation closure proof and signed approval remain
+required in `TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`.
+
+The mock SDK gate exercises pagination, host/container details,
+cross-compartment targets, exact-scope conservatism, mutation injection,
+manual/automation refusal before workload calls, structured denied-read
+handling and governed reconciliation.
 
 ---
 
