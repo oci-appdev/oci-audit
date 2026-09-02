@@ -2,15 +2,24 @@
 
 **Updated:** 2026-09-02
 
-**Published branch:** `main`
+**Published branch:** `main`, head `030af450` (RA-5 publication commit)
 
-**Base commit:** `ec973ceb8b9dd70e05627a435712bd35e196eee7`
+**Also published:** `claude/repo-study-u22ntx`, head `be57059` — the
+completed-task SDK recheck, merged up to `030af450`. Not yet merged to `main`.
 
 **Current milestone:** Tasks 1–3, 7, 9 and 10 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-**Delivery:** RA05-01 SDK collector published in `bc91d6f975bf4bc5cbc35de042e7f5b6a9d69585`; focused and full repository gates passed
+**Delivery:** RA05-01 SDK collector implemented in `bc91d6f` and published as
+`main` head `030af450`; focused and full repository gates passed locally.
+GitHub Actions has not reported a run for `030af450`, so CI is not verified for
+that head — check the workflow before treating it as gated.
 
-## Latest milestone — Task 10 vulnerability tracking
+**Outstanding implementation item:** the CP-9, SC-8 and SC-28 collectors are not
+retrofitted to the strict automation contract in `SCRIPT-DESIGN-STANDARD.md`.
+Their `-c`/`-n` paths skip the double-OCID confirmation and exact
+`--approve-scan YES`. See `MASTER-TASK-LIST.md` and the README warning.
+
+## 2026-09-02 milestone — Task 10 vulnerability tracking (current published head)
 
 `ra05-01-vulnerability-tracking.py` is the canonical RA-5/SI-2 workflow and the
 first collector under the user-directed Oracle OCI Python SDK standard. The
@@ -37,7 +46,7 @@ resolution, exact-scope conservatism, mutation injection, manual and automation
 refusal before workload clients, denied detailed reads and complete governed
 reconciliation.
 
-## Latest milestone — completed-task recheck against the OCI Python SDK
+## 2026-09-02 milestone — completed-task recheck against the OCI Python SDK
 
 The Task 1, 2, 3, 7 and 9 collectors were verified against
 `oracle/oci-python-sdk` v2.185.1 (commit `33c54ebf`) by indexing every model's
@@ -101,7 +110,7 @@ Every new or materially redesigned collector must follow
 automation approval. New collectors require explicit automation mode, exact
 resolved-OCID confirmation values and exact `YES` approval.
 
-## Latest milestone — simplified Task 8 CM02 collector
+## 2026-09-01 milestone — simplified Task 8 CM02 collector
 
 At the user's direction, CM02-01 was reduced to one technical collection mode.
 A normal command requires only region/output plus the mandatory scope gate; the
@@ -121,7 +130,7 @@ remain intact. Task 8 is therefore tracked as Partial: the system owner still
 must supply and reconcile an approved CI register, System Design Form/baseline,
 monthly review, changes and exceptions outside this simplified collector.
 
-## Latest milestone — Task 9 hardware/software component inventory
+## 2026-08-31 milestone — Task 9 hardware/software component inventory
 
 The canonical workflow is `cm08-01-component-inventory-baseline.sh`; the guide
 is `TASK9-COMPONENT-INVENTORY-EVIDENCE-GUIDE.md`. The existing
@@ -174,54 +183,22 @@ formula safety, manual/default/tenancy selection, strict automation and
 refusal before workload collection. The focused gate and full repository suite
 must pass on the exact commit published to `main`.
 
-## Latest milestone — Task 8 configuration baseline
+## 2026-08-28 milestone — Task 8 configuration baseline (superseded)
 
-**Superseded on 2026-09-01:** the implementation details below describe the
-former governed reconciliation mode. The current user-selected CM02 interface
-is the simple technical collector documented above and in the Task 8 guide.
+**Superseded on 2026-09-01.** This section described the former governed
+CM-2 reconciliation mode — CI-register, approved-baseline and monthly-review
+ingestion with drift findings. That mode was removed at the user's direction;
+`cm02-01-configuration-baseline.sh` is now a one-command technical snapshot
+and rejects those flags.
 
-The canonical workflow is `cm02-01-configuration-baseline.sh`; the guide is
-`TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md`. Configuration baseline maps to
-CM-2, so the existing `cm08-hw-sw-baseline.sh` remains a separate CM-8 inventory
-engine invoked only after CM02-01 obtains scan approval.
+The detail has been removed from this active handoff so it cannot be mistaken
+for the current interface or used to restore functionality that was
+deliberately withdrawn. The full record is in `AUDIT.md`
+(2026-08-28 and 2026-09-01 entries); the current interface is the
+2026-09-01 milestone above and
+`TASK8-CONFIGURATION-BASELINE-EVIDENCE-GUIDE.md`.
 
-CM02-01 requires an exact tenancy or compartment OCID twice, prints the full
-scope/profile/work/output plan and requires exact uppercase `YES`. Manual
-`-c`/`-n` confirms every resolved compartment twice. Automation requires
-`--non-interactive`, every exact confirmation OCID and `--approve-scan YES`.
-One region is mandatory and `-p/--profile` is passed to discovery and inventory.
-
-The workflow separates live facts from three signed organizational inputs:
-
-- CI register: system/technical owners, criticality, environment, baseline ID,
-  System Design Form reference, monthly frequency and registration approval;
-- approved configuration baseline: expected attribute values, comparison,
-  design/change/exception references and approval provenance;
-- current monthly review: reviewer, findings/change/exception validation,
-  corrective actions, approval and retained evidence reference.
-
-Inventory-only creates all three templates. Full reconciliation reports match,
-configuration drift, unregistered CIs, unbaselined attributes, incomplete or
-ambiguous approvals and approved attributes not found live. Input SHA-256,
-configuration fingerprints, private/formula-safe raw and canonical CSVs,
-coverage, error and summary evidence are retained. An exact compartment is
-passed to the CM08 engine with child expansion disabled; tenancy expansion is
-disclosed in the approved plan.
-
-Execution testing fixed three existing CM08 defects: undefined `dat` filters in
-direct jq calls, double-encoded/blank image inventory and missing VNIC
-compartment OCIDs. Raw stderr or downstream parser errors now force CM02-01
-incomplete rather than hiding behind successful OCI calls.
-
-Regression coverage is in `tests/test-cm02-01-configuration-baseline.sh` using
-`tests/mock-oci-task8`. It covers complete matching, drift, missing baseline
-coverage, current monthly review, denied collection, profile propagation,
-formula safety, manual/default/tenancy scope paths, strict automation and
-refusal before workload collection. The dedicated test and full repository
-suite pass locally; require GitHub Actions on the exact published head before
-merge.
-
-## Latest milestone — Task 7 software installation control
+## 2026-08-28 milestone — Task 7 software installation control
 
 The user directed Task 7 after the Task 6 CM-7 workflow. The canonical
 collector is `cm11-01-software-installation-control.sh`; its evidence and manual
@@ -282,7 +259,7 @@ automation and identity-domain gaps. Both the Task 7 test and the full
 repository suite pass on the staged Task 7 tree. Require GitHub Actions on the
 exact published branch head before merge.
 
-## Latest milestone — Task 6 open ports, protocols and services
+## 2026-08-28 milestone — Task 6 open ports, protocols and services
 
 **Corrective status:** Task 6 is Partial. Do not use CM07-01 as complete audit
 evidence until the findings and acceptance gate in `CM07-CORRECTIVE-REVIEW.md`
@@ -462,7 +439,9 @@ Volume replica call and verifies all of the following:
 - the failed-call ledger is retained;
 - `NO-VOLUME-REPLICA` is not fabricated.
 
-Latest local result:
+Local result at the time of that CP-9 change (superseded — the current suite
+also covers CM-7, CM-11, CM-2, CM-8 and RA-5; run `bash tests/run.sh` for the
+authoritative list):
 
 ```text
 READ-ONLY SELF-CHECK: PASSED (cp09-01)
@@ -532,6 +511,20 @@ Do not commit live OCI CSVs, key-administrator identities or screenshots to
 this public repository.
 
 ## Next implementation task for Claude
+
+These are three distinct roles, not competing priorities. Work them in this
+order:
+
+1. **Next build (user-directed):** Task 11 configuration-change tracking —
+   Remedy CRQs, system-owner approval and representative approved change
+   samples.
+2. **Outstanding correction:** Task 6 CM07-01, per `CM07-CORRECTIVE-REVIEW.md`.
+3. **Outstanding implementation item:** retrofit the CP-9, SC-8 and SC-28
+   `-c`/`-n` paths to the strict automation contract.
+4. **Worksheet backlog:** Task 5 Continuous Monitoring Form review/feedback,
+   deferred by the user in favour of Tasks 6–9.
+
+Detail on each follows.
 
 Task 10 implementation is complete after the final local/published gate. The
 next worksheet item is Task 11 configuration-change tracking: Remedy CRQs,

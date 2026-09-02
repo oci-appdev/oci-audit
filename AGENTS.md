@@ -92,6 +92,15 @@ then convert each camelCase JSON name to kebab-case.
   `CM07-CORRECTIVE-REVIEW.md`: `rule_port_range()` maps every non-TCP/UDP/ANY
   protocol to `0-65535`, so ICMP false-matches port-based restrictions; and
   there is still no `-p/--profile` flag. Task 6 stays **Partial**.
+- **CP-9, SC-8 and SC-28 are not retrofitted to the strict automation
+  contract.** Their default no-scope-flag path is fully guarded, but `-c`/`-n`
+  runs skip the double-OCID confirmation and exact `--approve-scan YES` that
+  `SCRIPT-DESIGN-STANDARD.md` requires and that CM07-01, CM11-01, CM02-01 and
+  CM08-01 implement. Verify with:
+  `grep -c 'confirm-scope-ocid' <script>` — the five Task 1–3 scripts return 0.
+  Disclosed in `README.md`, `MASTER-TASK-LIST.md` and `HANDOFF.md` as of
+  2026-09-02. Retrofitting changes operator-facing behaviour and will fail
+  existing `-c`/`-n` job definitions closed, so it needs the user's go-ahead.
 - **Task 2 / SC-8 does not cover MySQL.** `mysql.models.DbSystem` exposes
   `secure_connections` (`certificate-id`, `certificate-generation-type`), which
   is in-transit TLS evidence. SC-28 covers MySQL at rest but SC-8 has no MySQL

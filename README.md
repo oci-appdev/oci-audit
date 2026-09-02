@@ -64,6 +64,19 @@ bash cp09-03-backup-replication-check.sh \
   -r us-langley-1 -o ./evidence
 ```
 
+> **Scope-automation retrofit outstanding.** The CP-9, SC-8 and SC-28
+> collectors predate the strict automation contract in
+> [SCRIPT-DESIGN-STANDARD.md](SCRIPT-DESIGN-STANDARD.md). Their default,
+> no-scope-flag path is fully guarded — discovery, the exact OCID twice, the
+> resolved plan and exact uppercase `YES`. Their explicit `-c` and `-n` paths
+> are **not**: those runs proceed without the double-OCID confirmation and
+> without an exact `--approve-scan YES`, which the current standard requires.
+> CM07-01, CM11-01, CM02-01 and CM08-01 implement the strict contract; these
+> five scripts have not been retrofitted yet. Until they are, treat `-c`/`-n`
+> on CP-9, SC-8 and SC-28 as an unconfirmed scope: use the default interactive
+> path for operator runs, and do not schedule these five collectors as
+> unattended automation on the strength of the examples below.
+
 The explicit interactive options are `-i` and `--select-scope`, but neither is
 required for a normal operator run. Selecting the tenancy scans root plus every
 active discovered child compartment. Selecting a compartment scans only that
@@ -72,8 +85,9 @@ uppercase `YES` exits before workload-service collection and removes
 header-only evidence files. Do not combine interactive selection with `-c` or
 `-n`.
 
-The existing `-c` and `-n` modes remain available for approved non-interactive
-automation.
+The existing `-c` and `-n` modes remain available, but they do not meet the
+current standard's automation contract — see the retrofit warning above. They
+are scope selectors, not evidence that the scan was approved.
 
 Example GovCloud collection for the three audit scopes:
 
@@ -157,8 +171,9 @@ bash sc08-02-in-transit-encryption.sh \
   -r "$REGION" -n "$SCOPE_NAMES" -o "$EVIDENCE_DIR"
 ```
 
-Explicit `-c` and `-n` are approved non-interactive automation modes. Their
-resolved scan plan is printed to the job log, but they do not prompt.
+Explicit `-c` and `-n` print the resolved scan plan to the job log but do not
+prompt, so they do not satisfy the current standard's automation contract. See
+the retrofit warning in the Task 1 section; the same gap applies here.
 
 The run produces an evidence CSV and compartment-by-service coverage CSV. A
 failed OCI call produces an attributed `COLLECTION-FAILED` row, a retained
@@ -200,7 +215,9 @@ selected OCID twice, prints all resolved targets/services/output files, and
 requires exact uppercase `YES` before the first encryption-at-rest service
 call.
 
-For approved automation, use explicit `-c` or `-n` scope flags. Example:
+Explicit `-c` or `-n` select a scope without the double-OCID and exact-`YES`
+gate, so they carry the same retrofit gap described in the Task 1 section. They
+are not yet an approved automation contract. Example:
 
 ```bash
 bash sc28-oci-encryption-at-rest.sh \
