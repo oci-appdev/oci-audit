@@ -7,11 +7,11 @@ monthly reviews, training records, or contingency exercises.
 
 ## Current position
 
-- Tasks 1, 2, 3, 7, 9 and 10: implementation milestones complete;
+- Tasks 1, 2, 3, 7, 9, 10, 11 and 12: implementation milestones complete;
   live/approved evidence is still pending.
 - Tasks 6 and 8: partial collectors exist; Task 6 has corrective blockers and
   Task 8 is now intentionally technical-collection-only.
-- Tasks 5, 11–14 and 16–18: not yet implemented in this repository.
+- Tasks 5, 13, 14 and 16–18: not yet implemented in this repository.
 - Tasks 4 and 15: worksheet N/A.
 
 See [MASTER-TASK-LIST.md](MASTER-TASK-LIST.md) for the control-by-control status
@@ -51,7 +51,7 @@ Scripts 01, 02 and 03 default to interactive scope discovery. They discover
 the authenticated tenancy and active compartments, require the selected OCID
 twice, display the complete resolved scan plan, and require exact uppercase
 `YES` before service collection starts. The same mandatory interface is
-implemented by the Task 2, Task 3, Task 6, Task 7, Task 8, Task 9 and Task 10 collectors:
+implemented by the Task 2, Task 3 and Task 6–12 collectors:
 
 ```bash
 bash cp09-01-backup-type-config-frequency.sh \
@@ -495,6 +495,165 @@ binds the monthly review to exact snapshot SHA-256 and counts. See
 [TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md](TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md)
 for the full run/review sequence and non-VSS coverage requirements.
 
+## Canonical Task 11 workflow
+
+`cm03-01-configuration-change-tracking.py` is the CM-3 configuration-change
+workflow. It uses Oracle's official OCI Python SDK `AuditClient` to record the
+tenancy Audit-retention setting and paginate Audit events over seven-day
+windows for every confirmed target compartment.
+
+Run the read-only boundary check and guarded technical collection:
+
+```bash
+python3 cm03-01-configuration-change-tracking.py --selfcheck
+
+python3 cm03-01-configuration-change-tracking.py \
+  -r us-langley-1 \
+  --lookback-days 30 \
+  -o ./evidence/task11-technical
+```
+
+The default command discovers the tenancy and active compartments, requires
+the selected OCID twice, prints the exact region/time/scope/SDK/output plan and
+requires exact uppercase `YES`. Manual `-c`/`-n` selection still confirms every
+resolved OCID twice. Automation requires explicit `--non-interactive`, every
+exact `--confirm-scope-ocid` and `--approve-scan YES`.
+
+The collector exports minimum Audit metadata only. It does not export request
+parameters or headers, identity credentials, response headers or payloads. A
+mutating event-name verb produces a `CHANGE-CANDIDATE`; it does not prove an
+approved configuration change. Non-read operations without a confirmed
+mutating event name remain review candidates in the full Audit inventory.
+
+The evidence lifecycle is:
+
+1. technical run generates the exact-event Remedy/CRQ template;
+2. a run with the completed CRQ register generates CRQ-bound System Owner and
+   representative-sample templates;
+3. a run with all three inputs, without a monthly review, exits `3` and
+   generates the exact snapshot/count-bound review template; and
+4. the final run supplies the CRQ register, owner approvals, samples and
+   approved monthly review.
+
+```bash
+python3 cm03-01-configuration-change-tracking.py \
+  -r us-langley-1 \
+  --change-register ./approved/cm03-remedy-change-register.csv \
+  --owner-approvals ./approved/cm03-system-owner-approvals.csv \
+  --change-samples ./approved/cm03-change-samples.csv \
+  --monthly-review ./approved/cm03-monthly-review.csv \
+  -o ./evidence/task11-final
+```
+
+Exact Audit event or event-grouping IDs bind CRQs to live facts. Standard and
+Normal changes require pre-implementation System Owner approval. Emergency
+post-approval requires an Emergency CRQ, explicit approval type and retained
+emergency reference. See
+[TASK11-CONFIGURATION-CHANGE-TRACKING-EVIDENCE-GUIDE.md](TASK11-CONFIGURATION-CHANGE-TRACKING-EVIDENCE-GUIDE.md)
+for the full procedure and external evidence boundaries.
+
+## Canonical Task 12 workflow
+
+`ac02-01-account-management.py` is the AC-2 account-management workflow. It
+uses the generated OCI Identity and Identity Domains clients to inventory
+classic IAM and Identity Domain users, groups, memberships, credential
+metadata, authentication policy, network sources and IAM policy statements.
+It never retrieves credential values or changes an account, membership or
+policy.
+
+Install the pinned Oracle SDK, check the read-only boundary and start with a
+guarded technical run:
+
+```bash
+python3 -m pip install -r requirements-oci-sdk.txt
+python3 ac02-01-account-management.py --selfcheck
+
+python3 ac02-01-account-management.py \
+  -r us-langley-1 \
+  -o ./evidence/task12-technical
+```
+
+The normal run discovers the tenancy and active compartments, requires the
+selected OCID twice, prints every resolved target, SDK operation, governance
+input and output, and requires exact uppercase `YES`. Manual `-c`/`-n` runs
+retain the same confirmations. Automation requires `--non-interactive`, every
+exact resolved `--confirm-scope-ocid` and `--approve-scan YES`.
+
+The technical run generates account-register, access-approval,
+privilege-review, inactivity-policy and lifecycle-procedure templates. Complete
+those from authoritative organizational records, then run with those five
+inputs and no monthly review. The expected exit `3` generates the exact
+reconciled snapshot/count-bound monthly-review template. After approval, run
+the final package with all six inputs:
+
+```bash
+python3 ac02-01-account-management.py \
+  -r us-langley-1 \
+  --account-register ./approved/ac02-account-register.csv \
+  --access-approvals ./approved/ac02-access-approvals.csv \
+  --privilege-review ./approved/ac02-privilege-review.csv \
+  --inactivity-policy ./approved/ac02-inactivity-policy.csv \
+  --lifecycle-procedure ./approved/ac02-lifecycle-procedure.csv \
+  --monthly-review ./approved/ac02-monthly-review.csv \
+  -o ./evidence/task12-final
+```
+
+Policy statements are privilege-review candidates, not calculated effective
+access or authorization decisions. HR status, Okta/DOJLogin lifecycle,
+host-local, database-native, application and break-glass evidence remain
+explicit manual boundaries. See
+[TASK12-ACCOUNT-MANAGEMENT-EVIDENCE-GUIDE.md](TASK12-ACCOUNT-MANAGEMENT-EVIDENCE-GUIDE.md)
+for the evidence lifecycle and completion criteria.
+
+## Canonical Task 13 workflow
+
+`ia02-01-federation-configuration.py` is the applicability-first Okta/DOJLogin
+federation workflow. It uses Oracle's generated Identity and Identity Domains
+clients to inventory domains, identity providers, federation-related app
+configuration, sign-on policies/rules and non-secret authentication-factor
+settings.
+
+```bash
+python3 -m pip install -r requirements-oci-sdk.txt
+python3 ia02-01-federation-configuration.py --selfcheck
+
+python3 ia02-01-federation-configuration.py \
+  -r us-langley-1 \
+  -o ./evidence/task13-technical
+```
+
+The normal workflow requires the exact tenancy or compartment OCID twice,
+prints the complete scope, SDK-operation, governance-input and output plan, and
+requires exact uppercase `YES`. Manual `-c`/`-n` retains the same gate. Strict
+automation requires every resolved target `--confirm-scope-ocid` and exact
+`--approve-scan YES`.
+
+Task 13 completion requires tenancy selection because Identity Domains can be
+located in root or child compartments. Compartment selection remains available
+for investigation but is explicitly reported as incomplete for the tenancy-
+level applicability decision.
+
+The technical run generates an exact provider register. An approved owner must
+disposition every discovered provider as `APPLICABLE` or `NOT-APPLICABLE` and
+identify Okta, DOJLogin or another provider from authoritative records. For
+each applicable provider, a second-stage template requires authentication,
+MFA, provisioning, deprovisioning and group-mapping test evidence. The final
+run is:
+
+```bash
+python3 ia02-01-federation-configuration.py \
+  -r us-langley-1 \
+  --integration-register ./approved/ia02-integration-register.csv \
+  --test-evidence ./approved/ia02-test-evidence.csv \
+  -o ./evidence/task13-final
+```
+
+The collector never exports client secrets, tokens, passwords, SAML metadata
+XML, raw certificates, MFA seeds, bypass codes or recovery data. OCI facts by
+themselves are not an approval, compliance or N/A decision. See
+[TASK13-OKTA-DOJLOGIN-EVIDENCE-GUIDE.md](TASK13-OKTA-DOJLOGIN-EVIDENCE-GUIDE.md)
+for the evidence lifecycle and completion criteria.
+
 ## Tests
 
 Run the repository regression suite with:
@@ -504,7 +663,7 @@ bash tests/run.sh
 ```
 
 The suite performs Bash/Python syntax and read-only checks for CP-9, SC-8,
-SC-28, CM-7, CM-11, CM-2, CM-8 and RA-5. It
+SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3, AC-2 and IA-2. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
@@ -540,6 +699,25 @@ resolution, conservative exact-scope evidence, structured service failures,
 private/formula-safe output, double-OCID/plan/`YES` refusal, strict automation,
 approved SLA ingestion, stable-key remediation reconciliation and exact
 snapshot/count-bound monthly review validation.
+CM03-01 regressions cover Oracle Audit pagination and retention, minimum-data
+event extraction, formula safety, change/review/read classification, failed
+attempts, manual and strict-automation scope gates, refusal before Audit calls,
+denied collection, malformed Audit/configuration responses, immutable output
+collision, exact CRQ binding, System Owner approval timing, representative
+samples and snapshot-bound monthly review.
+AC02-01 regressions cover classic IAM pagination, Identity Domains SCIM
+pagination, cross-directory account/group de-duplication, memberships,
+credential-value exclusion, policy privilege candidates, private/formula-safe
+evidence, manual and strict-automation scope gates, refusal before account
+calls, denied credential reads, immutable output collision, authoritative
+account/access/privilege inputs, inactivity handling and exact snapshot-bound
+monthly-review validation.
+IA02-01 regressions cover classic and Identity Domains pagination, including
+the generated page/limit resources response used by authentication-factor
+settings; tenancy expansion; stable configuration hashes; provider/app/policy/
+rule/MFA inventory; secret and formula-safety boundaries; refusal before
+directory collection; denied reads; immutable evidence; exact per-provider
+applicability reconciliation; and all five applicable-provider test types.
 
 ## Evidence handling
 

@@ -14,6 +14,18 @@ documented service requirement needs a newer Oracle release.
 - Use generated service clients and model attributes. Do not implement custom
   REST requests or duplicate SDK response models.
 - Use `oci.pagination.list_call_get_all_results` for paginated list operations.
+- OCI Identity Domains is the documented exception to the normal pagination
+  helper: its generated SCIM list responses use `start_index`, `count`,
+  `items_per_page` and `total_results` instead of `opc-next-page`. Use the
+  shared `sdk_scim_list` guard with the generated `IdentityDomainsClient`; do
+  not issue custom REST requests or recreate SCIM models.
+- Identity Domains `list_authentication_factor_settings` in Oracle SDK 2.185.1
+  is a narrower generated-client exception: it accepts `page`/`limit` but its
+  response model exposes `resources`, so Oracle's normal `items` paginator and
+  the start-index helper are both incompatible. Use the shared
+  `sdk_resources_page_list` guard only for an explicitly allowlisted generated
+  endpoint with this exact shape. It must use Oracle retries, follow the
+  response next-page token and fail on malformed or repeated pagination.
 - Use `oci.retry.DEFAULT_RETRY_STRATEGY` unless the collector documents why a
   narrower Oracle SDK strategy is required.
 - Use supported SDK authentication: config profiles, instance principals or
@@ -117,11 +129,19 @@ The shared double-OCID implementation and regression examples are:
 - `cm11-01-software-installation-control.sh`
 - `cm02-01-configuration-baseline.sh`
 - `cm08-01-component-inventory-baseline.sh`
+- `ra05-01-vulnerability-tracking.py`
+- `cm03-01-configuration-change-tracking.py`
+- `ac02-01-account-management.py`
+- `ia02-01-federation-configuration.py`
 - `tests/test-scope-selection.sh`
 - `tests/test-cm07-01-open-ports.sh`
 - `tests/test-cm11-01-software-installation-control.sh`
 - `tests/test-cm02-01-configuration-baseline.sh`
 - `tests/test-cm08-01-component-inventory.sh`
+- `tests/test-ra05-01-vulnerability-tracking.py`
+- `tests/test-cm03-01-configuration-change-tracking.py`
+- `tests/test-ac02-01-account-management.py`
+- `tests/test-ia02-01-federation-configuration.py`
 
 All nine canonical Task 1–3 and Task 6–9 collectors default no-scope manual runs to
 the shared interactive workflow and implement the pre-scan summary plus
@@ -129,6 +149,10 @@ exact-`YES` gate. CM07-01 also implements the stricter explicit automation
 contract above, as do CM11-01, CM02-01 and CM08-01. Retrofit the earlier collectors before their next material
 change; every future collector must use the strict contract when introduced.
 
-`ra05-01-vulnerability-tracking.py` is the first collector built on the Oracle
-SDK standard. Its shared SDK primitives are in `lib/oci_audit_sdk.py`, and its
-mock-client gate is `tests/test-ra05-01-vulnerability-tracking.py`.
+`ra05-01-vulnerability-tracking.py`,
+`cm03-01-configuration-change-tracking.py`,
+`ac02-01-account-management.py` and `ia02-01-federation-configuration.py` are
+the first four collectors built
+on the Oracle SDK standard. Their shared SDK primitives are in
+`lib/oci_audit_sdk.py`, and all four have mock generated-client gates in
+`tests/`.

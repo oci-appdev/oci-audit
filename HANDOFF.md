@@ -2,15 +2,152 @@
 
 **Updated:** 2026-09-02
 
-**Published branch:** `main`
+**Working branch:** `codex/task13-ia02-federation`
 
-**Base commit:** `ec973ceb8b9dd70e05627a435712bd35e196eee7`
+**Published base:** `ec973ceb8b9dd70e05627a435712bd35e196eee7` (`main`)
 
-**Current milestone:** Tasks 1–3, 7, 9 and 10 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
+**Task 13 implementation commit:** `526b2e1`
 
-**Delivery:** RA05-01 SDK collector published in `bc91d6f975bf4bc5cbc35de042e7f5b6a9d69585`; focused and full repository gates passed
+**Current milestone:** Tasks 1–3, 7 and 9–13 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-## Latest milestone — Task 10 vulnerability tracking
+**Delivery:** IA02-01 focused and full repository gates passed locally; publication is pending user direction
+
+## Latest milestone — Task 13 Okta/DOJLogin federation
+
+`ia02-01-federation-configuration.py` is the canonical applicability-first
+Task 13 workflow. It uses only Oracle's generated Identity and Identity Domains
+clients. It inventories domains, providers, safe app linkage, sign-on
+policies/rules and authentication-factor settings without exporting client
+secrets, hashed secrets, tokens, passwords, SAML metadata XML, raw
+certificates, MFA seeds, bypass data or recovery data.
+
+The normal run discovers the tenancy and active compartments, requires an
+exact tenancy or compartment OCID twice, prints every target, SDK method,
+governance input and output, then requires exact uppercase `YES`. Manual
+`-c`/`-n` retains the same gate. Automation requires every exact resolved
+target OCID and `--approve-scan YES`.
+
+The Oracle Identity `list_domains` endpoint has no subtree flag. Tenancy mode
+therefore queries root and every active discovered compartment separately and
+de-duplicates domain OCIDs. A compartment mode is supported for investigation,
+but remains explicitly `INCOMPLETE` for the tenancy-level Task 13 conclusion.
+
+Identity Providers, Apps, Policies and Rules use the existing generated SCIM
+start-index helper. Oracle SDK 2.185.1 exposes
+`list_authentication_factor_settings` with `page`/`limit` while returning a
+`resources` collection, which is incompatible with both Oracle's normal
+`items` paginator and start-index paging. The documented shared
+`sdk_resources_page_list` guard follows only generated response page tokens,
+uses Oracle retries and rejects malformed/repeated pagination; no custom REST
+request or model exists.
+
+The technical run generates an exact provider register. Every discovered
+provider, including inactive/unrelated candidates, requires an owner-approved
+`APPLICABLE` or `NOT-APPLICABLE` disposition. Applicable rows bind the exact
+configuration snapshot plus selected app/policy/rule keys to an external
+configuration reference/hash. A second stage requires approved
+`AUTHENTICATION`, `MFA`, `PROVISIONING`, `DEPROVISIONING` and `GROUP-MAPPING`
+tests for every applicable provider. OCI facts alone never become an approval,
+compliance result or N/A decision.
+
+Instructions are in `TASK13-OKTA-DOJLOGIN-EVIDENCE-GUIDE.md`. The focused gate
+is `tests/test-ia02-01-federation-configuration.py`; it covers both Identity
+Domains pagination shapes, tenancy expansion, compartment-only status,
+repeated-page rejection, stable snapshot binding, secret exclusion,
+private/formula-safe/immutable output, manual and automation refusal before
+directory reads, denied calls, exact provider coverage and all five test types.
+
+Task 13 is not audit-complete. Run it tenancy-wide, resolve collection errors,
+obtain the authoritative Okta/DOJLogin/provider dispositions and restricted
+external configuration export, complete certificate/mapping review, execute
+and approve all five tests, and archive the signed final package.
+
+## Next implementation target
+
+Task 14 is SIEM integration and CrowdStrike log forwarding. Start by confirming
+which OCI and CrowdStrike sources are in scope, then design source-coverage,
+forwarding-configuration, test-event, SIEM-receipt and owner-approval evidence.
+Continue using the pinned OCI Python SDK, mandatory exact scope confirmation,
+full pre-scan plan, exact `YES`, strict automation and memory update rules.
+
+## Prior milestone — Task 12 account management
+
+`ac02-01-account-management.py` is the canonical AC-2 workflow and the third
+collector under the user-directed Oracle OCI Python SDK standard. Generated
+classic Identity and Identity Domains clients collect users, groups,
+memberships, dynamic groups, classic authentication/network policy, credential
+metadata and IAM policy statements. Credential values and SCIM password/MFA
+recovery material are never selected or written.
+
+The normal run requires an exact discovered tenancy or compartment OCID twice,
+prints every target, identity and policy scope, SDK operation, governance input
+and output, then requires exact uppercase `YES`. Manual `-c`/`-n` retains the
+same gate. Automation requires `--non-interactive`, the complete exact target
+OCID set and `--approve-scan YES`.
+
+Classic list operations use Oracle pagination/retries. The Identity Domains
+generated SCIM responses use start-index/total-result pagination rather than
+`opc-next-page`, so `lib/oci_audit_sdk.py` now has a narrowly guarded
+`sdk_scim_list` helper. It still calls only generated `list_users` and
+`list_groups` methods and fails on malformed, changing or incomplete response
+shapes.
+
+The workflow separates technical facts from authority. OCI OCIDs de-duplicate
+classic and Identity Domain accounts/groups. Policy statements and the built-in
+Administrators grant are privilege candidates, not effective-access decisions.
+Five organization-owned inputs establish the account register, membership and
+privilege decisions, inactivity policy and lifecycle procedure. A reconciliation
+run generates the exact current snapshot/count-bound monthly-review template;
+the final run validates all six inputs.
+
+Evidence instructions are in `TASK12-ACCOUNT-MANAGEMENT-EVIDENCE-GUIDE.md`.
+The focused gate is `tests/test-ac02-01-account-management.py`; it covers both
+pagination models, de-duplication, access/privilege binding, secret exclusion,
+denied and malformed collection, private/formula-safe immutable output,
+double-OCID/plan/`YES`, strict automation, refusal before account calls,
+inactivity decisions and full governance validation.
+
+Task 12 is not audit-complete. Live collection, authoritative HR and service
+account records, manager/approver proof, unused-account disposition,
+Okta/DOJLogin, host-local, database-native, application and break-glass
+coverage, the approved monthly review and archive references are still needed.
+
+## Prior milestone — Task 11 configuration change tracking
+
+`cm03-01-configuration-change-tracking.py` is the canonical CM-3 workflow and
+the second collector under the user-directed Oracle OCI Python SDK standard.
+It uses guarded Identity scope discovery plus Audit `get_configuration` and
+paginated `list_events`; no mutating SDK method is allowed.
+
+The normal run requires an exact discovered tenancy or compartment OCID twice,
+prints the region, time window, every target, every SDK method and every output,
+then requires exact uppercase `YES`. Manual `-c`/`-n` still confirms every
+resolved OCID twice. Automation requires `--non-interactive`, the exact complete
+target-OCID set and `--approve-scan YES` after the plan is printed.
+
+Collection is divided into seven-day Audit windows per compartment and records
+the tenancy retention setting. A requested period outside retention, or a
+failed Audit query, makes collection incomplete. The evidence export excludes
+identity credentials, request parameters/headers and response headers/payloads;
+only minimum event metadata plus state/additional-detail hashes are retained.
+
+The workflow separates OCI facts from organizational authority. Mutating event
+names create change candidates; read events remain facts; unresolved non-read
+events remain review candidates. Exact Audit event or grouping IDs join live
+events to Remedy CRQs. Separate inputs validate System Owner approval timing,
+Emergency post-approval, representative samples and an exact snapshot/count-
+bound monthly review. A successful technical run never becomes an approval
+decision.
+
+Evidence instructions are in
+`TASK11-CONFIGURATION-CHANGE-TRACKING-EVIDENCE-GUIDE.md`. The focused gate is
+`tests/test-cm03-01-configuration-change-tracking.py`; it covers SDK pagination,
+retention, payload exclusion, formula safety, change classification, failed
+attempts, double-OCID/plan/`YES`, strict automation, refusal before Audit calls,
+denied reads, malformed response shapes, output collision, exact CRQ binding,
+approval timing, samples and monthly-review validation.
+
+## Earlier milestone — Task 10 vulnerability tracking
 
 `ra05-01-vulnerability-tracking.py` is the canonical RA-5/SI-2 workflow and the
 first collector under the user-directed Oracle OCI Python SDK standard. The
@@ -428,21 +565,12 @@ Volume replica call and verifies all of the following:
 - the failed-call ledger is retained;
 - `NO-VOLUME-REPLICA` is not fabricated.
 
-Latest local result:
+Latest full-suite result:
 
 ```text
-READ-ONLY SELF-CHECK: PASSED (cp09-01)
-READ-ONLY SELF-CHECK: PASSED (cp09-02)
-READ-ONLY SELF-CHECK: PASSED (cp09-03)
-READ-ONLY/NO-SECRET SELF-CHECK: PASSED (sc08-02-in-transit-encryption)
-READ-ONLY SELF-CHECK: PASSED (sc28-oci-encryption-at-rest)
-PASS: cp09-03 success and denied-collection regressions
-Verified 27 SC-8 OCI wrapper calls: list/get only; no PSK retrieval
-PASS: SC-8 static OCI action, mutation, secret and pre-scan validation gates
-PASS: Task 2 integrity, TLS/IPSec findings and evidence-file safety regressions
-PASS: SC-28 data-store, KMS rotation and failure-ledger evidence
-PASS: CP-9, SC-8 and SC-28 default interactive scope, double-OCID and exact-YES gates
-PASS: CP-9, SC-8 and SC-28 static, read-only and mock test suite
+PASS: CM03-01 SDK Audit collection, scope safety, CRQ approvals, samples and monthly review
+PASS: AC02-01 SDK accounts, domains, groups, privileges, inactivity and approvals
+PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3 and AC-2 static, read-only and mock test suite
 ```
 
 Run with:
@@ -499,9 +627,13 @@ this public repository.
 
 ## Next implementation task for Claude
 
-Task 10 implementation is complete after the final local/published gate. The
-next worksheet item is Task 11 configuration-change tracking: Remedy CRQs,
-system-owner approval and representative approved change samples.
+Task 12 implementation is complete after the focused/full local gate. The next
+worksheet item is Task 13 Okta/DOJLogin configuration. First determine whether
+the integration applies, then collect approved configuration, provisioning and
+deprovisioning behavior, authentication controls, test evidence and owner
+approval without exporting secrets. Reuse AC02-01's `FEDERATION-LIFECYCLE`
+boundary rather than treating OCI directory inventory as proof of the external
+identity-provider process.
 
 The outstanding corrective item is Task 6. Patch CM07-01 according to
 `CM07-CORRECTIVE-REVIEW.md`, extend the mock suite and complete known-object

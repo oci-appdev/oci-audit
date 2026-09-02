@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-09-02
 
-**Current branch:** `main`
+**Current branch:** `codex/task13-ia02-federation`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -10,7 +10,7 @@
 
 ## Current audit position
 
-Tasks 1, 2, 3, 7, 9 and 10 have implementation-complete collector workflows and
+Tasks 1, 2, 3, 7, 9, 10, 11, 12 and 13 have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
 custody/rotation proof, Task 7 identity/host/manual proof, Task 9 approved prior inventory,
@@ -24,6 +24,22 @@ approved baseline and monthly-review reconciliation are now external evidence.
 Task 10 is implemented with Oracle's official OCI Python SDK. Live VSS,
 approved SLA/tracker/monthly-review and non-VSS evidence remain pending, so it
 is not audit-complete.
+
+Task 11 is implemented with the same SDK and safety standard. Live OCI Audit,
+authoritative Remedy/CRQ export, System Owner approvals, representative samples,
+monthly review and non-OCI change-source evidence remain pending, so it is not
+audit-complete.
+
+Task 12 is implemented with the OCI Identity and Identity Domains SDK clients.
+Live IAM/Identity Domain collection, authoritative HR/service-account records,
+manager and approver evidence, inactivity/removal decisions, lifecycle
+procedures, monthly review and the declared external account sources remain
+pending, so it is not audit-complete.
+
+Task 13 is implemented with the same generated Identity and Identity Domains
+clients. Live tenancy-wide collection, an authoritative provider disposition,
+the external Okta/DOJLogin configuration export, owner approval and all required
+integration tests remain pending, so it is not audit-complete.
 
 The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
@@ -50,6 +66,182 @@ On 2026-08-28 the Task 2 collector was normalized to the canonical
 `sc08-02-in-transit-encryption.sh` name. Its evidence artifacts now use the
 `sc08-02_...` prefix, and the obsolete unprefixed script/test paths were
 removed; the collector's read-only and no-secret safety boundary is unchanged.
+
+### Oracle SDK limitation recorded for Task 13
+
+Oracle OCI Python SDK 2.185.1 exposes Identity Domains
+`list_authentication_factor_settings` with generated `page`/`limit` parameters,
+but its response model stores rows in `resources` rather than `items`. Oracle's
+generic `list_call_get_all_results` helper expects an `items` collection and the
+existing SCIM start-index helper cannot call this endpoint because it does not
+accept `start_index`/`count`. Task 13 therefore uses a narrowly guarded shared
+helper that follows the generated response's `opc-next-page` value while still
+calling only the generated SDK method with Oracle retries. It validates the
+`resources` response shape and does not recreate requests or SDK models.
+
+---
+
+## 2026-09-02 — Task 13 IA-2 Okta/DOJLogin federation
+
+`ia02-01-federation-configuration.py` is the canonical Task 13 workflow. It
+uses Oracle's generated classic Identity client for guarded scope/domain
+discovery and the generated Identity Domains client for providers, apps,
+policies, rules and authentication-factor settings.
+
+The collector implements:
+
+- config-profile, instance-principal and resource-principal authentication;
+- explicit region, default interactive tenancy/compartment discovery, exact
+  double-OCID, complete SDK/input/output plan and exact uppercase `YES`;
+- strict automation requiring every resolved target OCID and
+  `--approve-scan YES`;
+- compartment investigation without overclaiming tenancy applicability, and
+  root-plus-every-active-compartment domain discovery for tenancy completion;
+- safe identity-provider configuration with URL/certificate fingerprints,
+  JIT, mapping, binding and encryption/signature facts;
+- safe app, sign-on policy/rule and authentication-factor inventories;
+- explicit exclusion of client/hashed secrets, tokens, passwords, SAML
+  metadata XML, raw certificates, MFA seeds, bypass and recovery data;
+- an exact provider register requiring an owner-approved `APPLICABLE` or
+  `NOT-APPLICABLE` disposition for every discovered provider;
+- exact snapshot/provider/app/policy/rule binding and external configuration
+  references/hashes for applicable integrations;
+- mandatory authentication, MFA, provisioning, deprovisioning and group-
+  mapping test evidence for every applicable provider;
+- private, formula-safe, immutable outputs, input hashes, coverage, redacted
+  errors, a stable configuration snapshot and explicit completion status.
+
+Oracle SDK 2.185.1's generic paginator expects `items`, while generated
+`list_authentication_factor_settings` accepts header pagination but returns a
+SCIM-shaped `resources` model. The exact limitation is recorded above and the
+shared `sdk_resources_page_list` helper only follows the generated response's
+next-page token, uses Oracle retries and rejects malformed/repeated pagination.
+No custom REST request or response model was added.
+
+The workflow does not infer provider identity from a display name, turn OCI
+facts into authorization or N/A decisions, or treat configured settings as a
+successful integration test. External provider configuration, certificate and
+mapping approvals, lifecycle behavior and test artifacts remain organization-
+owned evidence.
+
+The focused regression is
+`tests/test-ia02-01-federation-configuration.py`. It covers both Identity
+Domains pagination forms, tenancy expansion and compartment-only status,
+stable snapshot binding, secret exclusion, formula/private/immutable output,
+manual and strict-automation refusal before directory collection, denied reads,
+exact provider dispositions and all five applicable-provider test types. The
+focused and full repository gates passed locally at implementation commit
+`526b2e1`.
+
+Task 13 remains operationally open until a live tenancy-wide run is complete,
+every provider is authoritatively dispositioned, every applicable external
+configuration is reviewed and all required tests are approved and archived.
+
+---
+
+## 2026-09-02 — Task 12 AC-2 account management
+
+`ac02-01-account-management.py` is the canonical Task 12 workflow. It uses
+Oracle's generated classic Identity and Identity Domains clients. Classic OCI
+lists use Oracle pagination and retries. Identity Domains list operations use
+the generated SCIM models and the shared `sdk_scim_list` helper because these
+responses expose `start_index`, `items_per_page` and `total_results` rather
+than OCI `opc-next-page`; no custom REST request or response model was added.
+
+The collector implements:
+
+- config-profile, instance-principal and resource-principal authentication;
+- explicit region, default interactive tenancy/compartment discovery, exact
+  double-OCID, full identity/policy/SDK/output plan and exact uppercase `YES`;
+- strict automation requiring every resolved target OCID and
+  `--approve-scan YES`;
+- classic IAM and every active Identity Domain user/group inventory with OCI
+  OCID-based cross-directory de-duplication;
+- classic and Identity Domain group memberships, dynamic groups, classic IAM
+  authentication policy and network sources;
+- classic API key, auth-token, customer-secret-key, database, OAuth client and
+  SMTP credential metadata without retrieving credential values;
+- current IAM policy statements plus mapped privilege candidates, an explicit
+  built-in Administrators candidate and conservative unparsed/ambiguous states;
+- authority-owned account-register, access-approval, privilege-review,
+  inactivity-policy and lifecycle-procedure inputs;
+- stable-key account/access/privilege reconciliation, input hashes and row
+  validation;
+- an exact reconciled snapshot/count-bound monthly review;
+- private, formula-safe, immutable evidence with coverage and redacted error
+  ledgers.
+
+The workflow does not calculate effective access or infer authorization,
+employment status, account type, manager approval or inactivity policy. It
+separately declares HR/contractor, Okta/DOJLogin, host-local, database-native,
+application/SaaS and break-glass evidence boundaries. Policy statements remain
+review candidates and any denied/malformed directory response makes technical
+collection incomplete.
+
+The focused regression is
+`tests/test-ac02-01-account-management.py`. It covers classic and SCIM
+pagination, account/group de-duplication, membership and privilege binding,
+secret-value exclusion, malformed SCIM and denied credential reads, private
+formula-safe output, immutable collisions, manual and strict-automation scope
+refusal before account calls, inactivity reconciliation and the complete
+snapshot-bound governance lifecycle. The focused test and full repository gate
+passed locally at implementation commit `f66241a`.
+
+Task 12 remains operationally open until live collection is complete, every
+account/membership/privilege is reviewed against authoritative records,
+unused/removal candidates are resolved, all manual account sources are covered
+and the final monthly review is approved and archived.
+
+---
+
+## 2026-09-02 — Task 11 CM-3 configuration change tracking
+
+`cm03-01-configuration-change-tracking.py` is the canonical Task 11 workflow.
+It uses Oracle SDK `AuditClient.get_configuration` and paginated
+`AuditClient.list_events`; its runtime allowlist also contains only the two
+Identity list/get methods required for guarded scope discovery.
+
+The collector implements:
+
+- config-profile, instance-principal and resource-principal authentication;
+- explicit region and review window, with a 30-day default and explicit
+  start/end alternative;
+- default interactive tenancy/compartment discovery, exact double-OCID, full
+  time/scope/SDK/output plan and exact uppercase `YES`;
+- strict automation requiring every resolved target OCID and
+  `--approve-scan YES`;
+- seven-day paginated Audit queries for each selected compartment;
+- tenancy Audit-retention collection and fail-closed `OUTSIDE-RETENTION`
+  coverage;
+- minimum-data Audit evidence that deliberately excludes identity credentials,
+  request parameters/headers and response headers/payloads;
+- change, read and unresolved-review classification with failed attempts
+  retained separately from successful changes;
+- exact Audit event/event-grouping ID binding to Remedy CRQs;
+- System Owner approval, approval-timing and Emergency-post validation;
+- exact representative-sample binding and approval evidence;
+- input hashes, row validation, snapshot/count-bound monthly review and
+  private/formula-safe outputs.
+
+The collector does not infer that an OCI event is authorized. The Remedy/change
+authority owns the CRQ source; the System Owner owns approval; and the review
+authority owns sample representativeness. Non-read events without a mutating
+event-name verb remain explicit review candidates instead of being forced into
+a fabricated CRQ. Request and response payload minimization prevents the
+evidence export from becoming an unintended secret/configuration dump.
+
+The focused regression is
+`tests/test-cm03-01-configuration-change-tracking.py`. It mocks generated SDK
+clients and covers official pagination, retention, formula safety, payload
+exclusion, classification, failed attempts, manual and strict-automation scope
+gates, refusal before Audit calls, denied collection, malformed response
+shapes, immutable output collision, CRQ and approval timing, samples and exact
+monthly-review closure.
+
+Task 11 remains operationally open until live collection is complete across
+every in-scope region and source, every candidate is reconciled, external
+non-OCI/in-guest/application/database changes are covered, samples are approved
+and the final package is signed and archived.
 
 ---
 

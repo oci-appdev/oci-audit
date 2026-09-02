@@ -39,6 +39,12 @@ python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("lib/cm08-01-reconcile.p
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("lib/oci_audit_sdk.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("ra05-01-vulnerability-tracking.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-ra05-01-vulnerability-tracking.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm03-01-configuration-change-tracking.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-cm03-01-configuration-change-tracking.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("ac02-01-account-management.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-ac02-01-account-management.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("ia02-01-federation-configuration.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-ia02-01-federation-configuration.py").read_text(encoding="utf-8"))'
 
 bash cp09-01-backup-type-config-frequency.sh --selfcheck
 bash cp09-02-backup-access-files-check.sh --selfcheck
@@ -50,6 +56,9 @@ bash cm11-01-software-installation-control.sh --selfcheck
 bash cm02-01-configuration-baseline.sh --selfcheck
 bash cm08-01-component-inventory-baseline.sh --selfcheck
 python3 ra05-01-vulnerability-tracking.py --selfcheck
+python3 cm03-01-configuration-change-tracking.py --selfcheck
+python3 ac02-01-account-management.py --selfcheck
+python3 ia02-01-federation-configuration.py --selfcheck
 bash tests/test-cp09-03.sh
 bash tests/test-sc8-safety.sh
 bash tests/test-sc08-02-in-transit-encryption.sh
@@ -60,5 +69,8 @@ bash tests/test-cm11-01-software-installation-control.sh
 bash tests/test-cm02-01-configuration-baseline.sh
 bash tests/test-cm08-01-component-inventory.sh
 python3 tests/test-ra05-01-vulnerability-tracking.py
+python3 tests/test-cm03-01-configuration-change-tracking.py
+python3 tests/test-ac02-01-account-management.py
+python3 tests/test-ia02-01-federation-configuration.py
 
-echo "PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8 and RA-5 static, read-only and mock test suite"
+echo "PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3, AC-2 and IA-2 static, read-only and mock test suite"

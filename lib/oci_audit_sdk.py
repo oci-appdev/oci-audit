@@ -67,12 +67,21 @@ def build_auth_context(oci: Any, args: Any) -> AuthContext:
     return AuthContext(config, signer, tenancy_id, label, args.profile)
 
 
-def build_client(oci: Any, context: AuthContext, namespace: str, class_name: str) -> Any:
+def build_client(
+    oci: Any,
+    context: AuthContext,
+    namespace: str,
+    class_name: str,
+    *,
+    service_endpoint: Optional[str] = None,
+) -> Any:
     module = getattr(oci, namespace)
     client_class = getattr(module, class_name)
     kwargs: Dict[str, Any] = {"retry_strategy": oci.retry.DEFAULT_RETRY_STRATEGY}
     if context.signer is not None:
         kwargs["signer"] = context.signer
+    if service_endpoint is not None:
+        kwargs["service_endpoint"] = service_endpoint
     return client_class(context.config, **kwargs)
 
 
@@ -123,6 +132,130 @@ def sdk_get(
     _check_method(method_name, allowed_methods, "get_")
     method = getattr(client, method_name)
     return method(*args, retry_strategy=oci.retry.DEFAULT_RETRY_STRATEGY, **kwargs)
+
+
+def sdk_scim_list(
+    oci: Any,
+    client: Any,
+    method_name: str,
+    allowed_methods: Set[str],
+    *,
+    count: int = 1000,
+    **kwargs: Any,
+) -> Tuple[List[Any], List[Any]]:
+    """Collect an Identity Domains SCIM list using its generated SDK model.
+
+    Identity Domains list responses use SCIM ``startIndex``, ``itemsPerPage``
+    and ``totalResults`` instead of OCI's normal ``opc-next-page`` header.  The
+    generated client and retry strategy are still used for every request; this
+    helper only advances the protocol-defined start index and validates that a
+    truncated or malformed page cannot be mistaken for a complete inventory.
+    """
+
+    _check_method(method_name, allowed_methods, "list_")
+    if count < 1 or count > 1000:
+        raise ValueError("SCIM page count must be between 1 and 1000")
+    method = getattr(client, method_name)
+    items: List[Any] = []
+    responses: List[Any] = []
+    start_index = 1
+    expected_total: Optional[int] = None
+
+    while True:
+        response = method(
+            start_index=start_index,
+            count=count,
+            retry_strategy=oci.retry.DEFAULT_RETRY_STRATEGY,
+            **kwargs,
+        )
+        data = getattr(response, "data", None)
+        resources = getattr(data, "resources", None)
+        total = getattr(data, "total_results", None)
+        page_start = getattr(data, "start_index", None)
+        per_page = getattr(data, "items_per_page", None)
+        if data is None or resources is None or not isinstance(total, int) or total < 0:
+            raise ValueError(f"{method_name} returned a malformed SCIM list response")
+        if page_start is not None and page_start != start_index:
+            raise ValueError(f"{method_name} returned an unexpected SCIM start index")
+        page_items = list(resources)
+        if expected_total is None:
+            expected_total = total
+        elif total != expected_total:
+            raise ValueError(f"{method_name} changed totalResults during pagination")
+        responses.append(response)
+        items.extend(page_items)
+        if len(items) >= total:
+            if len(items) != total:
+                raise ValueError(f"{method_name} returned more SCIM resources than totalResults")
+            return items, responses
+        advance = per_page if isinstance(per_page, int) and per_page > 0 else len(page_items)
+        if not page_items or advance < len(page_items):
+            raise ValueError(f"{method_name} returned an incomplete SCIM page")
+        start_index += advance
+
+
+def sdk_resources_page_list(
+    oci: Any,
+    client: Any,
+    method_name: str,
+    allowed_methods: Set[str],
+    *,
+    limit: int = 1000,
+    **kwargs: Any,
+) -> Tuple[List[Any], List[Any]]:
+    """Collect a generated SDK list whose model uses ``resources`` and headers.
+
+    Some Identity Domains endpoints expose normal OCI ``page``/``limit``
+    parameters but return a SCIM-shaped model with ``resources`` instead of
+    ``items``.  Oracle's generic pagination helper cannot combine those two
+    shapes.  This guard calls only the allowlisted generated method, follows
+    the generated response's next-page token, and rejects malformed or looping
+    pagination so partial evidence cannot look complete.
+    """
+
+    _check_method(method_name, allowed_methods, "list_")
+    if limit < 1 or limit > 1000:
+        raise ValueError("resource page limit must be between 1 and 1000")
+    method = getattr(client, method_name)
+    items: List[Any] = []
+    responses: List[Any] = []
+    page: Optional[str] = None
+    seen_pages: Set[str] = set()
+
+    while True:
+        call_kwargs = dict(kwargs)
+        call_kwargs["limit"] = limit
+        if page is not None:
+            call_kwargs["page"] = page
+        response = method(
+            retry_strategy=oci.retry.DEFAULT_RETRY_STRATEGY,
+            **call_kwargs,
+        )
+        data = getattr(response, "data", None)
+        resources = getattr(data, "resources", None)
+        if data is None or resources is None:
+            raise ValueError(f"{method_name} returned a malformed resources list response")
+        try:
+            page_items = list(resources)
+        except TypeError as exc:
+            raise ValueError(
+                f"{method_name} returned a non-iterable resources collection"
+            ) from exc
+        items.extend(page_items)
+        responses.append(response)
+
+        next_page = getattr(response, "next_page", None)
+        if not next_page:
+            headers = getattr(response, "headers", {}) or {}
+            if isinstance(headers, Mapping):
+                next_page = headers.get("opc-next-page") or headers.get("Opc-Next-Page")
+        if not next_page:
+            return items, responses
+        next_page = str(next_page)
+        if next_page in seen_pages or next_page == page:
+            raise ValueError(f"{method_name} returned a repeated next-page token")
+        seen_pages.add(next_page)
+        page = next_page
 
 
 def discover_scope(
