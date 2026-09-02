@@ -78,6 +78,22 @@ adb_silent = one("AutonomousDB", "ADB-SILENT")
 assert adb_silent["key_management"] == "UNKNOWN", adb_silent
 assert adb_silent["finding"] == "MANUAL-VERIFY-KEY-CUSTODY"
 
+# Base DB carries the same external-key custody fields as Autonomous Database.
+# A key-store or external-provider database must not be reported Oracle-managed.
+basedb_cmk = one("BaseDB", "ORCL")
+assert basedb_cmk["key_management"] == "CUSTOMER-MANAGED", basedb_cmk
+
+basedb_okv = one("BaseDB", "ORCLOKV")
+assert basedb_okv["key_management"] == "CUSTOMER-MANAGED-EXTERNAL", basedb_okv
+assert "ocid1.keystore.oc1..okv" in basedb_okv["key_ocid_or_detail"], basedb_okv
+
+basedb_ext = one("BaseDB", "ORCLEXT")
+assert basedb_ext["key_management"] == "CUSTOMER-MANAGED-EXTERNAL", basedb_ext
+assert "provider-type=AZURE" in basedb_ext["key_ocid_or_detail"], basedb_ext
+
+basedb_plain = one("BaseDB", "ORCLPLAIN")
+assert basedb_plain["key_management"] == "ORACLE-MANAGED", basedb_plain
+
 postgres = one("PostgreSQL", "postgres1")
 assert postgres["key_management"] == "PLATFORM-MANAGED"
 assert postgres["finding"] == "MANUAL-VERIFY-KEY-CUSTODY"

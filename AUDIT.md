@@ -53,6 +53,71 @@ removed; the collector's read-only and no-secret safety boundary is unchanged.
 
 ---
 
+## 2026-09-02 — second completed-task bug review
+
+A second review of the completed tasks (1, 2, 3, 7, 9 and the published Task 10
+RA-5 collector), again against `oracle/oci-python-sdk` v2.185.1. Task 11 was
+excluded as Codex's in-flight work.
+
+`shellcheck -S warning` is clean on all nine shell collectors; its two hits are
+false positives (`OSM_RC` is assigned through `printf -v`, and the helper's
+exported error variables are read by callers). No defect below was findable by
+linting. All came from checking field paths and pagination against the SDK
+model, and from asking what a response that establishes nothing is recorded as.
+
+### Defects found and fixed
+
+1. **CP-9, high — every PostgreSQL system was reported as having no backup.**
+   `check_postgres()` read `.data."backup-policy".kind`, but the current
+   `psql` `DbSystem` model nests it at `management-policy.backup-policy`. The
+   flat path always returned empty, so every PostgreSQL DB system was written
+   as `backup_configured=NO` **and raised a HIGH `no-backup-policy` finding**,
+   including systems with a correct policy. The regression proves a system with
+   `WEEKLY` / 35-day retention was reported `NO` before the fix. An absent
+   policy object is now `UNKNOWN` with a `backup-policy-not-exposed` finding;
+   only `kind=NONE` raises the HIGH finding. `backup-start` is now collected.
+
+2. **SC-28, high — Base DB repeated the Autonomous DB custody defect.**
+   `Database` carries the same external-key fields as
+   `AutonomousDatabaseSummary`: `key-store-id` and
+   `encryption-key-location-details.provider-type` (`EXTERNAL`, `AWS`, `AZURE`,
+   `GCP`). `check_basedb()` still classified from `kms-key-id` alone through
+   `emit_store_key()`, so an Oracle Key Vault or externally keyed database was
+   reported `ORACLE-MANAGED` with a `REVIEW-USE-CMK` finding. The 2026-09-02
+   first pass fixed Autonomous Database and missed the identical pattern here.
+
+3. **CP-9, medium — paginated Object Storage lists were read unpaginated.**
+   `list_retention_rules` takes `page`, and `list_replication_policies` takes
+   `limit`/`page`, but five call sites omitted `--all`. A truncated replication
+   list becomes `repl="NO"; repl_target="none"` and a truncated retention list
+   understates WORM posture — a negative finding from an incomplete read.
+
+4. **Cross-collector, low — the PostgreSQL CLI command spelling disagrees.**
+   `sc28` uses `psql db-system-collection list-db-systems`; `cp09-01` and the
+   CM-8 engine use `psql db-system list`. At most one is right for a given CLI
+   build, and the wrong one fails closed as `CLI_UNSUPPORTED`, collecting no
+   PostgreSQL evidence. This cannot be settled from the SDK, since the CLI is a
+   separate repository, so `sc28` now falls back to the other spelling instead
+   of depending on the installed CLI. Confirm and standardise during the live
+   run.
+
+### Reviewed clean
+
+- **Task 10 RA-5.** Every SDK method it calls exists on the client it is called
+  against (`vulnerability_scanning`, `artifacts`, `core.compute`, `identity`),
+  and every model attribute it reads — `instance_ids`, `target_registry`,
+  `repositories`, `problem_count`, `problems`, `vulnerable_packages`,
+  `time_first_detected`, `time_last_detected`, `time_finished`, `locations` —
+  exists in the current models. No defect found.
+- Object Storage, block/boot volume and FSS key custody: those models expose
+  only `kms-key-id`, so the binary `emit_store_key()` classification is correct
+  for them. Base DB and Autonomous DB were the only affected services.
+- No subshell-losing `| while read` pipelines; every collector uses process
+  substitution, so `INCOMPLETE` survives.
+- `warn()` in `cm08-hw-sw-baseline.sh` is dead code. Noted, not removed.
+
+---
+
 ## 2026-09-02 — Task 10 RA-5/SI-2 vulnerability tracking
 
 The user directed all new or materially rewritten OCI collectors to use

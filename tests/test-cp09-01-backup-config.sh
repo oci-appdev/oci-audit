@@ -18,7 +18,7 @@ ln -s "$ROOT/tests/mock-oci-cp0901" "$TMP/bin/oci"
 COMPARTMENT='ocid1.compartment.oc1..test'
 
 PATH="$TMP/bin:$PATH" bash "$ROOT/cp09-01-backup-type-config-frequency.sh" \
-  -c "$COMPARTMENT" -r us-langley-1 -s volumes -o "$TMP/out" \
+  -c "$COMPARTMENT" -r us-langley-1 -s "volumes postgres" -o "$TMP/out" \
   --non-interactive --confirm-scope-ocid "$COMPARTMENT" --approve-scan YES \
   > "$TMP/run.out" 2>&1
 
@@ -62,10 +62,41 @@ assert "retention-period=P1Y" in period["retention"], period
 assert "retention-lock=false" in period["retention"], period
 assert period["backup_count"] == "0", period
 
-assert len(coverage) == 1, coverage
-assert coverage[0]["service"] == "BlockVolume"
-assert coverage[0]["assets_found"] == "2"
-assert coverage[0]["collection_status"] == "OK"
+# The PostgreSQL backup policy is nested under management-policy. Reading it at
+# the top level yielded an empty kind, so every system looked unprotected and
+# raised a HIGH no-backup-policy finding against correctly backed-up systems.
+pg_ok = one("pg-backed")
+assert pg_ok["backup_configured"] == "YES", pg_ok
+assert pg_ok["backup_type"] == "FULL (managed)", pg_ok
+assert "WEEKLY" in pg_ok["frequency"], pg_ok
+assert "start=02:00" in pg_ok["frequency"], pg_ok
+assert pg_ok["retention"] == "35 days", pg_ok
+
+# kind NONE is a genuine no-backup finding.
+pg_none = one("pg-none")
+assert pg_none["backup_configured"] == "NO", pg_none
+
+# A response with no policy object establishes nothing and must not be
+# reported as a configured-off backup.
+pg_silent = one("pg-silent")
+assert pg_silent["backup_configured"] == "UNKNOWN", pg_silent
+
+import glob, os
+findings_path = glob.glob(os.path.join(os.path.dirname(config_path),
+                                       "cp09-01_backup_config_findings_*.csv"))[0]
+with open(findings_path, newline="", encoding="utf-8") as handle:
+    findings = list(csv.DictReader(handle))
+kinds = {(f["resource"], f["category"]) for f in findings}
+assert ("pg-none", "no-backup-policy") in kinds, findings
+assert ("pg-backed", "no-backup-policy") not in kinds, findings
+assert ("pg-silent", "no-backup-policy") not in kinds, findings
+assert ("pg-silent", "backup-policy-not-exposed") in kinds, findings
+
+services = {row["service"] for row in coverage}
+assert services == {"BlockVolume", "PostgreSQL"}, services
+bv = next(row for row in coverage if row["service"] == "BlockVolume")
+assert bv["assets_found"] == "2"
+assert all(row["collection_status"] == "OK" for row in coverage)
 PY
 
 echo "PASS: CP-9 backup schedule retention, immutability and coverage evidence"

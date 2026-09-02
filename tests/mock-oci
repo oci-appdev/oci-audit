@@ -30,13 +30,13 @@ case "$cmd" in
   "os bucket list --compartment-id ocid1.compartment.oc1..test --namespace-name testns --all")
     printf '%s\n' '{"data":[{"name":"backup-bucket"}]}'
     ;;
-  "os replication list-replication-policies --bucket-name backup-bucket --namespace-name testns")
+  "os replication list-replication-policies --bucket-name backup-bucket --namespace-name testns --all")
     printf '%s\n' '{"data":[{"destination-region-name":"us-gov-phoenix-1","destination-bucket-name":"backup-bucket-dr"}]}'
     ;;
   "os bucket get --bucket-name backup-bucket --namespace-name testns")
     printf '%s\n' '{"data":{"versioning":"Enabled"}}'
     ;;
-  "os retention-rule list --bucket-name backup-bucket --namespace-name testns")
+  "os retention-rule list --bucket-name backup-bucket --namespace-name testns --all")
     printf '%s\n' '{"data":{"items":[{"time-rule-locked":"2026-01-01T00:00:00Z","duration":{"time-amount":30,"time-unit":"DAYS"}}]}}'
     ;;
   "iam availability-domain list --compartment-id ocid1.compartment.oc1..test")

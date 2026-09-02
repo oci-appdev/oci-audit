@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-02 (revised after the Task 10 RA-5 publication to `main`)
+**Last updated:** 2026-09-02 (second completed-task bug review)
 
 ## Non-negotiable repository rules
 
@@ -42,8 +42,9 @@ making it.
 | Area | Owner | Status |
 |---|---|---|
 | Task 10 — vulnerability tracking (RA-5/SI-2) | **Codex** | Delivered to `main` (`030af450`). `ra05-01-vulnerability-tracking.py`, `lib/oci_audit_sdk.py`, `tests/test-ra05-01-vulnerability-tracking.py`, `TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`. Claude did not review it. |
-| Task 11 — configuration change tracking | **Codex** (next) | Not started. |
-| Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck, 2026-09-02) | See below. Do not revert without reading the rationale. |
+| Task 11 — configuration change tracking | **Codex** | In progress, OCI Python SDK. Claude must not touch it. |
+| Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
+| Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Task 6 — CM07-01 corrective work | Unassigned | Open. See `CM07-CORRECTIVE-REVIEW.md`. |
 
 ## SDK-verified changes — do not revert blindly (2026-09-02)
@@ -63,7 +64,19 @@ test must be updated with a stated reason, not deleted.
 | Autonomous DB key custody must read `encryption-key.provider`, `key-store-id` and `kms-key-version-id`, not `kms-key-id` alone. An externally keyed ADB (AWS / AZURE / OKV) has no `kms-key-id`; classifying it from that field alone reported a customer-managed database as `ORACLE-MANAGED` / `REVIEW-USE-CMK` — a fabricated negative finding. | `sc28-oci-encryption-at-rest.sh` | `tests/test-encryption-at-rest.sh` |
 | Installed-package software source comes from the `software-sources` list on `InstalledPackageSummary`. The old code read `software-source-name` and `software-source-id`, which do not exist in the model, and silently fell through to the package `type` (`RPM`). | `cm11-01-software-installation-control.sh` | `tests/test-cm11-01-software-installation-control.sh` |
 | The `-c`/`-n` paths of all five Task 1–3 collectors bypassed the scope-automation contract entirely: no double-OCID confirmation, no `--approve-scan YES`. Retrofitted 2026-09-02; `oci_scope_require_final_approval` no longer has a non-prompting branch. | `cp09-01/02/03`, `sc08-02`, `sc28`, `lib/oci-scope-selector.sh` | `tests/test-task1-3-automation-contract.sh` |
+| PostgreSQL backup policy is nested at `management-policy.backup-policy`, not at the top level of the db-system response. Reading the flat path always produced an empty `kind`, so **every** PostgreSQL system was reported `backup_configured=NO` with a HIGH `no-backup-policy` finding — including correctly backed-up ones. An absent policy object is now `UNKNOWN`, and only `kind=NONE` raises the HIGH finding. | `cp09-01-backup-type-config-frequency.sh` | `tests/test-cp09-01-backup-config.sh` |
+| Base DB key custody had the same defect as Autonomous DB: `Database` also exposes `key-store-id` and `encryption-key-location-details.provider-type` (EXTERNAL/AWS/AZURE/GCP). A key-store or externally keyed database was reported `ORACLE-MANAGED` / `REVIEW-USE-CMK`. The first pass fixed only Autonomous DB and missed this. | `sc28-oci-encryption-at-rest.sh` | `tests/test-encryption-at-rest.sh` |
+| `os retention-rule list` and `os replication list-replication-policies` are paginated but were called without `--all` in five places. A truncated list became `repl=NO` / an understated WORM posture — a negative finding from an incomplete read. | `cp09-01`, `cp09-02`, `cp09-03` | `tests/test-cp09-03.sh`, `tests/test-cp09-01-backup-config.sh` |
 | Volume backup schedules expose `is-retention-lock-enabled` and `is-prevent-deletion-enabled` (the CP-9 WORM evidence) and may express retention as `retention-period` instead of `retention-seconds`. None of these were collected. | `cp09-01-backup-type-config-frequency.sh` | `tests/test-cp09-01-backup-config.sh` (new) |
+
+## Review method that found these
+
+Static analysis alone does not find this class of defect: `shellcheck -S warning`
+is clean on every collector, and the two hits it does report are false
+positives. Every defect found in both passes came from checking the collector's
+field paths and pagination against the SDK model, and from asking what a
+response that establishes nothing gets recorded as. Run that check, not just the
+linter.
 
 ## Mocks must mirror the real SDK model
 
@@ -93,6 +106,17 @@ then convert each camelCase JSON name to kebab-case.
   `CM07-CORRECTIVE-REVIEW.md`: `rule_port_range()` maps every non-TCP/UDP/ANY
   protocol to `0-65535`, so ICMP false-matches port-based restrictions; and
   there is still no `-p/--profile` flag. Task 6 stays **Partial**.
+- **PostgreSQL CLI command spelling is inconsistent.** `sc28` calls
+  `psql db-system-collection list-db-systems`; `cp09-01` and the CM-8 engine
+  call `psql db-system list`. At most one is correct for a given OCI CLI build,
+  and the wrong one fails closed as `CLI_UNSUPPORTED`, collecting no PostgreSQL
+  evidence at all. This cannot be settled from `oci-python-sdk` — the CLI is a
+  separate repository. `sc28` now tries the second form on `CLI_UNSUPPORTED`;
+  confirm the correct spelling on the target CLI during the live run and
+  standardise.
+- **`warn()` in `cm08-hw-sw-baseline.sh` is dead code** (defined at line 142,
+  never called). It looks like error logging but writes nothing. Harmless, but
+  do not assume it is capturing anything.
 - **Task 2 / SC-8 does not cover MySQL.** `mysql.models.DbSystem` exposes
   `secure_connections` (`certificate-id`, `certificate-generation-type`), which
   is in-transit TLS evidence. SC-28 covers MySQL at rest but SC-8 has no MySQL

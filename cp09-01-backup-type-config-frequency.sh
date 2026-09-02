@@ -793,7 +793,7 @@ check_object() {
     local lc="0"
     [ "$OCI_STATUS" = "OK" ] && lc="$(num "$(jqd '[(.data.items? // .data)[]?] | length')")"
 
-    oci_try os retention-rule list --bucket-name "$b" --namespace-name "$OS_NS"
+    oci_try os retention-rule list --bucket-name "$b" --namespace-name "$OS_NS" --all
     local rr="0"
     [ "$OCI_STATUS" = "OK" ] && rr="$(num "$(jqd '[(.data.items? // .data)[]?] | length')")"
 
@@ -924,18 +924,36 @@ check_postgres() {
       cfg_row "$comp" "PostgreSQL" "DbSystem" "" "$sid" "UNKNOWN" "backup-policy" "" "" "" "" "" "" "" "0" "$OCI_STATUS" "$OCI_ERR"
       continue
     fi
-    local name kind ret days
+    # The backup policy is nested under management-policy in the current psql
+    # DbSystem model. Reading .data."backup-policy" directly always yielded an
+    # empty kind, which made every PostgreSQL system look unprotected and
+    # raised a HIGH no-backup-policy finding against correctly backed-up
+    # systems. The flat path is kept as a trailing fallback only.
+    local name kind ret days start
     name="$(jqd '.data."display-name" // ""')"
-    kind="$(jqd '.data."backup-policy"."kind" // ""')"
-    ret="$(jqd '.data."backup-policy"."retention-days" // "" | tostring')"
-    days="$(jqd '.data."backup-policy"."days-of-the-month" // .data."backup-policy"."days-of-the-week" // "" | tostring')"
+    kind="$(jqd '(.data."management-policy"."backup-policy" // .data."backup-policy" // {})."kind" // ""')"
+    ret="$(jqd '(.data."management-policy"."backup-policy" // .data."backup-policy" // {})."retention-days" // "" | tostring')"
+    days="$(jqd '(.data."management-policy"."backup-policy" // .data."backup-policy" // {}) | (."days-of-the-month" // ."days-of-the-week" // "") | tostring')"
+    start="$(jqd '(.data."management-policy"."backup-policy" // .data."backup-policy" // {})."backup-start" // "" | tostring')"
     if [ -n "$kind" ] && [ "$kind" != "NONE" ]; then
-      cfg_row "$comp" "PostgreSQL" "DbSystem" "$name" "$sid" "YES" "backup-policy" "$kind" "" \
-              "FULL (managed)" "$kind ${days}" "${ret:-default} days" "" "" "0" "OK" ""
+      cfg_row "$comp" "PostgreSQL" "DbSystem" "$name" "$sid" "YES" "management-policy.backup-policy" "$kind" "" \
+              "FULL (managed)" "$kind ${days}${start:+ start=$start}" "${ret:-default} days" "" "" "0" "OK" ""
     else
-      cfg_row "$comp" "PostgreSQL" "DbSystem" "$name" "$sid" "NO" "backup-policy" "" "" "" "" "" "" "" "0" "OK" ""
-      finding "HIGH" "no-backup-policy" "$comp" "PostgreSQL" "$name" \
-              "PostgreSQL backup policy kind is NONE or unset." "Configure a backup policy."
+      if [ -z "$kind" ]; then
+        # The response carried no policy object at all. That does not establish
+        # that backups are off, so it must not become a no-backup finding.
+        cfg_row "$comp" "PostgreSQL" "DbSystem" "$name" "$sid" "UNKNOWN" \
+                "management-policy.backup-policy" "" "" "" "" "" "" "" "0" "OK" \
+                "backup policy not present in the db-system response"
+        finding "MEDIUM" "backup-policy-not-exposed" "$comp" "PostgreSQL" "$name" \
+                "The PostgreSQL db-system response did not expose management-policy.backup-policy, so backup configuration could not be read." \
+                "Verify the backup policy in the Console or with a read-only API call and record the result manually."
+      else
+        cfg_row "$comp" "PostgreSQL" "DbSystem" "$name" "$sid" "NO" \
+                "management-policy.backup-policy" "$kind" "" "" "" "" "" "" "0" "OK" ""
+        finding "HIGH" "no-backup-policy" "$comp" "PostgreSQL" "$name" \
+                "PostgreSQL backup policy kind is NONE." "Configure a backup policy."
+      fi
     fi
   done <<< "$ids"
   cov_row "$comp" "PostgreSQL" "$total" "OK" ""

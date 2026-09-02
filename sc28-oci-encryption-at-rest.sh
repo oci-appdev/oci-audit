@@ -600,6 +600,7 @@ check_adb() {
 
 check_basedb() {
   local comp="$1" system_json status error count=0 system_id db_json item name kid
+  local keystore provider keyver detail
   oci_capture "list Base DB systems" db system list --compartment-id "$comp" --all
   system_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
   if [ "$status" != "OK" ]; then
@@ -621,7 +622,29 @@ check_basedb() {
       count=$((count+1))
       name="$(jq -r '."db-name" // "database"' <<< "$item")"
       kid="$(jq -r '."kms-key-id" // empty' <<< "$item")"
-      emit_store_key "$comp" "BaseDB" "$name" "YES(TDE)" "$kid" "SC-28(1)/SC-12"
+      # The Database model carries the same external-key custody fields as
+      # Autonomous Database: key-store-id (Oracle Key Vault) and
+      # encryption-key-location-details.provider-type (EXTERNAL/AWS/AZURE/GCP).
+      # A database keyed that way has no kms-key-id, so deciding custody from
+      # kms-key-id alone reported it as Oracle-managed with a REVIEW-USE-CMK
+      # finding.
+      keystore="$(jq -r '."key-store-id" // empty' <<< "$item")"
+      provider="$(jq -r '."encryption-key-location-details"."provider-type" // empty' <<< "$item")"
+      keyver="$(jq -r '."kms-key-version-id" // empty' <<< "$item")"
+      if [ -n "$kid" ] && [ "$kid" != "null" ]; then
+        row "$comp" "BaseDB" "$name" "YES(TDE)" "CUSTOMER-MANAGED" \
+          "$kid${keyver:+;key-version=$keyver}" \
+          "REFER-TO-KMS-KEY-ROW" "REFER-TO-KMS-KEY-ROW" "OK-CMK" "SC-28(1)/SC-12" "OK" ""
+      elif [ -n "$provider" ] || [ -n "$keystore" ]; then
+        detail="${provider:+encryption-key-provider-type=$provider}"
+        detail="${detail}${detail:+;}${keystore:+key-store-id=$keystore}"
+        row "$comp" "BaseDB" "$name" "YES(TDE)" "CUSTOMER-MANAGED-EXTERNAL" \
+          "$detail" "EXTERNAL-TO-OCI-KMS" "EXTERNAL-TO-OCI-KMS" \
+          "MANUAL-VERIFY-EXTERNAL-KEY-CUSTODY" "SC-28(1)/SC-12" "OK" ""
+      else
+        row "$comp" "BaseDB" "$name" "YES(TDE)" "ORACLE-MANAGED" "no-kms-key-id" \
+          "PLATFORM-MANAGED" "PROVIDER-MANAGED" "REVIEW-USE-CMK" "SC-28(1)/SC-12" "OK" ""
+      fi
     done < <(jq -c "$LIST_ITER" <<< "$db_json" 2>/dev/null)
   done < <(jq -r "$LIST_ITER | .id" <<< "$system_json" 2>/dev/null)
   coverage_row "$comp" "BaseDB" "$count" "$status" "$error"
@@ -667,7 +690,15 @@ check_mysql() {
 
 check_postgres() {
   local comp="$1" list_json status error count=0 system_id full name storage_type
+  # The OCI CLI has shipped this operation under two command spellings. This
+  # collector used db-system-collection while cp09-01 and the CM-8 engine use
+  # db-system; on a CLI that only has the other form the wrong one fails as
+  # CLI_UNSUPPORTED and no PostgreSQL encryption evidence is collected at all.
+  # Try both rather than depending on the installed CLI's spelling.
   oci_capture "list PostgreSQL DB systems" psql db-system-collection list-db-systems --compartment-id "$comp" --all
+  if [ "$COLLECT_STATUS" = "CLI_UNSUPPORTED" ]; then
+    oci_capture "list PostgreSQL DB systems (db-system form)" psql db-system list --compartment-id "$comp" --all
+  fi
   list_json="$COLLECT_OUT"; status="$COLLECT_STATUS"; error="$COLLECT_ERROR"
   if [ "$status" != "OK" ]; then
     collection_failure_row "$comp" "PostgreSQL" "<collection>" "$status" "$error" "SC-28/SC-12"

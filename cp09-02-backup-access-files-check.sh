@@ -897,7 +897,7 @@ collect_exposure() {
     fi
 
     # Replication — backup data leaving to another bucket/region/tenancy
-    oci_try os replication list-replication-policies --bucket-name "$b" --namespace-name "$OS_NS"
+    oci_try os replication list-replication-policies --bucket-name "$b" --namespace-name "$OS_NS" --all
     if [ "$OCI_STATUS" = "OK" ]; then
       while IFS=$'\t' read -r rname rdest rbucket; do
         [ -z "$rname" ] && continue
@@ -907,7 +907,7 @@ collect_exposure() {
     fi
 
     # Retention rules — WORM protection over the backup data
-    oci_try os retention-rule list --bucket-name "$b" --namespace-name "$OS_NS"
+    oci_try os retention-rule list --bucket-name "$b" --namespace-name "$OS_NS" --all
     if [ "$OCI_STATUS" = "OK" ]; then
       local rr; rr="$(num "$(jqd '[(.data.items? // .data)[]?] | length')")"
       if [ "$rr" -eq 0 ]; then

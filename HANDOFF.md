@@ -18,6 +18,27 @@ that head — check the workflow before treating it as gated.
 collectors implement the strict contract; the `-c`/`-n` bypass is gone from the
 codebase and from the shared helper. See the milestone below.
 
+## 2026-09-02 milestone — second completed-task bug review
+
+Reviewed Tasks 1, 2, 3, 7, 9 and the published RA-5 collector against
+`oci-python-sdk` v2.185.1. Task 11 excluded as Codex's in-flight work.
+
+Three defects fixed, each with a regression proven to fail without its fix:
+
+- `cp09-01` read the PostgreSQL backup policy at the wrong nesting level, so
+  **every** PostgreSQL system was reported as having no backup and raised a HIGH
+  finding. Highest-impact defect found in either pass.
+- `sc28` `check_basedb` repeated the Autonomous DB external-key custody defect;
+  the first pass fixed only Autonomous DB.
+- Five paginated Object Storage list calls omitted `--all`, so a truncated list
+  could become a negative replication or WORM finding.
+
+RA-5 reviewed clean: every SDK method and model attribute it uses is current.
+
+Open and recorded in `AGENTS.md`: the PostgreSQL CLI command spelling disagrees
+between collectors (`sc28` now falls back rather than guessing; confirm on the
+live CLI), and `warn()` in the CM-8 engine is dead code.
+
 ## 2026-09-02 milestone — Task 1-3 scope-automation retrofit
 
 A documentation review found that the README presented `-c`/`-n` as an approved

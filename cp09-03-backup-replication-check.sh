@@ -471,7 +471,7 @@ check_object() {
 
     # Replication policy (+ destination region)
     oci_capture "Object Storage replication policies [$b]" os replication \
-      list-replication-policies --bucket-name "$b" --namespace-name "$ns"
+      list-replication-policies --bucket-name "$b" --namespace-name "$ns" --all
     rp="$COLLECT_OUT"
     merge_status row_status row_error "$COLLECT_STATUS" "$COLLECT_ERROR"
     if [ "$COLLECT_STATUS" != "OK" ] && [ "$COLLECT_STATUS" != "NOTFOUND" ]; then
@@ -495,7 +495,7 @@ check_object() {
 
     # Retention rules -> WORM / time-lock
     oci_capture "Object Storage retention rules [$b]" os retention-rule list \
-      --bucket-name "$b" --namespace-name "$ns"
+      --bucket-name "$b" --namespace-name "$ns" --all
     rr_json="$COLLECT_OUT"
     merge_status row_status row_error "$COLLECT_STATUS" "$COLLECT_ERROR"
     if [ "$COLLECT_STATUS" != "OK" ] && [ "$COLLECT_STATUS" != "NOTFOUND" ]; then

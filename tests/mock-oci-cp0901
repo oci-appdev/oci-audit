@@ -46,6 +46,20 @@ case "$cmd" in
   "bv volume-backup-policy get --policy-id ocid1.volumebackuppolicy.oc1..bronze")
     printf '%s\n' '{"data":{"display-name":"bronze","schedules":[{"backup-type":"FULL","period":"ONE_MONTH","retention-period":"P1Y","is-retention-lock-enabled":false,"time-zone":"UTC"}]}}'
     ;;
+  "psql db-system list --compartment-id $COMP --all")
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.postgresqldbsystem.oc1..backed"},{"id":"ocid1.postgresqldbsystem.oc1..none"},{"id":"ocid1.postgresqldbsystem.oc1..silent"}]}}'
+    ;;
+  # The backup policy lives under management-policy in the current psql
+  # DbSystem model, not at the top level of the response.
+  "psql db-system get --db-system-id ocid1.postgresqldbsystem.oc1..backed")
+    printf '%s\n' '{"data":{"display-name":"pg-backed","management-policy":{"backup-policy":{"kind":"WEEKLY","retention-days":35,"days-of-the-week":["MONDAY"],"backup-start":"02:00"}}}}'
+    ;;
+  "psql db-system get --db-system-id ocid1.postgresqldbsystem.oc1..none")
+    printf '%s\n' '{"data":{"display-name":"pg-none","management-policy":{"backup-policy":{"kind":"NONE"}}}}'
+    ;;
+  "psql db-system get --db-system-id ocid1.postgresqldbsystem.oc1..silent")
+    printf '%s\n' '{"data":{"display-name":"pg-silent"}}'
+    ;;
   *)
     echo "mock-oci-cp0901: unsupported command: $cmd" >&2
     exit 64
