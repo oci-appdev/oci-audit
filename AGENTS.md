@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-04 (SDK port under way; SC-28 ported)
+**Last updated:** 2026-09-04 (SDK installed and used to verify SC-28; Task 14 reviewed)
 
 ## Non-negotiable repository rules
 
@@ -190,8 +190,19 @@ test must be updated with a stated reason, not deleted.
 | `error_record()` never produced the `status` key that `Ledger.failed()` reads, so **every** failure was recorded as `ERROR` and an authorization denial was indistinguishable from a broken call. It now classifies DENIED / NOT-FOUND / THROTTLED / SERVICE-ERROR / ERROR, and reads the request id from `request_id`, `opc_request_id` or the raw header rather than only the last. | `lib/oci_audit_sdk.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
 | SC-28's `ERROR_FIELDS` named `code`/`opc_request_id`, which `error_record()` does not produce. `write_csv` uses `extrasaction="ignore"` with a `""` default, so the mismatch emitted blank columns instead of failing — the error ledger would have shipped with only `message` populated. | `sc28/sc28-oci-encryption-at-rest.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
 | An SDK allowlist must be checked against the method actually called. A draft of the SC-28 port passed `_allow_as="list_db_systems_mysql"` to disambiguate the MySQL and PostgreSQL clients, which share `list_db_systems`. That checks one name and calls another — the same laundering blind spot the read-only gate was hardened against. The allowlist proves the verb; it is not the place to record which client a call sits on. | `sc28/sc28-oci-encryption-at-rest.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
+| SC-28's key finding ladder had collapsed from the Bash collector's eight outcomes to four, dropping `KEY-STATE-*`, `REVIEW-SOFTWARE-KEY`, `REVIEW-AES-KEY-LENGTH-*`, `REVIEW-AUTO-ROTATION-DETAILS`, `REVIEW-MANUAL-ROTATION-EVIDENCE` and `REVIEW-ROTATION-NOT-CONFIRMED`, plus the `last-message`, `auto-rotated-versions`, `pending-version-deletions` and `latest-version` rotation fields. A port that claims evidence equivalence has to carry the whole vocabulary. | `sc28/sc28-oci-encryption-at-rest.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
+| SC-28 took `versions[0]` as the newest key version. SDK list order is not a documented guarantee, and the mock happened to return newest-first — so the mock agreed with the bug. Versions are now sorted by `time_created`, and the mock returns ascending order so the old code fails. | `sc28/sc28-oci-encryption-at-rest.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
+| `AutonomousDatabaseEncryptionKeyDetails.provider` is one of OKV / AZURE / AWS / **OCI** / GCP / ORACLE_MANAGED. SC-28 treated everything except `ORACLE_MANAGED` as external, so an OCI Vault key (`provider=OCI`) was reported `CUSTOMER-MANAGED-EXTERNAL` and demanded third-party custody evidence from a party that does not hold the key. `EXTERNAL_KEY_PROVIDERS` now names the external set explicitly. | `sc28/sc28-oci-encryption-at-rest.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
 | `cm07-01/tests/test-cm07-01-corrective.sh` hardcoded `expiration_date: 2027-01-01` in a fixture meant to be currently approved. On 2027-01-01 all six rows silently become `APPROVAL-INCOMPLETE` and the test starts asserting something else. Dates are now computed relative to today, as `test-cm07-01-open-ports.sh` already did. Verified by setting the fixture to yesterday: the test fails. | `cm07-01/tests/test-cm07-01-corrective.sh` | itself |
 | Volume backup schedules expose `is-retention-lock-enabled` and `is-prevent-deletion-enabled` (the CP-9 WORM evidence) and may express retention as `retention-period` instead of `retention-seconds`. None of these were collected. | `cp09-01/cp09-01-backup-type-config-frequency.sh` | `cp09-01/tests/test-cp09-01-backup-config.sh` (new) |
+
+## The SDK can be installed here — verify against it, do not reason from memory
+
+`python3 -m pip install --target <dir> oci==2.185.1` works in this environment.
+Field paths, method names and enum values must be checked against the installed
+package (`attribute_map`, and the `get_subtype` dispatch for polymorphic
+models), not recalled. Doing that on 2026-09-04 confirmed every SC-28 method
+and field, and found three defects a mock had agreed with.
 
 ## Review method that found these
 

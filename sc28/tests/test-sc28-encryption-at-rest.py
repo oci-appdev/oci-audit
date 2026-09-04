@@ -133,6 +133,10 @@ class DatabaseClient(BaseClient):
             Obj(db_name="ADBOKV", key_store_id="ocid1.keystore.oc1..okv1"),
             # 4. Explicitly Oracle-managed.
             Obj(db_name="ADBORACLE", encryption_key=Obj(provider="ORACLE_MANAGED")),
+            # 4b. provider=OCI is a valid value meaning an OCI Vault key. It is
+            # customer-managed but NOT external; demanding third-party custody
+            # evidence for it would be wrong.
+            Obj(db_name="ADBOCIVAULT", encryption_key=Obj(provider="OCI")),
             # 5. Response establishes custody neither way.
             Obj(db_name="ADBSILENT"),
         ])
@@ -198,15 +202,21 @@ class KmsManagementClient(BaseClient):
             auto_key_rotation_details=Obj(
                 rotation_interval_in_days=90,
                 time_of_schedule_start="2026-03-01T00:00:00Z",
+                time_of_next_rotation="2026-09-01T00:00:00Z",
+                time_of_last_rotation="2026-06-01T00:00:00Z",
                 last_rotation_status=("FAILED" if Denials.key_versions else "SUCCESS"),
             )))
 
     def list_key_versions(self, **kw):
+        # Ascending, oldest first. The SDK does not document list order, so a
+        # collector that takes versions[0] as "latest" must fail here.
         return Response([
-            Obj(id="ocid1.keyversion.oc1..kv2", lifecycle_state="ENABLED",
-                time_created="2026-06-01T00:00:00Z", origin="INTERNAL"),
             Obj(id="ocid1.keyversion.oc1..kv1", lifecycle_state="ENABLED",
-                time_created="2026-03-01T00:00:00Z", origin="INTERNAL"),
+                time_created="2026-03-01T00:00:00Z", origin="INTERNAL",
+                is_auto_rotated=False),
+            Obj(id="ocid1.keyversion.oc1..kv2", lifecycle_state="ENABLED",
+                time_created="2026-06-01T00:00:00Z", origin="INTERNAL",
+                is_auto_rotated=True),
         ])
 
 
@@ -312,6 +322,12 @@ def test_full_collection_findings():
         assert adb_oracle["key_management"] == "ORACLE-MANAGED"
         assert adb_oracle["finding"] == "REVIEW-USE-CMK"
 
+        # provider=OCI is an OCI Vault key: customer-managed, not external and
+        # not a REVIEW-USE-CMK finding.
+        adb_oci = by_resource(rows, "ADBOCIVAULT")
+        assert adb_oci["key_management"] == "CUSTOMER-MANAGED", adb_oci
+        assert adb_oci["finding"] == "MANUAL-VERIFY-KEY-CUSTODY", adb_oci
+
         adb_silent = by_resource(rows, "ADBSILENT")
         assert adb_silent["key_management"] == "UNKNOWN", adb_silent
         assert adb_silent["finding"] == "MANUAL-VERIFY-KEY-CUSTODY"
@@ -334,9 +350,15 @@ def test_full_collection_findings():
         assert key["key_management"] == "HSM"
         assert key["key_lifecycle"] == "ENABLED"
         assert key["finding"] == "OK-HSM-AUTO-ROTATION"
-        for fragment in ("interval-days=90", "schedule-start=2026-03-01T00:00:00Z",
-                         "versions=2", "latest-version-state=ENABLED",
-                         "latest-version-created=2026-06-01T00:00:00Z"):
+        # Same rotation field set the Bash collector emitted, including the
+        # newest version resolved by time_created rather than list position.
+        for fragment in ("auto-enabled=true", "interval-days=90",
+                         "schedule-start=2026-03-01T00:00:00Z", "versions=2",
+                         "auto-rotated-versions=1", "pending-version-deletions=0",
+                         "latest-version=ocid1.keyversion.oc1..kv2",
+                         "latest-version-state=ENABLED",
+                         "latest-version-created=2026-06-01T00:00:00Z",
+                         "next=2026-09-01T00:00:00Z", "last=2026-06-01T00:00:00Z"):
             assert fragment in key["key_rotation"], (fragment, key["key_rotation"])
 
         expected = {"BlockVolume", "BootVolume", "ObjectStorage", "FSS", "AutonomousDB",

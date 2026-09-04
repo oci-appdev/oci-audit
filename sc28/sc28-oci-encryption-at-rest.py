@@ -108,6 +108,14 @@ ERROR_FIELDS = [
 ALL_SERVICES = ["volumes", "bootvol", "object", "fss", "adb", "basedb",
                 "mysql", "postgres", "vault"]
 
+# AutonomousDatabaseEncryptionKeyDetails.provider is one of OKV, AZURE, AWS,
+# OCI, GCP, ORACLE_MANAGED; EncryptionKeyLocationDetails.provider_type is one of
+# EXTERNAL, GCP, AZURE, AWS. Only these mean the key lives outside OCI KMS.
+# "OCI" does not — it is an OCI Vault key, which is customer-managed but not
+# external, and treating it as external would demand key-custody evidence from
+# a third party that does not hold the key.
+EXTERNAL_KEY_PROVIDERS = {"OKV", "AWS", "AZURE", "GCP", "EXTERNAL"}
+
 
 def text(item: Any, name: str, default: str = "") -> str:
     value = getattr(item, name, None)
@@ -177,7 +185,7 @@ class Collector:
             detail = key_id + (f";key-version={key_version}" if key_version else "")
             self.row(target, service, resource, "YES(TDE)", "CUSTOMER-MANAGED", detail,
                      "REFER-TO-KMS-KEY-ROW", "REFER-TO-KMS-KEY-ROW", "OK-CMK")
-        elif provider and provider != "ORACLE_MANAGED":
+        elif provider in EXTERNAL_KEY_PROVIDERS:
             detail = f"encryption-key-provider={provider}"
             if key_store:
                 detail += f";key-store-id={key_store}"
@@ -188,6 +196,13 @@ class Collector:
             self.row(target, service, resource, "YES(TDE)", "CUSTOMER-MANAGED-EXTERNAL",
                      f"key-store-id={key_store}", "EXTERNAL-TO-OCI-KMS",
                      "EXTERNAL-TO-OCI-KMS", "MANUAL-VERIFY-EXTERNAL-KEY-CUSTODY")
+        elif provider == "OCI":
+            # An OCI Vault key with no kms_key_id in this response. It is
+            # customer-managed, so REVIEW-USE-CMK would be a false finding; the
+            # key OCID just is not exposed here and needs manual confirmation.
+            self.row(target, service, resource, "YES(TDE)", "CUSTOMER-MANAGED",
+                     "encryption-key-provider=OCI;kms-key-id-not-exposed",
+                     "OCI-KMS", "OCI-KMS", "MANUAL-VERIFY-KEY-CUSTODY")
         elif provider == "ORACLE_MANAGED":
             self.row(target, service, resource, "YES(TDE)", "ORACLE-MANAGED",
                      "encryption-key-provider=ORACLE_MANAGED", "PLATFORM-MANAGED",
@@ -432,6 +447,14 @@ class Collector:
         self.ledger.ok(target, "KMS-Key", key_count)
 
     def emit_key(self, target: ScopeItem, management: Any, summary: Any) -> None:
+        """KMS key posture, with the Bash collector's full finding ladder.
+
+        SC-12 evidence distinguishes a disabled key, a software-protected key,
+        an under-length key, a failed rotation, auto-rotation configured without
+        an interval, manual rotation, and rotation that has never actually
+        produced a second version. Collapsing those into OK/REVIEW loses the
+        finding an assessor acts on.
+        """
         key_id = text(summary, "id")
         name = text(summary, "display_name", "key")
         try:
@@ -443,50 +466,85 @@ class Collector:
 
         protection = text(key, "protection_mode", "UNKNOWN")
         shape = getattr(key, "key_shape", None)
-        algorithm = text(shape, "algorithm") if shape else "UNKNOWN"
-        length = text(shape, "length") if shape else "UNKNOWN"
-        lifecycle = text(key, "lifecycle_state", "UNKNOWN")
+        algorithm = text(shape, "algorithm", "UNKNOWN") if shape else "UNKNOWN"
+        length = text(shape, "length", "UNKNOWN") if shape else "UNKNOWN"
+        key_state = text(key, "lifecycle_state", "UNKNOWN")
 
-        rotation_bits = []
         auto = getattr(key, "auto_key_rotation_details", None)
         enabled = getattr(key, "is_auto_rotation_enabled", None)
-        rotation_bits.append(f"auto-rotation={enabled}")
-        if auto:
-            for attr, label in (("rotation_interval_in_days", "interval-days"),
-                                ("time_of_schedule_start", "schedule-start"),
-                                ("time_of_next_rotation", "next-rotation"),
-                                ("time_of_last_rotation", "last-rotation"),
-                                ("last_rotation_status", "last-status")):
-                value = getattr(auto, attr, None)
-                if value is not None:
-                    rotation_bits.append(f"{label}={iso(value) if 'time' in attr else value}")
-
-        try:
-            versions = sdk_list_items(self.oci, management, "list_key_versions", SDK_READ_METHODS,
-                                key_id=key_id)
-            rotation_bits.append(f"versions={len(versions)}")
-            if versions:
-                latest = versions[0]
-                rotation_bits.append(f"latest-version-state={text(latest, 'lifecycle_state')}")
-                rotation_bits.append(
-                    f"latest-version-created={iso(getattr(latest, 'time_created', None))}")
-        except Exception as exc:
-            self.ledger.failed(target, "KMS-KeyVersion", exc)
-            rotation_bits.append("versions=UNKNOWN")
-
+        interval = text(auto, "rotation_interval_in_days") if auto else ""
+        schedule_start = iso(getattr(auto, "time_of_schedule_start", None)) if auto else ""
+        last_rotation = iso(getattr(auto, "time_of_last_rotation", None)) if auto else ""
+        next_rotation = iso(getattr(auto, "time_of_next_rotation", None)) if auto else ""
         last_status = text(auto, "last_rotation_status") if auto else ""
-        if last_status and last_status.upper() not in {"SUCCESS", "COMPLETED"}:
-            finding = "AUTO-ROTATION-FAILED"
-        elif protection == "HSM" and enabled:
-            finding = "OK-HSM-AUTO-ROTATION"
-        elif protection == "HSM":
-            finding = "OK-HSM"
-        else:
-            finding = "REVIEW-KEY-PROTECTION"
+        last_message = (text(auto, "last_rotation_message") if auto else "")
+        last_message = last_message.replace("\n", " ").replace("\r", " ")[:120]
 
+        version_count = latest_version = latest_state = latest_created = "UNKNOWN"
+        auto_versions = pending_deletions = "UNKNOWN"
+        versions_failed = False
+        try:
+            versions = sdk_list_items(self.oci, management, "list_key_versions",
+                                      SDK_READ_METHODS, key_id=key_id)
+            version_count = str(len(versions))
+            # Sort by time_created; SDK list order is not a documented guarantee,
+            # so indexing [0] is not the same as "latest".
+            ordered = sorted(versions, key=lambda v: iso(getattr(v, "time_created", None)))
+            if ordered:
+                newest = ordered[-1]
+                latest_version = text(newest, "id", "none")
+                latest_state = text(newest, "lifecycle_state", "none")
+                latest_created = iso(getattr(newest, "time_created", None)) or "none"
+            else:
+                latest_version = latest_state = latest_created = "none"
+            auto_versions = str(sum(
+                1 for v in versions if getattr(v, "is_auto_rotated", None) is True))
+            pending_deletions = str(sum(
+                1 for v in versions if getattr(v, "time_of_deletion", None) is not None))
+        except Exception as exc:
+            # A denied version listing must not silently become "not rotated".
+            self.ledger.failed(target, "KMS-KeyVersion", exc)
+            versions_failed = True
+
+        rotation = ";".join([
+            f"auto-enabled={'true' if enabled else 'false'}",
+            f"interval-days={interval or 'not-exposed'}",
+            f"schedule-start={schedule_start or 'not-exposed'}",
+            f"last={last_rotation or 'not-exposed'}",
+            f"last-status={last_status or 'not-exposed'}",
+            f"last-message={last_message or 'none'}",
+            f"next={next_rotation or 'not-exposed'}",
+            f"versions={version_count}",
+            f"auto-rotated-versions={auto_versions}",
+            f"pending-version-deletions={pending_deletions}",
+            f"latest-version={latest_version}",
+            f"latest-version-state={latest_state}",
+            f"latest-version-created={latest_created}",
+        ])
+
+        if versions_failed:
+            finding = "COLLECTION-FAILED"
+        elif key_state != "ENABLED":
+            finding = f"KEY-STATE-{key_state}"
+        elif protection != "HSM":
+            finding = "REVIEW-SOFTWARE-KEY"
+        elif algorithm != "AES" or length != "32":
+            finding = f"REVIEW-AES-KEY-LENGTH-{algorithm}-{length}"
+        elif last_status.upper() == "FAILED":
+            finding = "AUTO-ROTATION-FAILED"
+        elif enabled and (not interval or not next_rotation):
+            finding = "REVIEW-AUTO-ROTATION-DETAILS"
+        elif not enabled:
+            finding = "REVIEW-MANUAL-ROTATION-EVIDENCE"
+        elif int(version_count) <= 1 and int(auto_versions) == 0:
+            finding = "REVIEW-ROTATION-NOT-CONFIRMED"
+        else:
+            finding = "OK-HSM-AUTO-ROTATION"
+
+        status = "ERROR" if versions_failed else "OK"
         self.row(target, "KMS-Key", name, "n/a", protection,
                  f"{key_id};algorithm={algorithm};length={length}",
-                 lifecycle, ";".join(rotation_bits), finding)
+                 key_state, rotation, finding, status)
 
     def run(self, targets: Sequence[ScopeItem], services: Sequence[str]) -> None:
         dispatch = {
