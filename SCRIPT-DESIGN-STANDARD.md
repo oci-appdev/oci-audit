@@ -137,5 +137,5 @@ anything other than `1` fails closed. The cross-collector fail-closed regression
 is `tests/test-task1-3-automation-contract.sh`.
 
 `ra05-01/ra05-01-vulnerability-tracking.py` is the first collector built on the Oracle
-SDK standard. Its shared SDK primitives are in `ra05-01/lib/oci_audit_sdk.py`, and its
+SDK standard. Its shared SDK primitives are in `lib/oci_audit_sdk.py`, and its
 mock-client gate is `ra05-01/tests/test-ra05-01-vulnerability-tracking.py`.

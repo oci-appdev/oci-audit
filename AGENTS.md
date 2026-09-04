@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-02 (per-task folder layout adopted)
+**Last updated:** 2026-09-04 (SDK port under way; SC-28 ported)
 
 ## Non-negotiable repository rules
 
@@ -115,6 +115,33 @@ separate module — CM07-01's entire reconciliation engine is that heredoc.
 header names every `.py` the script actually calls and no `.py` that does not
 exist. A header that is confidently wrong is worse than none.
 
+## The shared SDK framework — use it, do not re-derive it
+
+`lib/oci_audit_sdk.py` is the single place a Python collector gets auth, client
+construction, the runtime `list_*`/`get_*` allowlist, scope discovery and
+resolution, the confirmation and approval gates, the coverage/error ledger and
+formula-safe CSV output. It moved from `ra05-01/lib/` to the repository root on
+2026-09-04 so every port shares one copy.
+
+Three things the port surfaced that a new collector must get right:
+
+- **`sdk_list()` returns `(items, response)`.** Use `sdk_list_items()` unless
+  you need the response for its request id. Assigning the tuple to one name
+  does not raise — it silently iterates `[items, response]` and reports
+  `len() == 2`.
+- **The gate order is fixed by `SCRIPT-DESIGN-STANDARD.md`:** discover, display,
+  exact OCID twice (`resolve_scope` / `confirm_targets_interactively`), *then*
+  the pre-scan plan (`print_scan_plan`), *then* exact uppercase `YES`
+  (`require_final_approval`). Printing the plan before confirmation inverts
+  steps 6 and 7 and is a review finding.
+- **`-r/--region` is validated, not `argparse`-required**, so `--selfcheck`
+  runs with no region and no credentials. `validate_argument_combination`
+  enforces it for every real collection.
+
+A collector's `main()` takes `(argv=None, oci_module=None)` so its test can
+drive it with a mock SDK. The mock must mirror the real response models, not
+the collector's expectations — see the section below.
+
 ## Ownership boundaries — read before you edit
 
 Work is split across agents. Respect these boundaries; if you believe a change
@@ -130,6 +157,8 @@ making it.
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Per-task folder layout | Copilot (authored) / Claude (merged 2026-09-02) | Copilot's `copilot/review-repo` reorg was reviewed (`COPILOT-REORG-REVIEW.md`) and **merged** into `claude/repo-study-u22ntx`. The two `.pyc` files were dropped, the read-only gate was made layout-independent first, and `tests/test-repo-structure.sh` now guards the layout. |
+| SDK port of the Bash collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK. `sc28/sc28-oci-encryption-at-rest.py` is ported and tested; the Bash original is retained until every port lands. Shared framework lives in `lib/oci_audit_sdk.py`. Remaining: `cp09-01/02/03`, `sc08-02`, `cm07-01`, `cm11-01`, `cm02-01`, `cm08-01`. |
+| CP-9 SDK port | **Another agent** (reported 2026-09-04) | Reported complete locally at `c22674e` / `6a0e4bf` with 15 tests passing. **Neither commit is on origin and neither is in this tree**, so it is unreviewed and unmerged. Do not re-port CP-9 until it is pushed or confirmed abandoned. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |
 
 ## SDK-verified changes — do not revert blindly (2026-09-02)
@@ -157,6 +186,11 @@ test must be updated with a stated reason, not deleted.
 | The three retired CM-7 reference scripts (`cm07-openports.sh`, `cm07-ppsm.sh`, `cm07-proof-opened-ports.sh`) suppress OCI stderr on 14–17 call sites, so a denied call became "no rules found" — rule 3's exact prohibition — and `cm07-ppsm.sh` embedded a static restricted list. A "LEGACY REFERENCE" comment does not stop execution, so they now refuse to run and exit 2. | `cm07-openports.sh`, `cm07-ppsm.sh`, `cm07-proof-opened-ports.sh` | `cm07-01/tests/test-cm07-01-corrective.sh` |
 | The shipped CM07-01 CSV templates drifted from what the collector generates once `semantic_rule_key` and `peer_type` were added, so an operator would have filled in a schema the reconciler rejects. Templates are realigned and a drift gate compares shipped against generated headers. | `templates/cm07-01-*.csv` | `cm07-01/tests/test-cm07-01-corrective.sh` |
 | SC-8 collected no MySQL evidence although `mysql.models.DbSystem.secure_connections` is in-transit TLS configuration and SC-28 already covered MySQL at rest. | `sc08-02/sc08-02-in-transit-encryption.sh` | `sc08-02/tests/test-sc08-02-in-transit-encryption.sh` |
+| `sdk_list()` returns `(items, response)`. The SC-28 port assigned it to a single name at 13 call sites, so every loop iterated `[items, response]` and every `len()` reported 2 — a silent miscount, not a crash. Added `sdk_list_items()` for callers that do not need the response. | `lib/oci_audit_sdk.py`, `sc28/sc28-oci-encryption-at-rest.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
+| `error_record()` never produced the `status` key that `Ledger.failed()` reads, so **every** failure was recorded as `ERROR` and an authorization denial was indistinguishable from a broken call. It now classifies DENIED / NOT-FOUND / THROTTLED / SERVICE-ERROR / ERROR, and reads the request id from `request_id`, `opc_request_id` or the raw header rather than only the last. | `lib/oci_audit_sdk.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
+| SC-28's `ERROR_FIELDS` named `code`/`opc_request_id`, which `error_record()` does not produce. `write_csv` uses `extrasaction="ignore"` with a `""` default, so the mismatch emitted blank columns instead of failing — the error ledger would have shipped with only `message` populated. | `sc28/sc28-oci-encryption-at-rest.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
+| An SDK allowlist must be checked against the method actually called. A draft of the SC-28 port passed `_allow_as="list_db_systems_mysql"` to disambiguate the MySQL and PostgreSQL clients, which share `list_db_systems`. That checks one name and calls another — the same laundering blind spot the read-only gate was hardened against. The allowlist proves the verb; it is not the place to record which client a call sits on. | `sc28/sc28-oci-encryption-at-rest.py` | `sc28/tests/test-sc28-encryption-at-rest.py` |
+| `cm07-01/tests/test-cm07-01-corrective.sh` hardcoded `expiration_date: 2027-01-01` in a fixture meant to be currently approved. On 2027-01-01 all six rows silently become `APPROVAL-INCOMPLETE` and the test starts asserting something else. Dates are now computed relative to today, as `test-cm07-01-open-ports.sh` already did. Verified by setting the fixture to yesterday: the test fails. | `cm07-01/tests/test-cm07-01-corrective.sh` | itself |
 | Volume backup schedules expose `is-retention-lock-enabled` and `is-prevent-deletion-enabled` (the CP-9 WORM evidence) and may express retention as `retention-period` instead of `retention-seconds`. None of these were collected. | `cp09-01/cp09-01-backup-type-config-frequency.sh` | `cp09-01/tests/test-cp09-01-backup-config.sh` (new) |
 
 ## Review method that found these

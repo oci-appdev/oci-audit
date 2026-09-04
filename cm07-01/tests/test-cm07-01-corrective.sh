@@ -191,6 +191,7 @@ fi
 # is what a deleted-and-recreated Security List looks like.
 python3 - "$inventory" "$TMP/baseline-recreated.csv" "$TMP/baseline-drift.csv" <<'PY'
 import csv, sys
+from datetime import date, timedelta
 src, recreated_path, drift_path = sys.argv[1:4]
 rows = [r for r in csv.DictReader(open(src, newline="", encoding="utf-8-sig"))
         if r["collection_status"] == "OK"]
@@ -213,8 +214,13 @@ def baseline(rows, mutate_container):
             "approval_id": f"CCB-{index}",
             "approval_authority": "CCB",
             "approved_by": "reviewer",
-            "approval_date": "2026-01-01",
-            "expiration_date": "2027-01-01",
+            # Relative, not literal. A hardcoded expiration_date silently
+            # turns this fixture from "currently approved" into "expired" the
+            # day the clock passes it, changing what the test asserts without
+            # anyone editing the test. test-cm07-01-open-ports.sh already
+            # computes its dates this way.
+            "approval_date": (date.today() - timedelta(days=30)).isoformat(),
+            "expiration_date": (date.today() + timedelta(days=365)).isoformat(),
             "business_function": "audit",
             "justification": "approved for the audit baseline",
             "source_reference": "CCB-2026",
