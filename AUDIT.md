@@ -1,8 +1,8 @@
 # OCI Audit Implementation Review
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-04
 
-**Current branch:** `codex/task13-ia02-federation`
+**Current branch:** `main`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -10,7 +10,7 @@
 
 ## Current audit position
 
-Tasks 1, 2, 3, 7, 9, 10, 11, 12 and 13 have implementation-complete collector workflows and
+Tasks 1, 2, 3, 7, 9, 10, 11, 12, 13 and 14 have implementation-complete collector workflows and
 reproducible mock gates ready for controlled OCI runs. None is
 audit-complete: live CSVs, Task 2 manual/screenshotted proof, Task 3 key
 custody/rotation proof, Task 7 identity/host/manual proof, Task 9 approved prior inventory,

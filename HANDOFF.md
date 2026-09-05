@@ -1,18 +1,59 @@
 # Implementation Handoff
 
-**Updated:** 2026-09-02
+**Updated:** 2026-09-04
 
-**Working branch:** `codex/task13-ia02-federation`
+**Working branch:** `main`
 
-**Published base:** `ec973ceb8b9dd70e05627a435712bd35e196eee7` (`main`)
+**Published base:** `915cc12` (`main`)
 
-**Task 13 implementation commit:** `526b2e1`
+**Current milestone:** Tasks 1–3, 7, 9–14 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-**Current milestone:** Tasks 1–3, 7 and 9–13 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
+**Delivery:** SI04-01 focused and full repository mock gate passed locally (23/23)
 
-**Delivery:** IA02-01 focused and full repository gates passed locally; publication is pending user direction
+## Latest milestone — Task 14 SIEM integration / CrowdStrike forwarding
 
-## Latest milestone — Task 13 Okta/DOJLogin federation
+`si04-01-siem-crowdstrike-forwarding.py` is the canonical SI-4/AU-12 workflow.
+It uses Oracle's OCI Python SDK with `ServiceConnectorClient` and
+`LoggingManagementClient`. It inventories all Service Connector Hub connectors
+and all OCI log groups/logs in the selected scope, cross-references log sources
+to connectors, and flags connectors whose name or HTTP target URL contains
+`crowdstrike` or `falcon` keywords as CrowdStrike targets.
+
+The normal run discovers the tenancy and active compartments, requires an exact
+tenancy or compartment OCID twice, prints every target, SDK method, output path
+and sensitivity boundary, then requires exact uppercase `YES`. Automation
+requires `--non-interactive`, the complete exact OCID set and
+`--approve-scan YES`.
+
+The workflow separates OCI configuration facts from organizational authority.
+Connector records prove a forwarding path exists in OCI configuration; they do
+not prove the path is active, correctly scoped, or that the SIEM has received
+the intended events. Five governance inputs complete the evidence picture: the
+operator confirms connector scope applicability, executes test events with SIEM
+receipt proof, records owner approval, and produces an exact count-bound
+monthly review.
+
+Evidence instructions are in `TASK14-SIEM-CROWDSTRIKE-EVIDENCE-GUIDE.md`. The
+focused mock gate is `tests/test-si04-01-siem-crowdstrike-forwarding.py`; it
+covers connector inventory with CrowdStrike/SIEM detection, log source
+coverage, forwarding cross-reference, deduplication, formula safety,
+private/immutable output, double-OCID/plan/`YES`, strict automation, refusal
+before workload clients, denied call error ledger, secret redaction,
+template generation, count-bound review validation and mutating-method
+self-check.
+
+Task 14 is not audit-complete. Scope confirmation, test events, SIEM receipt
+proof, CrowdStrike configuration screenshots, owner approval and the monthly
+review are still required.
+
+## Next implementation target
+
+Tasks 15 is N/A. Task 16 is contingency planning: RTO/RPO, BIA, communications
+bridge, recovery procedures, draft ISCP and test plan. This task does not have
+an OCI collector component; evidence is entirely organizational documentation.
+Confirm whether any OCI configuration facts (backup policies, replication
+settings, region subscriptions) should be captured by a lightweight collector
+before proceeding to the documentation scaffolding.
 
 `ia02-01-federation-configuration.py` is the canonical applicability-first
 Task 13 workflow. It uses only Oracle's generated Identity and Identity Domains
