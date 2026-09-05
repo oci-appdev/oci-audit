@@ -45,6 +45,9 @@ python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("ac02-01-account-managem
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-ac02-01-account-management.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("ia02-01-federation-configuration.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-ia02-01-federation-configuration.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("si04-01-siem-crowdstrike-forwarding.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-si04-01-siem-crowdstrike-forwarding.py").read_text(encoding="utf-8"))'
+python3 tests/verify-sdk-surface.py
 
 bash cp09-01-backup-type-config-frequency.sh --selfcheck
 bash cp09-02-backup-access-files-check.sh --selfcheck
