@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-05 (Tasks 1-3, 8, 9 complete on the SDK)
+**Last updated:** 2026-09-05 (all nine collectors are SDK-native)
 
 ## Non-negotiable repository rules
 
@@ -234,6 +234,37 @@ non-zero — the gate held — but the output named no failing check, and an
 injection probe reading the output scored it as "not caught". All six runners
 now also catch `Exception` and report it as a failure. Fixed 2026-09-05.
 
+- **`InstalledPackageSummary` reports provenance in a `software_sources` LIST.**
+  There is no `software_source_name` or `software_source_id`. Reading those
+  yields nothing, and falling back to the package `type` reports every
+  package's source as `RPM` — a format, not a provenance. CM11-01's
+  `--selfcheck` fails on any attribute access or `text()`/`getattr()` read of
+  those names.
+- **Security lists and NSGs use different rule models.**
+  `IngressSecurityRule`/`EgressSecurityRule` are separate types with no
+  direction field; NSG `SecurityRule` is one type with an explicit `direction`.
+  Both normalise into one shape before reconciliation.
+- **ICMP (1) and ICMPv6 (58) have no ports.** Modelling them as 0-65535 makes
+  every ICMP rule overlap every port-scoped PPSM entry. The case that actually
+  bites is an entry scoped to protocol `ANY` **with** ports — the protocol
+  check does not filter that out, so only the portless rule's refusal to match
+  a port-scoped entry prevents a ping rule being reported as a prohibited RDP
+  port. That exact fixture is in the CM07-01 test.
+- **`list_security_lists` is per compartment.** A subnet in scope can reference
+  a security list held elsewhere; referenced lists are resolved by OCID and an
+  unreadable one is `UNRESOLVED-SECURITY-LIST`, never "no rules".
+
+## Do not write a source guard where a behavioural test belongs
+
+CM07-01 briefly carried a `--selfcheck` that scanned its own source for a
+literal `65535`, as a proxy for "portless protocols carry no port range". It
+flagged its own implementation, and the fix would have been a third
+line-number exclusion on top of the two already needed elsewhere. It was
+removed. The property is behavioural and the mock test asserts it directly by
+feeding a portless rule against an ANY-protocol port-scoped PPSM entry — which
+is both stronger and not self-referential. A guard that must exempt its own
+code to pass is a guard that will be weakened rather than fixed.
+
 The general rule these share: **a response that does not establish a fact is
 UNKNOWN, never a negative finding.** Only an explicit negative from the API —
 `kind=NONE`, `is_enabled=false`, an empty assignment list — earns one.
@@ -253,7 +284,7 @@ making it.
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Per-task folder layout | Copilot (authored) / Claude (merged 2026-09-02) | Copilot's `copilot/review-repo` reorg was reviewed (`COPILOT-REORG-REVIEW.md`) and **merged** into `claude/repo-study-u22ntx`. The two `.pyc` files were dropped, the read-only gate was made layout-independent first, and `tests/test-repo-structure.sh` now guards the layout. |
-| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`, `sc08-02/sc08-02-in-transit-encryption.py`. `cm08-01/cm08-01-component-inventory.py`, `cm02-01/cm02-01-configuration-baseline.py`, sharing `lib/oci_audit_inventory.py`. **Tasks 1-3, 8 and 9 are complete on the SDK.** Remaining: cm11-01, cm07-01. |
+| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`, `sc08-02/sc08-02-in-transit-encryption.py`. `cm08-01/cm08-01-component-inventory.py`, `cm02-01/cm02-01-configuration-baseline.py`, sharing `lib/oci_audit_inventory.py`. `cm11-01/cm11-01-software-installation-control.py`, `cm07-01/cm07-01-open-ports.py`. **All nine canonical collectors now have an SDK-native implementation.** The Bash originals are retained, unmodified, until each port is live-validated. |
 | (superseded row) | Claude | The user directed that collectors use only the Oracle OCI Python SDK. `sc28/sc28-oci-encryption-at-rest.py` is ported and tested; the Bash original is retained until every port lands. Shared framework lives in `lib/oci_audit_sdk.py`. Remaining: `cp09-01/02/03`, `sc08-02`, `cm07-01`, `cm11-01`, `cm02-01`, `cm08-01`. |
 | CP-9 SDK port | **Another agent** (reported 2026-09-04) | Reported complete locally at `c22674e` / `6a0e4bf` with 15 tests passing. **Neither commit is on origin and neither is in this tree**, so it is unreviewed and unmerged. Do not re-port CP-9 until it is pushed or confirmed abandoned. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |
