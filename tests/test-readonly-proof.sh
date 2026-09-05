@@ -93,6 +93,19 @@ SECRET_SDK_METHODS = {
     # only PreauthenticatedRequestSummary, which has no access_uri, so listing
     # PARs is legitimate access evidence -- the get is what must never run.
     "get_preauthenticated_request",
+    # IPSec pre-shared keys. The SC-8 shell collector blocked the CLI spelling
+    # "ip-sec-psk" from the day it was written, but the SDK spellings were
+    # never added -- the same kebab/snake blind spot that once let
+    # client.get_auth_token(...) through. The CPE device-config family is here
+    # for the same reason: the rendered configuration it returns embeds the
+    # pre-shared key. None of these is needed for SC-8 evidence, because the
+    # negotiated crypto parameters live on IPSecConnectionTunnel's
+    # phase_one_details and phase_two_details, which carry no secret.
+    "get_ip_sec_connection_tunnel_shared_secret",
+    "get_cpe_device_config_content",
+    "get_ipsec_cpe_device_config_content",
+    "get_tunnel_cpe_device_config",
+    "get_tunnel_cpe_device_config_content",
 }
 # Deliberately NOT secret: password *policy* operations return complexity and
 # expiry configuration, which is legitimate AC-2/IA-5 evidence.

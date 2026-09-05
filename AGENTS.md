@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-05 (SDK-native collectors: sc28, cp09-01/02/03)
+**Last updated:** 2026-09-05 (Tasks 1-3 complete on the SDK)
 
 ## Non-negotiable repository rules
 
@@ -187,6 +187,25 @@ oci==2.185.1 on 2026-09-04.
   satisfy CP-6, but reporting such a database as having no replication at all
   understates what exists, so it gets its own `LOCAL-DATA-GUARD-ONLY` finding.
 
+- **Five routes to an IPSec pre-shared key were unguarded.** The SC-8 shell
+  collector blocked the CLI spelling `ip-sec-psk` from the day it was written,
+  but `get_ip_sec_connection_tunnel_shared_secret` and the whole CPE
+  device-config family — whose rendered output embeds the PSK — were absent
+  from `tests/test-readonly-proof.sh`. Same kebab/snake blind spot that once
+  let `get_auth_token` through. All five are now blocked (53 secret reads), and
+  SC08-02's `--selfcheck` independently fails if any appears in its source. The
+  crypto evidence comes from `IPSecConnectionTunnel.phase_one_details` and
+  `phase_two_details`, which carry no secret.
+- **Three services describe no transport security at all.** NLB `Listener` has
+  no `ssl_configuration` (layer 4, TLS terminates at the backend); `MountTarget`
+  has no in-transit field (FSS in-transit encryption is a client mount option);
+  psql `NetworkDetails` has no TLS field. Each is MANUAL-VERIFY with the reason
+  recorded — asserting either a pass or a finding would be invention.
+- **`list_mount_targets` requires `availability_domain`.** It is not an optional
+  filter; calling it with `compartment_id` alone fails outright.
+- **Load balancer listeners are a dict on the `LoadBalancer` object.** There is
+  no `list_listeners` on `LoadBalancerClient` — only NLB has one.
+
 The general rule these share: **a response that does not establish a fact is
 UNKNOWN, never a negative finding.** Only an explicit negative from the API —
 `kind=NONE`, `is_enabled=false`, an empty assignment list — earns one.
@@ -206,7 +225,7 @@ making it.
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Per-task folder layout | Copilot (authored) / Claude (merged 2026-09-02) | Copilot's `copilot/review-repo` reorg was reviewed (`COPILOT-REORG-REVIEW.md`) and **merged** into `claude/repo-study-u22ntx`. The two `.pyc` files were dropped, the read-only gate was made layout-independent first, and `tests/test-repo-structure.sh` now guards the layout. |
-| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`. Remaining: sc08-02, cm07-01, cm11-01, cm02-01, cm08-01. |
+| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`, `sc08-02/sc08-02-in-transit-encryption.py`. **Tasks 1-3 are complete on the SDK.** Remaining: cm07-01, cm11-01, cm02-01, cm08-01. |
 | (superseded row) | Claude | The user directed that collectors use only the Oracle OCI Python SDK. `sc28/sc28-oci-encryption-at-rest.py` is ported and tested; the Bash original is retained until every port lands. Shared framework lives in `lib/oci_audit_sdk.py`. Remaining: `cp09-01/02/03`, `sc08-02`, `cm07-01`, `cm11-01`, `cm02-01`, `cm08-01`. |
 | CP-9 SDK port | **Another agent** (reported 2026-09-04) | Reported complete locally at `c22674e` / `6a0e4bf` with 15 tests passing. **Neither commit is on origin and neither is in this tree**, so it is unreviewed and unmerged. Do not re-port CP-9 until it is pushed or confirmed abandoned. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |
