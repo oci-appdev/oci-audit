@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-05 (Tasks 1-3 complete on the SDK)
+**Last updated:** 2026-09-05 (Tasks 1-3, 8, 9 complete on the SDK)
 
 ## Non-negotiable repository rules
 
@@ -206,6 +206,34 @@ oci==2.185.1 on 2026-09-04.
 - **Load balancer listeners are a dict on the `LoadBalancer` object.** There is
   no `list_listeners` on `LoadBalancerClient` — only NLB has one.
 
+- **`Instance.metadata` and `extended_metadata` carry secrets.** They routinely
+  hold `ssh_authorized_keys` and `user_data`, and `user_data` is a base64
+  cloud-init payload that commonly embeds bootstrap credentials. Read-only does
+  not make it safe to write into evidence. `metadata_key_summary` in
+  `lib/oci_audit_inventory.py` is the only supported reader — it returns key
+  NAMES, marking sensitive ones `(redacted)`, and never a value. Both CM
+  collectors' `--selfcheck` fails on a direct subscript of a metadata mapping.
+- **Resource Search is an index, not the services.** `search_resources` is a
+  POST-shaped read (query in the body) and is permitted, but the index is
+  eventually consistent and covers only the types it knows about. CM08-01
+  records `queryable-types=N` and `index-is-eventually-consistent` in the
+  coverage ledger rather than implying the inventory is exhaustive.
+- **A baseline derived from current state cannot detect drift.** CM02-01
+  compares against a supplied `--baseline` or reports
+  `SNAPSHOT-ONLY-NO-BASELINE`; it never synthesises one. An unusable baseline
+  file fails *before* scanning, because returning an empty mapping would report
+  every instance as `UNAPPROVED-COMPONENT` — catastrophic drift caused by a
+  typo in a filename.
+
+## Test harnesses must catch more than AssertionError
+
+Every SDK mock test uses a small runner. It originally caught only
+`AssertionError`, so a collector that raised anything else took the whole
+runner down with a traceback and no `FAIL` line. The suite still exited
+non-zero — the gate held — but the output named no failing check, and an
+injection probe reading the output scored it as "not caught". All six runners
+now also catch `Exception` and report it as a failure. Fixed 2026-09-05.
+
 The general rule these share: **a response that does not establish a fact is
 UNKNOWN, never a negative finding.** Only an explicit negative from the API —
 `kind=NONE`, `is_enabled=false`, an empty assignment list — earns one.
@@ -225,7 +253,7 @@ making it.
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Per-task folder layout | Copilot (authored) / Claude (merged 2026-09-02) | Copilot's `copilot/review-repo` reorg was reviewed (`COPILOT-REORG-REVIEW.md`) and **merged** into `claude/repo-study-u22ntx`. The two `.pyc` files were dropped, the read-only gate was made layout-independent first, and `tests/test-repo-structure.sh` now guards the layout. |
-| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`, `sc08-02/sc08-02-in-transit-encryption.py`. **Tasks 1-3 are complete on the SDK.** Remaining: cm07-01, cm11-01, cm02-01, cm08-01. |
+| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`, `sc08-02/sc08-02-in-transit-encryption.py`. `cm08-01/cm08-01-component-inventory.py`, `cm02-01/cm02-01-configuration-baseline.py`, sharing `lib/oci_audit_inventory.py`. **Tasks 1-3, 8 and 9 are complete on the SDK.** Remaining: cm11-01, cm07-01. |
 | (superseded row) | Claude | The user directed that collectors use only the Oracle OCI Python SDK. `sc28/sc28-oci-encryption-at-rest.py` is ported and tested; the Bash original is retained until every port lands. Shared framework lives in `lib/oci_audit_sdk.py`. Remaining: `cp09-01/02/03`, `sc08-02`, `cm07-01`, `cm11-01`, `cm02-01`, `cm08-01`. |
 | CP-9 SDK port | **Another agent** (reported 2026-09-04) | Reported complete locally at `c22674e` / `6a0e4bf` with 15 tests passing. **Neither commit is on origin and neither is in this tree**, so it is unreviewed and unmerged. Do not re-port CP-9 until it is pushed or confirmed abandoned. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |

@@ -410,6 +410,14 @@ def main() -> int:
         except AssertionError as exc:
             failures += 1
             print(f"  FAIL {fn.__name__}: {exc}", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001
+            # An unexpected exception is a failure, not a crash. Catching only
+            # AssertionError let a collector that raised anything else take the
+            # whole runner down with a traceback and no FAIL line -- the run
+            # still exited non-zero, but said nothing about which check broke.
+            failures += 1
+            print(f"  FAIL {fn.__name__}: unexpected "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
     if failures:
         print(f"FAIL: SC08-02 SDK collector ({failures} failed)", file=sys.stderr)
         return 1

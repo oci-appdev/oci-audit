@@ -55,6 +55,10 @@ python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp09-03/cp09-03-backup-
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp09-03/tests/test-cp09-03-backup-replication.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("sc08-02/sc08-02-in-transit-encryption.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("sc08-02/tests/test-sc08-02-in-transit.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("lib/oci_audit_inventory.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm08-01/cm08-01-component-inventory.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm02-01/cm02-01-configuration-baseline.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm02-01/tests/test-cm02-cm08-baseline-inventory.py").read_text(encoding="utf-8"))'
 
 bash cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck
 bash cp09-02/cp09-02-backup-access-files-check.sh --selfcheck
@@ -71,6 +75,8 @@ python3 cp09-01/cp09-01-backup-configuration.py --selfcheck
 python3 cp09-02/cp09-02-backup-access.py --selfcheck
 python3 cp09-03/cp09-03-backup-replication.py --selfcheck
 python3 sc08-02/sc08-02-in-transit-encryption.py --selfcheck
+python3 cm08-01/cm08-01-component-inventory.py --selfcheck
+python3 cm02-01/cm02-01-configuration-baseline.py --selfcheck
 
 # Repository-wide gates first: the read-only proof must cover every collector
 # in whatever layout the tree currently has.
@@ -95,6 +101,7 @@ bash cm07-01/tests/test-cm07-01-corrective.sh
 bash cm11-01/tests/test-cm11-01-software-installation-control.sh
 bash cm02-01/tests/test-cm02-01-configuration-baseline.sh
 bash cm08-01/tests/test-cm08-01-component-inventory.sh
+python3 cm02-01/tests/test-cm02-cm08-baseline-inventory.py
 python3 ra05-01/tests/test-ra05-01-vulnerability-tracking.py
 
 echo "PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8 and RA-5 static, read-only and mock test suite"
