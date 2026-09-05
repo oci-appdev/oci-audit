@@ -54,6 +54,7 @@ SECRET_READS = [
     "initial-credentials", "autonomous-database-wallet", "regional-wallet",
     "secret-bundle", "named-credential", "preferred-credential",
     "user-credential", "bds-api-key", "deployment-wallets",
+    "preauthenticated-request",
 ]
 
 # Identity Domains is the sharpest case: 162 of its read operations are
@@ -87,6 +88,11 @@ SECRET_SDK_METHODS = {
     "get_autonomous_database_wallet", "get_autonomous_database_regional_wallet",
     "get_user_ui_password_information",
     "list_swift_passwords", "list_db_credentials",
+    # PreauthenticatedRequest.access_uri is a bearer URL granting direct object
+    # access without any further authentication. The list operation returns
+    # only PreauthenticatedRequestSummary, which has no access_uri, so listing
+    # PARs is legitimate access evidence -- the get is what must never run.
+    "get_preauthenticated_request",
 }
 # Deliberately NOT secret: password *policy* operations return complexity and
 # expiry configuration, which is legitimate AC-2/IA-5 evidence.

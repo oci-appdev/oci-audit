@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-04 (SDK-native collectors: sc28, cp09-01)
+**Last updated:** 2026-09-05 (SDK-native collectors: sc28, cp09-01/02/03)
 
 ## Non-negotiable repository rules
 
@@ -166,6 +166,27 @@ oci==2.185.1 on 2026-09-04.
   be the literal `_Audit`.** Absent means "all logs in scope"; matching only on
   exact OCIDs reports covered logs as uncovered.
 
+- **`PreauthenticatedRequest.access_uri` is a bearer URL.** It grants object
+  access with no further authentication. `PreauthenticatedRequestSummary` from
+  the list operation has no such field, so *listing* PARs is legitimate access
+  evidence and the *get* is what must never run. `get_preauthenticated_request`
+  is now blocked repository-wide in `tests/test-readonly-proof.sh` (48 secret
+  reads), and CP09-02's `--selfcheck` additionally fails if that call, or the
+  `access_uri` attribute, appears anywhere in its source.
+- **A replication destination in the same region is not alternate storage.**
+  Object Storage reports `destination_region_name`, so this is checkable rather
+  than assumed. FSS does not report the target's region on the replication
+  object at all, so off-site there stays UNKNOWN rather than being guessed
+  either way.
+- **Replication being configured is not the same as backups being current.**
+  Object Storage carries `status` and `time_last_sync`; FSS carries
+  `delta_status` and `recovery_point_time`. An ACTIVE policy that has never
+  synced is a failing control that reads as configured.
+- **Autonomous Database has both `is_local_data_guard_enabled` and
+  `is_remote_data_guard_enabled`.** A local standby is same-region. It does not
+  satisfy CP-6, but reporting such a database as having no replication at all
+  understates what exists, so it gets its own `LOCAL-DATA-GUARD-ONLY` finding.
+
 The general rule these share: **a response that does not establish a fact is
 UNKNOWN, never a negative finding.** Only an explicit negative from the API —
 `kind=NONE`, `is_enabled=false`, an empty assignment list — earns one.
@@ -185,7 +206,7 @@ making it.
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Per-task folder layout | Copilot (authored) / Claude (merged 2026-09-02) | Copilot's `copilot/review-repo` reorg was reviewed (`COPILOT-REORG-REVIEW.md`) and **merged** into `claude/repo-study-u22ntx`. The two `.pyc` files were dropped, the read-only gate was made layout-independent first, and `tests/test-repo-structure.sh` now guards the layout. |
-| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`. Remaining: cp09-02, cp09-03, sc08-02, cm07-01, cm11-01, cm02-01, cm08-01. |
+| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`. Remaining: sc08-02, cm07-01, cm11-01, cm02-01, cm08-01. |
 | (superseded row) | Claude | The user directed that collectors use only the Oracle OCI Python SDK. `sc28/sc28-oci-encryption-at-rest.py` is ported and tested; the Bash original is retained until every port lands. Shared framework lives in `lib/oci_audit_sdk.py`. Remaining: `cp09-01/02/03`, `sc08-02`, `cm07-01`, `cm11-01`, `cm02-01`, `cm08-01`. |
 | CP-9 SDK port | **Another agent** (reported 2026-09-04) | Reported complete locally at `c22674e` / `6a0e4bf` with 15 tests passing. **Neither commit is on origin and neither is in this tree**, so it is unreviewed and unmerged. Do not re-port CP-9 until it is pushed or confirmed abandoned. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |

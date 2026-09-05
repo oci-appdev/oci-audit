@@ -49,6 +49,10 @@ python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("sc28/sc28-oci-encryptio
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("sc28/tests/test-sc28-encryption-at-rest.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp09-01/cp09-01-backup-configuration.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp09-01/tests/test-cp09-01-backup-configuration.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp09-02/cp09-02-backup-access.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp09-02/tests/test-cp09-02-backup-access.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp09-03/cp09-03-backup-replication.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp09-03/tests/test-cp09-03-backup-replication.py").read_text(encoding="utf-8"))'
 
 bash cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck
 bash cp09-02/cp09-02-backup-access-files-check.sh --selfcheck
@@ -62,6 +66,8 @@ bash cm08-01/cm08-01-component-inventory-baseline.sh --selfcheck
 python3 ra05-01/ra05-01-vulnerability-tracking.py --selfcheck
 python3 sc28/sc28-oci-encryption-at-rest.py --selfcheck
 python3 cp09-01/cp09-01-backup-configuration.py --selfcheck
+python3 cp09-02/cp09-02-backup-access.py --selfcheck
+python3 cp09-03/cp09-03-backup-replication.py --selfcheck
 
 # Repository-wide gates first: the read-only proof must cover every collector
 # in whatever layout the tree currently has.
@@ -74,6 +80,8 @@ bash tests/test-task1-3-automation-contract.sh
 bash cp09-01/tests/test-cp09-01-backup-config.sh
 python3 cp09-01/tests/test-cp09-01-backup-configuration.py
 bash cp09-03/tests/test-cp09-03.sh
+python3 cp09-02/tests/test-cp09-02-backup-access.py
+python3 cp09-03/tests/test-cp09-03-backup-replication.py
 bash sc08-02/tests/test-sc8-safety.sh
 bash sc08-02/tests/test-sc08-02-in-transit-encryption.sh
 bash sc28/tests/test-encryption-at-rest.sh
