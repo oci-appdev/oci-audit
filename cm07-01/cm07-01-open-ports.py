@@ -84,7 +84,6 @@ CONTROLS = "CM-7 / CM-7(1) / CA-9"
 SDK_READ_METHODS: Set[str] = {
     "list_compartments",
     "get_compartment",
-    "list_vcns",
     "list_subnets",
     "list_security_lists",
     "get_security_list",

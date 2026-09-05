@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-05 (all nine collectors are SDK-native)
+**Last updated:** 2026-09-05 (all nine SDK-native and surface-verified)
 
 ## Non-negotiable repository rules
 
@@ -253,6 +253,30 @@ now also catch `Exception` and report it as a failure. Fixed 2026-09-05.
 - **`list_security_lists` is per compartment.** A subnet in scope can reference
   a security list held elsewhere; referenced lists are resolved by OCID and an
   unreadable one is `UNRESOLVED-SECURITY-LIST`, never "no rules".
+
+## tests/verify-sdk-surface.py — the gate that proves a method exists
+
+Three checks now cover an SDK collector's cloud surface, and they prove
+different things:
+
+| Gate | Proves |
+|---|---|
+| per-collector `--selfcheck` | every declared method *looks* like a read, and the source contains no mutating call |
+| `tests/test-readonly-proof.sh` | no declared method is on the POST-shaped or secret-returning blocklists |
+| `tests/verify-sdk-surface.py` | every declared method **actually exists** on a client the collector constructs, every call is allowlisted, and no allowlist entry is unused |
+
+Only the third can catch a method that does not exist, sits on a different
+client, or is declared and never called. All three defect classes were verified
+by injection. It found five unused allowlist entries across cp09-02, cp09-03
+and cm07-01 on its first run — not a safety hole, but the pre-scan plan prints
+the allowlist to the approver as "Read-only SDK operations", so an entry the
+collector never performs overstates what is being approved.
+
+It needs the `oci` package. When that is absent it prints **SKIPPED** with the
+install command and exits 0. That is a deliberate, stated compromise: a skip
+that announces itself is honest, whereas a check that silently passes is the
+failure mode rule 6 exists to prevent. Set `OCI_SDK_PATH` to point at a
+vendored copy, or install `ra05-01/requirements-oci-sdk.txt`.
 
 ## Do not write a source guard where a behavioural test belongs
 

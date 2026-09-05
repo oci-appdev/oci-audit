@@ -88,6 +88,9 @@ python3 cm07-01/cm07-01-open-ports.py --selfcheck
 # in whatever layout the tree currently has.
 bash tests/test-repo-structure.sh
 bash tests/test-readonly-proof.sh
+# Proves declared SDK methods actually exist. Skips loudly, and only
+# when the oci package is absent -- never silently.
+python3 tests/verify-sdk-surface.py
 bash tests/test-scope-selection.sh
 bash tests/test-task1-3-automation-contract.sh
 

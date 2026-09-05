@@ -86,7 +86,6 @@ CONTROLS = "CP-9 / CP-9(5) / AC-3 / AC-6"
 SDK_READ_METHODS: Set[str] = {
     "list_compartments",
     "get_compartment",
-    "list_availability_domains",
     "list_policies",
     "get_namespace",
     "list_buckets",
