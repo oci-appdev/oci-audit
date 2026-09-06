@@ -31,6 +31,8 @@ FIXED_NOW = datetime(2026, 9, 4, 10, 0, 0, tzinfo=timezone.utc)
 CS_CONN_ID = "ocid1.serviceconnector.oc1..si04cs"
 AUDIT_CONN_ID = "ocid1.serviceconnector.oc1..si04audit"
 INACTIVE_CONN_ID = "ocid1.serviceconnector.oc1..si04inactive"
+# INACTIVE connector that sources UNCOVERED_LG — must NOT mark it COVERED
+INACTIVE_COV_CONN_ID = "ocid1.serviceconnector.oc1..si04inactivecov"
 
 # Log groups and logs
 AUDIT_LG = "ocid1.loggroup.oc1..si04auditlg"
@@ -39,6 +41,8 @@ AUDIT_LOG = "ocid1.log.oc1..si04auditlog"
 FLOW_LOG = "ocid1.log.oc1..si04flowlog"
 UNCOVERED_LG = "ocid1.loggroup.oc1..si04unclg"
 UNCOVERED_LOG = "ocid1.log.oc1..si04unclog"
+# _Audit system log group (not returned by list_log_groups)
+SYSTEM_AUDIT_LOG = "ocid1.log.oc1..si04sysaudit"
 
 
 class Response:
@@ -139,6 +143,8 @@ class ServiceConnectorClient(BaseClient):
                                 compartment_id=compartment_id, lifecycle_state="ACTIVE"),
                 SimpleNamespace(id=INACTIVE_CONN_ID, display_name="inactive-connector",
                                 compartment_id=compartment_id, lifecycle_state="INACTIVE"),
+                SimpleNamespace(id=INACTIVE_COV_CONN_ID, display_name="inactive-covers-uncovered",
+                                compartment_id=compartment_id, lifecycle_state="INACTIVE"),
             ]
         return Response(Collection(items))
 
@@ -158,6 +164,11 @@ class ServiceConnectorClient(BaseClient):
             INACTIVE_CONN_ID: _make_connector(
                 INACTIVE_CONN_ID, "inactive-connector", SHARED, "logging",
                 [], "objectStorage", lifecycle_state="INACTIVE",
+            ),
+            INACTIVE_COV_CONN_ID: _make_connector(
+                INACTIVE_COV_CONN_ID, "inactive-covers-uncovered", SHARED, "logging",
+                [_make_log_source(UNCOVERED_LG, UNCOVERED_LOG)],
+                "streaming", lifecycle_state="INACTIVE",
             ),
         }
         return Response(connectors[service_connector_id])
@@ -195,6 +206,12 @@ class LoggingManagementClient(BaseClient):
                 SimpleNamespace(id=UNCOVERED_LOG, display_name="app-custom",
                                 log_group_id=UNCOVERED_LG, compartment_id=SHARED,
                                 log_type="CUSTOM", lifecycle_state="ACTIVE", is_enabled=False),
+            ],
+            # _Audit: system log group probed separately, not returned by list_log_groups
+            "_Audit": [
+                SimpleNamespace(id=SYSTEM_AUDIT_LOG, display_name="oci-audit-service",
+                                log_group_id="_Audit", compartment_id=SHARED,
+                                log_type="SERVICE", lifecycle_state="ACTIVE", is_enabled=True),
             ],
         }
         return Response(Collection(items_map.get(log_group_id, [])))
@@ -613,9 +630,9 @@ def test_review_template_counts():
         rows = _read_csv(str(files[0]))
     assert len(rows) == 1
     r = rows[0]
-    assert int(r["total_connectors"]) == 3
+    assert int(r["total_connectors"]) == 4
     assert int(r["active_connectors"]) == 2
-    assert int(r["inactive_connectors"]) == 1
+    assert int(r["inactive_connectors"]) == 2
     assert int(r["crowdstrike_connectors"]) == 1
     assert int(r["siem_connectors"]) >= 1
     assert int(r["coverage_gaps"]) >= 1
@@ -695,6 +712,62 @@ def test_approved_plan_written():
     assert "CROWDSTRIKE" in content.upper() or "SI-4" in content
 
 
+def test_http_url_unresolvable_marked_explicitly():
+    """Defect 1: HTTP target with no URL field must show UNRESOLVED-SDK-LIMITATION, not empty."""
+    state = FakeState()
+    oci = _fake_oci(state)
+    # Strip the url attribute so the target looks like SDK 2.185.1 (no HttpTargetDetails.url)
+    original_sch = oci.sch.ServiceConnectorClient
+    class NoUrlSCH(original_sch):
+        def get_service_connector(self, cid, **kwargs):
+            resp = super().get_service_connector(cid, **kwargs)
+            if cid == CS_CONN_ID:
+                target = resp.data.target
+                if hasattr(target, "url"):
+                    del target.__dict__["url"]
+                if hasattr(target, "endpoint"):
+                    del target.__dict__["endpoint"]
+            return resp
+    oci.sch.ServiceConnectorClient = NoUrlSCH
+    with tempfile.TemporaryDirectory() as d:
+        args = _base_args(d)
+        out = io.StringIO(); err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = MODULE.main(args, oci_module=oci)
+        assert rc == 0
+        rows = _read_csv(str(list(Path(d).glob("si04-01_*_connector_inventory.csv"))[0]))
+    cs = next(r for r in rows if r["connector_id"] == CS_CONN_ID)
+    assert cs["target_http_url"] == "UNRESOLVED-SDK-LIMITATION", \
+        f"expected UNRESOLVED-SDK-LIMITATION, got: {cs['target_http_url']}"
+
+
+def test_inactive_connector_does_not_provide_coverage():
+    """Defect 2: an INACTIVE connector must not mark its log sources as COVERED."""
+    with tempfile.TemporaryDirectory() as d:
+        args = _base_args(d)
+        rc, _, err, _ = _run(args)
+        assert rc == 0
+        rows = _read_csv(str(list(Path(d).glob("si04-01_*_log_source_inventory.csv"))[0]))
+    uncovered_rows = [r for r in rows if r["log_id"] == UNCOVERED_LOG]
+    assert uncovered_rows, "UNCOVERED_LOG must appear in log source inventory"
+    assert uncovered_rows[0]["forwarding_coverage"] == "NOT-COVERED", (
+        "INACTIVE_COV_CONN_ID sources UNCOVERED_LOG but is INACTIVE — "
+        f"must be NOT-COVERED, got {uncovered_rows[0]['forwarding_coverage']}"
+    )
+
+
+def test_audit_system_log_group_discovered():
+    """Defect 3: _Audit system log group must appear in log source inventory."""
+    with tempfile.TemporaryDirectory() as d:
+        args = _base_args(d)
+        rc, _, err, _ = _run(args)
+        assert rc == 0
+        rows = _read_csv(str(list(Path(d).glob("si04-01_*_log_source_inventory.csv"))[0]))
+    audit_system = [r for r in rows if r["log_id"] == SYSTEM_AUDIT_LOG]
+    assert audit_system, "_Audit system log not in log source inventory"
+    assert audit_system[0]["log_group_id"] == "_Audit"
+
+
 if __name__ == "__main__":
     import traceback
     tests = [
@@ -721,6 +794,9 @@ if __name__ == "__main__":
         test_summary_line_is_present,
         test_mutating_methods_blocked,
         test_approved_plan_written,
+        test_http_url_unresolvable_marked_explicitly,
+        test_inactive_connector_does_not_provide_coverage,
+        test_audit_system_log_group_discovered,
     ]
     passed = failed = 0
     for t in tests:

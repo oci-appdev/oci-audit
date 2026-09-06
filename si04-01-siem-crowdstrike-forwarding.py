@@ -169,7 +169,10 @@ def connector_row(
 
     target_stream_id = _text(target, "stream_id")
     target_function_id = _text(target, "function_id")
+    # oci==2.185.1 does not expose HttpTargetDetails.url on any target model
     target_http_url = _text(target, "url") or _text(target, "endpoint")
+    if target_kind == "http" and not target_http_url:
+        target_http_url = "UNRESOLVED-SDK-LIMITATION"
     target_log_group_id = _text(target, "log_group_id")
     bucket = _text(target, "bucket_name")
 
@@ -443,10 +446,31 @@ def collect(
             except Exception as exc:
                 _err(target, "list_log_groups", exc)
 
-    # Annotate log sources with which connectors forward them
+            # _Audit is a system log group not returned by list_log_groups
+            try:
+                audit_logs, audit_resp = sdk_list(
+                    oci, log_client, "list_logs", SDK_READ_METHODS, "_Audit",
+                )
+                _cov(target, "list_logs/_Audit", len(audit_logs),
+                     request_id(audit_resp), "", True)
+                audit_group_proxy = argparse.Namespace(
+                    id="_Audit", display_name="_Audit",
+                    compartment_id=target.ocid, lifecycle_state="ACTIVE",
+                )
+                for lr in log_group_rows(audit_group_proxy, target.name,
+                                         audit_logs, args.region):
+                    if lr["source_key"] not in seen_log_ids:
+                        seen_log_ids.add(lr["source_key"])
+                        log_sources.append(lr)
+            except Exception as exc:
+                _err(target, "list_logs/_Audit", exc)
+
+    # Annotate log sources with which connectors forward them; only ACTIVE connectors provide coverage
     connector_by_group: Dict[str, List[str]] = defaultdict(list)
     connector_by_log: Dict[str, List[str]] = defaultdict(list)
     for cr in coverage_list:
+        if cr.get("connector_lifecycle_state", "").upper() != "ACTIVE":
+            continue
         cid = cr["connector_id"]
         lg_id = cr.get("log_group_id", "")
         l_id = cr.get("log_id", "")
@@ -471,9 +495,10 @@ def collect(
         forwarding_ids = set()
         forwarding_ids.update(connector_by_group.get(gid, []))
         forwarding_ids.update(connector_by_log.get(lid, []))
-        # A connector with empty log_id in its source covers all logs in the group
+        # A connector with empty log_id covers all logs in the group; only count ACTIVE
         for cr in coverage_list:
-            if cr.get("log_group_id") == gid and not cr.get("log_id"):
+            if cr.get("log_group_id") == gid and not cr.get("log_id") \
+                    and cr.get("connector_lifecycle_state", "").upper() == "ACTIVE":
                 forwarding_ids.add(cr["connector_id"])
         ls["forwarded_by_connector_ids"] = "|".join(sorted(forwarding_ids))
         ls["forwarding_coverage"] = "COVERED" if forwarding_ids else "NOT-COVERED"
