@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-05 (all nine SDK-native and surface-verified)
+**Last updated:** 2026-09-06 (memory audit; Tasks 11-14 published to `main`)
 
 ## Non-negotiable repository rules
 
@@ -16,11 +16,11 @@ the single source of truth.
    `requirements-oci-sdk.txt`, with generated clients, SDK pagination/retries
    and a runtime `list_*`/`get_*` allowlist. `ra05-01/ra05-01-vulnerability-tracking.py`
    and `lib/oci_audit_sdk.py` are the reference implementation.
-   This does **not** mean the existing Bash/OCI-CLI collectors should be
-   rewritten opportunistically. A targeted correctness fix to one of them — such
-   as the three SDK-verified fixes below — is not a material rewrite and does not
-   trigger a port. Port a collector only when it is being materially redesigned
-   anyway, or when the user asks.
+   **The port is done.** The user asked for it on 2026-09-04 and every one of
+   the nine Bash collectors now has an SDK-native counterpart alongside it
+   (2026-09-05). See "Which implementation is canonical" below before touching
+   either. New collectors are SDK-only; there is no reason to write another
+   Bash one.
 2. Collectors are **read-only**. Only OCI `list`/`get` operations. Shell
    collectors enforce this with a `--selfcheck` that greps their own source for
    mutating verbs; SDK collectors enforce it with a runtime `list_*`/`get_*`
@@ -82,15 +82,21 @@ Each canonical collector lives in its own `<task-id>/` folder with everything
 that belongs to it:
 
 ```
-cp09-01/  cp09-01-backup-type-config-frequency.sh
-          tests/{test-cp09-01-backup-config.sh, mock-oci-cp0901}
+cp09-01/  cp09-01-backup-type-config-frequency.sh   (Bash, original)
+          cp09-01-backup-configuration.py           (SDK-native)
+          tests/{…-backup-config.sh, …-backup-configuration.py, mock-oci-cp0901}
 cm08-01/  cm08-01-component-inventory-baseline.sh, cm08-hw-sw-baseline.sh,
-          cm08-01-reconcile.py, TASK9-…-GUIDE.md, tests/
-ra05-01/  ra05-01-vulnerability-tracking.py, lib/oci_audit_sdk.py,
-          requirements-oci-sdk.txt, tests/
-lib/      oci-scope-selector.sh   — shared by every shell collector
-tests/    run.sh and the repository-wide gates only
+          cm08-01-component-inventory.py, cm08-01-reconcile.py, tests/
+ra05-01/  ra05-01-vulnerability-tracking.py, requirements-oci-sdk.txt, tests/
+lib/      oci-scope-selector.sh    — shared by every shell collector
+          oci_audit_sdk.py         — shared by every SDK collector
+          oci_audit_inventory.py   — shared by CM-2 and CM-8
+tests/    run.sh, the repository-wide gates, verify-sdk-surface.py
 ```
+
+Every task folder follows that shape: one `.sh` and one `.py` collector, each
+with its own test. The `.py` is not a translation of the `.sh` — each was
+designed against the SDK response models directly.
 
 `-o` namespaces output under `<root>/<task-id>/`, so one evidence root holds
 every task's results without collision. Guarded by `basename`, so
@@ -106,14 +112,34 @@ Tests in a task folder are two levels below the root and must use
 use a single `..`. Getting this wrong produces a doubled path and `rc=127`.
 
 **Every collector's header carries a `PYTHON FILES USED:` block** naming the
-`.py` files it invokes, or stating plainly that it uses none. Three collectors
-(`cp09-01`, `cp09-02`, `cp09-03`) use no Python at all; three (`sc08-02`,
-`sc28`, `cm07-01`) use only an inline `python3 - <<'PY'` heredoc with no
-separate module — CM07-01's entire reconciliation engine is that heredoc.
+`.py` files it invokes, or stating plainly that it uses none. That is still
+true of the Bash collectors, several of which use only an inline
+`python3 - <<'PY'` heredoc — CM07-01's entire reconciliation engine is that
+heredoc. The SDK collectors name the shared modules they import from `lib/`.
 
 `tests/test-repo-structure.sh` enforces both: the folder layout, and that each
 header names every `.py` the script actually calls and no `.py` that does not
 exist. A header that is confidently wrong is worse than none.
+
+## Which implementation is canonical
+
+Every task now has two collectors — a `.sh` and a `.py`. Before editing either,
+know which one you are in and why both exist:
+
+- **The `.py` is the target implementation.** New work, bug fixes and new
+  evidence fields go there. It is what the user asked for and what
+  `SCRIPT-DESIGN-STANDARD.md` requires of anything new.
+- **The `.sh` is the incumbent.** It is the only version with operational
+  history, and it stays until its `.py` counterpart has a recorded live run.
+  Leave it alone: it was explicitly not to be rewritten during the port, and
+  editing it now to agree with the `.py` would destroy the one independent
+  check available on the port's correctness.
+- **If the two disagree about a finding, that is a signal, not a merge
+  conflict.** Work out which is right against the SDK model before changing
+  either. The `.py` versions were written from the models and the `.sh`
+  versions carry fixes found in live-adjacent review; both have been wrong.
+
+Both are wired into `tests/run.sh` and both must pass.
 
 ## The shared SDK framework — use it, do not re-derive it
 
@@ -302,15 +328,15 @@ making it.
 | Area | Owner | Status |
 |---|---|---|
 | Task 10 — vulnerability tracking (RA-5/SI-2) | **Codex** | Delivered to `main` (`030af450`). `ra05-01/ra05-01-vulnerability-tracking.py`, `lib/oci_audit_sdk.py`, `ra05-01/tests/test-ra05-01-vulnerability-tracking.py`, `ra05-01/TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`. Claude did not review it. |
-| Task 11 — configuration change tracking | **Codex** | Reported built; **not on origin**. Claude must not touch it. |
-| Task 12 — account management | **Codex** | Reported built; **not on origin**. Claude must not touch it. |
-| Task 13 — OKTA/DOJLogin federation (IA-2) | **Codex** | Reported implementation-complete on `codex/task13-ia02-federation` (`719b5c9`, `c31bae0`); **not pushed, so not reviewable**. `ia02-01-federation-configuration.py`. |
+| Task 11 — configuration change tracking | **Codex** | **Published to `main` (`915cc12`)** as `cm03-01-configuration-change-tracking.py`. Not reviewed by Claude. Still Codex's. |
+| Task 12 — account management | **Codex** | **Published to `main` (`915cc12`)** as `ac02-01-account-management.py`. Not reviewed by Claude. Still Codex's. |
+| Task 13 — OKTA/DOJLogin federation (IA-2) | **Codex** | **Published to `main` (`915cc12`)** as `ia02-01-federation-configuration.py`. Not reviewed by Claude. Still Codex's. |
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Per-task folder layout | Copilot (authored) / Claude (merged 2026-09-02) | Copilot's `copilot/review-repo` reorg was reviewed (`COPILOT-REORG-REVIEW.md`) and **merged** into `claude/repo-study-u22ntx`. The two `.pyc` files were dropped, the read-only gate was made layout-independent first, and `tests/test-repo-structure.sh` now guards the layout. |
-| SDK-native collectors | Claude (in progress, 2026-09-04) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`, `sc08-02/sc08-02-in-transit-encryption.py`. `cm08-01/cm08-01-component-inventory.py`, `cm02-01/cm02-01-configuration-baseline.py`, sharing `lib/oci_audit_inventory.py`. `cm11-01/cm11-01-software-installation-control.py`, `cm07-01/cm07-01-open-ports.py`. **All nine canonical collectors now have an SDK-native implementation.** The Bash originals are retained, unmodified, until each port is live-validated. |
-| (superseded row) | Claude | The user directed that collectors use only the Oracle OCI Python SDK. `sc28/sc28-oci-encryption-at-rest.py` is ported and tested; the Bash original is retained until every port lands. Shared framework lives in `lib/oci_audit_sdk.py`. Remaining: `cp09-01/02/03`, `sc08-02`, `cm07-01`, `cm11-01`, `cm02-01`, `cm08-01`. |
-| CP-9 SDK port | **Another agent** (reported 2026-09-04) | Reported complete locally at `c22674e` / `6a0e4bf` with 15 tests passing. **Neither commit is on origin and neither is in this tree**, so it is unreviewed and unmerged. Do not re-port CP-9 until it is pushed or confirmed abandoned. |
+| SDK-native collectors | Claude (**complete**, 2026-09-05) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`, `sc08-02/sc08-02-in-transit-encryption.py`. `cm08-01/cm08-01-component-inventory.py`, `cm02-01/cm02-01-configuration-baseline.py`, sharing `lib/oci_audit_inventory.py`. `cm11-01/cm11-01-software-installation-control.py`, `cm07-01/cm07-01-open-ports.py`. **All nine canonical collectors now have an SDK-native implementation.** The Bash originals are retained, unmodified, until each port is live-validated. |
+| CP-9 SDK port | **Another agent** (reported 2026-09-04) | Reported complete locally at `c22674e` / `6a0e4bf`; **never pushed, and still absent from every branch**. Claude built CP-9 independently on 2026-09-05. If that work ever appears, treat it as an alternative to review, not a merge. |
+| Task 14 — SIEM / CrowdStrike forwarding (SI-4) | **Copilot** | **Published to `main` (`ab41529`)** as `si04-01-siem-crowdstrike-forwarding.py`. Claude reviewed it against oci==2.185.1 on 2026-09-06 — see "Task 14 review" below. Three defects found; it is Copilot's to fix. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |
 
 ## SDK-verified changes — do not revert blindly (2026-09-02)
@@ -387,9 +413,47 @@ PY
 
 then convert each camelCase JSON name to kebab-case.
 
+## Task 14 review — verified against oci==2.185.1 (2026-09-06)
+
+`si04-01-siem-crowdstrike-forwarding.py` is on `main`. It gets two things right
+that are easy to get wrong: it calls `get_service_connector` per connector
+(`ServiceConnectorSummary` carries no `source`, `target` or `tasks`, so listing
+alone would see nothing), and it handles a `LogSource` with an empty `log_id`.
+
+Three defects, each verified against the SDK rather than inferred:
+
+1. **`target_http_url` reads a field that does not exist.** Line 172 takes
+   `url` or `endpoint` off the target. Service Connector Hub has exactly six
+   target kinds — monitoring, loggingAnalytics, functions, objectStorage,
+   streaming, notifications — and **no model among them exposes any url or
+   endpoint field**. The value is therefore always empty, so
+   `_is_crowdstrike(name, url)` silently degrades to matching the connector's
+   display name against the keywords `crowdstrike` and `falcon`. A connector
+   named `prod-forwarder` that feeds CrowdStrike is missed; one named
+   `crowdstrike-test` that feeds nothing counts. Same defect class as the CM-11
+   `software-source-name` fix.
+2. **Coverage ignores connector health.** `forwarding_coverage` is
+   `"COVERED" if forwarding_ids else "NOT-COVERED"`. `lifecycle_state` is
+   recorded but never gates that decision, so a connector in `FAILED`,
+   `INACTIVE` or `NEEDS_ATTENTION` still marks its logs as forwarded. For SI-4
+   that is a false positive, which is worse than a false negative: it tells an
+   assessor logs are reaching the SIEM when they are not.
+3. **The literal `_Audit` log group is not handled** (zero occurrences in the
+   file). `LogSource.log_group_id` may be the string `_Audit` rather than an
+   OCID, and `list_log_groups` never returns it — so the tenancy Audit log, the
+   single most important SI-4/AU-12 source, can never match and reports as
+   uncovered.
+
+Underlying all three: OCI's API cannot state that a stream, bucket or function
+feeds CrowdStrike. Name keywords guess in both directions. That belongs in a
+governance input with a `MANUAL-VERIFY` finding, as the other collectors do
+with facts the API cannot establish.
+
 ## Known open items (not defects introduced by the above)
 
-- **PostgreSQL CLI command spelling is inconsistent.** `sc28` calls
+- **PostgreSQL CLI command spelling is inconsistent — Bash collectors only.**
+  The SDK collectors do not have this problem; they call
+  `oci.psql.PostgresqlClient` directly. `sc28` calls
   `psql db-system-collection list-db-systems`; `cp09-01` and the CM-8 engine
   call `psql db-system list`. At most one is correct for a given OCI CLI build,
   and the wrong one fails closed as `CLI_UNSUPPORTED`, collecting no PostgreSQL
@@ -410,11 +474,19 @@ then convert each camelCase JSON name to kebab-case.
   session — it needs a human with tenancy access working through
   `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md`. The same is true of the pending live runs
   for Tasks 1, 2, 3, 7, 9 and 10.
-- **Only 1 of 10 canonical collectors uses the OCI Python SDK.** `ra05-01` is
-  SDK-native; the other nine are Bash + OCI CLI. The SDK requirement in rule 1
-  is forward-looking and applies to new or materially rewritten collectors.
-  Porting the nine existing ones is roughly 19k lines across seven control
-  families and has not been started or requested.
+- **No SDK collector has ever run against a real tenancy.** All ten are
+  verified against SDK models, `tests/verify-sdk-surface.py` and mocked
+  clients — and nothing more. That gap is the single largest remaining risk in
+  this repository, and it is not theoretical: verifying SC-28 against the
+  installed SDK found three defects its own mock had agreed with (a collapsed
+  finding ladder, `versions[0]` taken as the newest key version, and
+  `provider=OCI` misclassified as an external key). Mock agreement is not
+  evidence. Until a controlled live run exists for a collector, treat its
+  output as unproven.
+- **The Bash collectors are retained deliberately.** They are the only
+  implementations with any operational history. Do not delete one until its
+  SDK counterpart has been live-validated, and do not edit one to match the
+  SDK version — if they disagree, that disagreement is information.
 
 ## Repository hygiene
 
