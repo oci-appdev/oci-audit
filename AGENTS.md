@@ -4,7 +4,8 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-07 (Task 14 defects fixed; 10 SDK collectors)
+**Last updated:** 2026-09-07 (Tasks 5, 16 and 18 added; 13 SDK collectors on this
+branch, 14 surface-verified including Codex's RA-5)
 
 ## Non-negotiable repository rules
 
@@ -53,6 +54,36 @@ the single source of truth.
    it still reported PASS. A safety check that can quietly stop checking is
    worse than none. If the floor trips, fix discovery — never lower the floor.
    Do not add an exemption to get a call past this gate. The call is wrong.
+
+### Read-named, GET-shaped, state-changing: the third blocklist
+
+Rule 6's premise for POST_READS is "it is named get but issues POST, so be
+suspicious". Two operations defeat that by being named `get_*` **and** issuing
+HTTP GET while still changing state:
+
+- **`get_unsubscription`** — `GET /subscriptions/{id}/unsubscription`, whose
+  own docstring is "Unsubscribes the subscription from the topic". It deletes
+  a notification subscription.
+- **`get_confirm_subscription`** — `GET /subscriptions/{id}/confirmation`,
+  taking `(id, token, protocol)` and returning `ConfirmationResult`. It is the
+  endpoint a confirmation link hits, and it activates a PENDING subscription.
+
+Both passed every check this repository had: `ALLOWED_ACTION` accepts
+`get-unsubscription`, `MUTATING` does not match a token starting `get`, neither
+is POST, and neither returns credential material. A CA-7 collector calls
+`list_subscriptions` and sits one autocomplete away from either — and deleting
+an alerting subscription during an audit is a production incident caused by a
+read-only collector.
+
+`READ_NAMED_MUTATIONS` in `tests/test-readonly-proof.sh` and
+`lib/oci_audit_sdk.py` now blocks both, in the snake and kebab spellings, at the
+call site and in any declared allowlist. Verified by injection.
+
+The list is exactly two because it was derived, not guessed: all 3450
+`list_*`/`get_*` operations in oci==2.185.1 were scanned for a mutating verb in
+the docstring summary line. Sixteen matched; fifteen were false positives
+("lists updates that **can be** applied", "**generates** a report"). Redo that
+scan on an SDK upgrade rather than assuming the set is still two.
 
 ### Identity Domains: read the note before building an identity collector
 
@@ -280,6 +311,92 @@ now also catch `Exception` and report it as a failure. Fixed 2026-09-05.
   a security list held elsewhere; referenced lists are resolved by OCID and an
   unreadable one is `UNRESOLVED-SECURITY-LIST`, never "no rules".
 
+### The summary-vs-full trap keeps recurring — assume it until you check
+
+Six models now follow the same shape: the `*Summary` returned by `list_*` omits
+the field the control actually turns on, and only the full object from `get_*`
+carries it. This is the single most productive thing to check when adding a
+collector. Verified against oci==2.185.1:
+
+| Summary | Missing field | What a list-only collector reports |
+|---|---|---|
+| `ServiceConnectorSummary` | `source`, `target`, `tasks` | every connector forwards nothing |
+| `FileSystemSummary` | `filesystem_snapshot_policy_id` | every file system unprotected |
+| `AlarmSummary` | `pending_duration`, `body`, `resolution`, `repeat_notification_duration` | blank columns, silently |
+| `RuleSummary` | `actions` — **the entire delivery configuration** | cannot tell a rule that pages the on-call from one that delivers nowhere |
+| `DrProtectionGroupSummary` | `members` | every DR group protects nothing |
+| `DrPlanSummary` | `plan_groups` | every DR plan has no steps |
+| `DrPlanExecutionSummary` | `is_automatic`, `step_status_counts` | cannot tell a deliberate test from a service-initiated execution |
+
+When the `get_*` fails, the count is `UNKNOWN`, never `0`. Zero members is an
+assertion that the group protects nothing, which is a finding we did not
+observe.
+
+### Oracle spells "lifecycle details" three different ways
+
+No two services agree, and the wrong spelling returns nothing silently rather
+than raising:
+
+- Cloud Guard `TargetSummary` → **`lifecyle_details`** (missing the second `c`)
+- Disaster Recovery groups, plans and executions → **`life_cycle_details`**
+  (three words), sitting directly beside `lifecycle_state` (one word)
+- Most other services → `lifecycle_details`
+
+Check the `attribute_map` rather than typing the one you expect.
+
+### CA-7: an alarm that exists is not an alarm that notifies
+
+CA07-01 reconstructs `alarm / events rule -> destination -> ONS topic ->
+ACTIVE subscription` and reports the first broken link, because each of these
+reads as healthy in a plain inventory and delivers nothing:
+
+- an enabled alarm with an empty `destinations` list;
+- a topic whose only subscription is `PENDING` — never confirmed, never
+  delivered to. Counting subscriptions without gating on `ACTIVE` is the
+  false positive that matters most here;
+- an enabled events rule whose only action has `is_enabled=False`.
+
+A destination OCID that is not among the discovered topics is
+`PATH-UNKNOWN-DESTINATION-OUT-OF-SCOPE`, not broken: the topic may be in a
+compartment outside the selected scope, and reporting it as a failure would
+manufacture a finding out of our own scoping decision.
+
+**Subscription endpoints never leave whole.** For `EMAIL` the endpoint is
+personal data; for any HTTP-based protocol the **path component is the bearer
+secret** — a Slack or PagerDuty webhook URL is a credential. `redact_endpoint`
+is the only reader, guarded by an AST check *and* by a behavioural test that
+plants a webhook token and asserts it reaches no output file. The behavioural
+half is the one that cannot be weakened by adding a line exemption.
+
+### CP-4: a precheck is not a test
+
+`plan_execution_type` has eight values, and collapsing them destroys the
+control. `START_DRILL`/`STOP_DRILL` exercise the plan; `SWITCHOVER`/`FAILOVER`
+are real events rather than scheduled tests; and the four `*_PRECHECK` variants
+**validate that a plan could run without running it**. Prechecks are cheap,
+frequent and routinely succeed, so counting one as a test is the easiest
+available way to report an untested plan as tested.
+
+Classify by suffix, not by substring: `START_DRILL_PRECHECK` contains
+`START_DRILL`, so `any(d in kind for d in DRILL_TYPES)` calls a precheck a
+drill. Injecting exactly that fails three tests in
+`cp04-01/tests/test-cp04-01-contingency-plan-testing.py`.
+
+### Absence of Full Stack DR is not a CP-2 finding
+
+Most tenancies implement disaster recovery without Full Stack DR — cross-region
+backups, documented runbooks, replication managed elsewhere. An empty
+`list_dr_protection_groups` therefore means *OCI holds no DR configuration
+record*, not *there is no contingency plan*. CP02-01 reports
+`MANUAL-VERIFY-NO-OCI-DR-RECORD` and exits 0. CP09-03 already covers backup
+replication, which is where such a tenancy keeps its recovery capability.
+
+Relatedly: **OCI has no recovery-time or recovery-point objective field
+anywhere in the SDK.** RTO, RPO, recovery priority and plan approval come from
+`--iscp-register` and are reconciled, never derived. Coverage is matched by
+OCID, never by display name — a name is not an identity, and a rename would
+silently move coverage from one system to another.
+
 ## tests/verify-sdk-surface.py — the gate that proves a method exists
 
 Three checks now cover an SDK collector's cloud surface, and they prove
@@ -297,6 +414,23 @@ by injection. It found five unused allowlist entries across cp09-02, cp09-03
 and cm07-01 on its first run — not a safety hole, but the pre-scan plan prints
 the allowlist to the approver as "Read-only SDK operations", so an entry the
 collector never performs overstates what is being approved.
+
+**It discovers collectors; it no longer carries a hand-written list.** The
+list was the same failure mode rule 6 exists to prevent: `ra05-01` had never
+been on it, so Codex's RA-5 collector was never surface-checked while the gate
+reported PASS, and every collector added after the list was written would have
+been skipped in silence. Discovery is now "any `*/*.py` outside `lib/`,
+`tests/` and `templates/` that declares `SDK_READ_METHODS`", with a floor of 10
+that fails loudly. Coverage went from 10 collectors to 14 the moment it was
+changed.
+
+It also resolves **method names passed through a local wrapper**. RA05-01
+routes every read through `collection_list(oci, client, method, ...)`, so the
+literal lives at the wrapper's call site rather than at `sdk_list`'s; without
+resolving the forwarding parameter by position the gate saw `called=0` and
+reported all ten of its declared methods as dead surface. Counting every string
+constant instead would have blunted the dead-surface check for every other
+collector.
 
 It needs the `oci` package. When that is absent it prints **SKIPPED** with the
 install command and exits 0. That is a deliberate, stated compromise: a skip
@@ -337,6 +471,9 @@ making it.
 | SDK-native collectors | Claude (**complete**, 2026-09-05) | The user directed that collectors use only the Oracle OCI Python SDK, written fresh against the SDK models rather than translated from Bash. **The Bash collectors are not to be edited.** Done: `sc28/sc28-oci-encryption-at-rest.py`, `cp09-01/cp09-01-backup-configuration.py`, `cp09-02/cp09-02-backup-access.py`, `cp09-03/cp09-03-backup-replication.py`, `sc08-02/sc08-02-in-transit-encryption.py`. `cm08-01/cm08-01-component-inventory.py`, `cm02-01/cm02-01-configuration-baseline.py`, sharing `lib/oci_audit_inventory.py`. `cm11-01/cm11-01-software-installation-control.py`, `cm07-01/cm07-01-open-ports.py`. **All nine canonical collectors now have an SDK-native implementation.** The Bash originals are retained, unmodified, until each port is live-validated. |
 | CP-9 SDK port | **Another agent** (reported 2026-09-04) | Reported complete locally at `c22674e` / `6a0e4bf`; **never pushed, and still absent from every branch**. Claude built CP-9 independently on 2026-09-05. If that work ever appears, treat it as an alternative to review, not a merge. |
 | Task 14 — SIEM / CrowdStrike forwarding (SI-4) | **Copilot** | **Published to `main` (`ab41529`)** as `si04-01-siem-crowdstrike-forwarding.py`. Claude reviewed it against oci==2.185.1 on 2026-09-06 — see "Task 14 review" below. Three defects found; it is Copilot's to fix. |
+| Task 5 — CA-7 continuous monitoring | **Claude** (2026-09-07) | `ca07-01/ca07-01-continuous-monitoring.py` + tests. SDK-only; no Bash counterpart and none wanted. Surface-verified; never run live. |
+| Task 16 — CP-2 contingency planning | **Claude** (2026-09-07) | `cp02-01/cp02-01-contingency-planning.py` + tests. SDK-only. Surface-verified; never run live. |
+| Task 18 — CP-4 contingency plan testing | **Claude** (2026-09-07) | `cp04-01/cp04-01-contingency-plan-testing.py` + tests. SDK-only. Surface-verified; never run live. |
 | Task 6 — CM07-01 corrective work | Claude (2026-09-02) | Everything closed except live validation: code, 6 gate regressions, SDK field check, templates aligned, evidence guide updated, legacy scripts disabled. **Only `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md` remains**, and it needs tenancy access. |
 
 ## SDK-verified changes — do not revert blindly (2026-09-02)
@@ -474,6 +611,39 @@ feeds CrowdStrike. Name keywords guess in both directions. That belongs in a
 governance input with a `MANUAL-VERIFY` finding, as the other collectors do
 with facts the API cannot establish.
 
+## Tasks with no OCI API surface — do not build a collector for these
+
+Three worksheet items cannot be evidenced from any OCI API, and writing a
+collector for them would mean inventing evidence:
+
+- **Task 17 — ISCP training (CP-3).** There is no operation anywhere in the SDK
+  that reports whether training was delivered, who attended, or what the
+  results were. This is attendance records, materials and lessons learned. No
+  collector; do not add one.
+- **Task 5's form review and Task 18's test report.** CA07-01 and CP04-01
+  collect the *technical* half of each. The reviewed form, the participant
+  list, the test report, the findings and the corrective actions are governance
+  artefacts, supplied through `--monthly-review` and `--test-register` and
+  validated against the collected snapshot — never produced from it.
+- **Tasks 11, 12, 13** already have Codex collectors on `main`. See the
+  ownership table; they are not on this branch.
+
+The general rule: when the API cannot establish a fact, the collector takes it
+as a governance input and validates it, or reports `MANUAL-VERIFY`. It never
+guesses, and it never reports the absence of an input as a pass.
+
+## Branch state — Tasks 11, 12 and 13 are not on this branch
+
+`claude/repo-study-u22ntx` does **not** contain `cm03-01`, `ac02-01` or
+`ia02-01`. Codex published them flat on `main` (`915cc12`) and they have never
+been merged here or reviewed by Claude. `main` also carries flat copies of the
+Task 1–9 SDK ports and of si04-01 (`4d5069d`, `f089800`) that duplicate this
+branch's per-task-folder versions.
+
+Merging the two directions is a layout reconciliation, not a content merge:
+take this branch's logic and `main`'s three new collectors, and put everything
+in per-task folders. Do not resolve it by taking one side wholesale.
+
 ## Known open items (not defects introduced by the above)
 
 - **PostgreSQL CLI command spelling is inconsistent — Bash collectors only.**
@@ -499,9 +669,9 @@ with facts the API cannot establish.
   session — it needs a human with tenancy access working through
   `cm07-01/TASK6-LIVE-VALIDATION-RUNBOOK.md`. The same is true of the pending live runs
   for Tasks 1, 2, 3, 7, 9 and 10.
-- **No SDK collector has ever run against a real tenancy.** All ten are
-  verified against SDK models, `tests/verify-sdk-surface.py` and mocked
-  clients — and nothing more. That gap is the single largest remaining risk in
+- **No SDK collector has ever run against a real tenancy.** All thirteen on
+  this branch are verified against SDK models, `tests/verify-sdk-surface.py`
+  and mocked clients — and nothing more. That gap is the single largest remaining risk in
   this repository, and it is not theoretical: verifying SC-28 against the
   installed SDK found three defects its own mock had agreed with (a collapsed
   finding ladder, `versions[0]` taken as the newest key version, and
