@@ -4,7 +4,7 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-06 (memory audit; Tasks 11-14 published to `main`)
+**Last updated:** 2026-09-07 (Task 14 defects fixed; 10 SDK collectors)
 
 ## Non-negotiable repository rules
 
@@ -413,7 +413,32 @@ PY
 
 then convert each camelCase JSON name to kebab-case.
 
-## Task 14 review — verified against oci==2.185.1 (2026-09-06)
+## Task 14 — reviewed, then fixed (2026-09-06 / 2026-09-07)
+
+Copilot fixed two of the three defects below correctly on `main` (`c9adb55`):
+the lifecycle gate on coverage, and the `_Audit` probe. Its fix for the third
+was dead code — it guarded on `target_kind == "http"`, and Service Connector
+Hub has no `http` kind, so the branch could never run and the phantom
+`url`/`endpoint` read stayed.
+
+Claude finished it on `claude/repo-study-u22ntx` (2026-09-07) and, in doing so,
+the surface gate found a **fourth defect neither of us had seen**:
+
+- **`oci.logging_management` does not exist.** The client is
+  `oci.logging.LoggingManagementClient`. `build_client(..., "logging_management", ...)`
+  raises `AttributeError` on the first real call, taking the entire log-source
+  inventory with it. The mock defined a `logging_management` attribute of its
+  own, so every test passed. This is the mock-agrees-with-the-bug rule in its
+  purest form, and only `tests/verify-sdk-surface.py` caught it.
+
+The file also moved into `si04-01/` to match the per-task layout, which meant
+fixing its `lib/` path and its test's `parents[1]` → `parents[2]`.
+
+**Merging to `main` needs care:** `main` keeps collectors flat, so this is a
+move plus edits. Take the Claude version's logic wholesale; the layout is the
+only thing to reconcile.
+
+## The original review — verified against oci==2.185.1 (2026-09-06)
 
 `si04-01-siem-crowdstrike-forwarding.py` is on `main`. It gets two things right
 that are easy to get wrong: it calls `get_service_connector` per connector

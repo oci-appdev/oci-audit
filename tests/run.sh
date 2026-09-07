@@ -63,6 +63,7 @@ python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm11-01/cm11-01-softwar
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm11-01/tests/test-cm11-01-software-control.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm07-01/cm07-01-open-ports.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm07-01/tests/test-cm07-01-open-ports.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("si04-01/si04-01-siem-crowdstrike-forwarding.py").read_text(encoding="utf-8"))'
 
 bash cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck
 bash cp09-02/cp09-02-backup-access-files-check.sh --selfcheck
@@ -83,6 +84,7 @@ python3 cm08-01/cm08-01-component-inventory.py --selfcheck
 python3 cm02-01/cm02-01-configuration-baseline.py --selfcheck
 python3 cm11-01/cm11-01-software-installation-control.py --selfcheck
 python3 cm07-01/cm07-01-open-ports.py --selfcheck
+python3 si04-01/si04-01-siem-crowdstrike-forwarding.py --selfcheck
 
 # Repository-wide gates first: the read-only proof must cover every collector
 # in whatever layout the tree currently has.
@@ -108,6 +110,7 @@ python3 sc28/tests/test-sc28-encryption-at-rest.py
 bash cm07-01/tests/test-cm07-01-open-ports.sh
 bash cm07-01/tests/test-cm07-01-corrective.sh
 python3 cm07-01/tests/test-cm07-01-open-ports.py
+python3 si04-01/tests/test-si04-01-siem-crowdstrike-forwarding.py
 bash cm11-01/tests/test-cm11-01-software-installation-control.sh
 python3 cm11-01/tests/test-cm11-01-software-control.py
 bash cm02-01/tests/test-cm02-01-configuration-baseline.sh

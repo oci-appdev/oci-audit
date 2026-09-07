@@ -49,6 +49,7 @@ COLLECTORS = [
     "cm08-01/cm08-01-component-inventory.py",
     "cm11-01/cm11-01-software-installation-control.py",
     "cm07-01/cm07-01-open-ports.py",
+    "si04-01/si04-01-siem-crowdstrike-forwarding.py",
 ]
 # Methods provided by the shared library rather than named in the collector.
 SHARED = {"get_compartment", "list_compartments"}
@@ -124,9 +125,12 @@ for rel in COLLECTORS:
         if isinstance(node, ast.Call):
             name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
             if name in ("sdk_list_items", "sdk_get", "sdk_list"):
-                for a in node.args:
-                    if isinstance(a, ast.Constant) and isinstance(a.value, str):
-                        called.add(a.value)
+                # Signature is (oci, client, method_name, allowlist, *args): only
+                # the third positional is the method. Taking every string
+                # constant also swept up call arguments such as "_Audit".
+                if len(node.args) >= 3 and isinstance(node.args[2], ast.Constant) \
+                        and isinstance(node.args[2].value, str):
+                    called.add(node.args[2].value)
         if isinstance(node, ast.For):
             for elt in ast.walk(node.iter):
                 if isinstance(elt, ast.Constant) and isinstance(elt.value, str) \
