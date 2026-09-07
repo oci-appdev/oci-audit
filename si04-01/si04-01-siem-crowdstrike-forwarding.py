@@ -924,9 +924,10 @@ def build_plan(
         f"Compartments    : {len(targets)}",
         "Cloud operations: Oracle OCI Python SDK list/get methods only",
         "Mutation boundary: no create/update/delete/change/move methods are permitted",
-        "Sensitive data  : OCIDs, connector names, target endpoints, log group names",
-        "Endpoint boundary: target HTTP URLs are recorded for evidence; "
-        "no secrets, credentials or tokens are exported",
+        "Sensitive data  : OCIDs, connector names, target resource IDs, log group names",
+        "Endpoint boundary: Service Connector Hub exposes no destination URL on any "
+        "target kind, so none is read or recorded; where logs actually land comes "
+        "from --siem-destinations or is reported MANUAL-VERIFY",
         "",
         "Target compartments:",
     ]

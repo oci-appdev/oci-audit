@@ -459,7 +459,23 @@ def selfcheck_allowlist(methods: Iterable[str], label: str) -> bool:
         print(f"READ-ONLY SDK SELF-CHECK: FAILED ({label}) — returns credential material: {secret}",
               file=__import__("sys").stderr)
         return False
+    mutating = sorted(methods & READ_NAMED_MUTATIONS)
+    if mutating:
+        print(f"READ-ONLY SDK SELF-CHECK: FAILED ({label}) — read-named but changes state: {mutating}",
+              file=__import__("sys").stderr)
+        return False
     return True
+
+
+# Named get_*, issue HTTP GET, and still change state — so neither the read
+# prefix above nor the POST-shaped list in tests/test-readonly-proof.sh can see
+# them. get_unsubscription removes a notification subscription;
+# get_confirm_subscription takes (id, token, protocol) and activates a pending
+# one. A CA-7 collector calling list_subscriptions sits directly beside both.
+READ_NAMED_MUTATIONS: Set[str] = {
+    "get_unsubscription",
+    "get_confirm_subscription",
+}
 
 
 SECRET_SDK_METHODS: Set[str] = {

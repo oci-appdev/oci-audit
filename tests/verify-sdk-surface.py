@@ -39,18 +39,35 @@ except ImportError:
     print("         This gate is the only one that can prove a declared SDK "
           "method actually exists.", file=sys.stderr)
     sys.exit(0)
-COLLECTORS = [
-    "cp09-01/cp09-01-backup-configuration.py",
-    "cp09-02/cp09-02-backup-access.py",
-    "cp09-03/cp09-03-backup-replication.py",
-    "sc08-02/sc08-02-in-transit-encryption.py",
-    "sc28/sc28-oci-encryption-at-rest.py",
-    "cm02-01/cm02-01-configuration-baseline.py",
-    "cm08-01/cm08-01-component-inventory.py",
-    "cm11-01/cm11-01-software-installation-control.py",
-    "cm07-01/cm07-01-open-ports.py",
-    "si04-01/si04-01-siem-crowdstrike-forwarding.py",
-]
+# Discovered, never hand-listed. A fixed list means a collector added later is
+# silently never surface-checked, and this gate is the only one that can prove a
+# declared method exists -- so it would report PASS while covering nothing new.
+# The signal for "this is an SDK collector" is that it declares the runtime
+# allowlist; nothing else in the repository does.
+def _discover():
+    found = []
+    for path in sorted(REPO.rglob("*.py")):
+        parts = path.relative_to(REPO).parts
+        if len(parts) < 2 or parts[0] in {"lib", "tests", "templates"}:
+            continue
+        if "tests" in parts or "__pycache__" in parts or ".git" in parts:
+            continue
+        if "SDK_READ_METHODS" in path.read_text(encoding="utf-8", errors="replace"):
+            found.append("/".join(parts))
+    return found
+
+
+COLLECTORS = _discover()
+
+# A gate that stops covering collectors still prints PASS. This floor is below
+# the current count so ordinary additions do not trip it; if it fires, fix
+# discovery rather than lowering it.
+MIN_COLLECTORS = 10
+if len(COLLECTORS) < MIN_COLLECTORS:
+    print(f"FAIL: SDK surface verification discovered only {len(COLLECTORS)} collectors, "
+          f"expected at least {MIN_COLLECTORS}. Coverage has collapsed; fix discovery "
+          f"rather than lowering this floor.", file=sys.stderr)
+    sys.exit(1)
 # Methods provided by the shared library rather than named in the collector.
 SHARED = {"get_compartment", "list_compartments"}
 SHARED_CLIENTS = [("identity", "IdentityClient")]
@@ -136,6 +153,38 @@ for rel in COLLECTORS:
                 if isinstance(elt, ast.Constant) and isinstance(elt.value, str) \
                         and elt.value.startswith(("list_", "get_", "search_")):
                     called.add(elt.value)
+
+    # Local wrappers. RA05-01 routes every read through
+    # collection_list(oci, client, method, ...), which forwards `method` to
+    # sdk_list -- so the literal lives at the wrapper's call site, not at
+    # sdk_list's. Without resolving that, the gate sees called=0 and reports
+    # every declared method as dead surface. Resolve the forwarding parameter
+    # by position rather than counting every string constant, which would blunt
+    # the dead-surface check for every other collector.
+    wrappers = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        params = [a.arg for a in node.args.args]
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call):
+                continue
+            fname = getattr(inner.func, "id", None) or getattr(inner.func, "attr", None)
+            if fname not in ("sdk_list_items", "sdk_get", "sdk_list"):
+                continue
+            if len(inner.args) >= 3 and isinstance(inner.args[2], ast.Name) \
+                    and inner.args[2].id in params:
+                wrappers[node.name] = params.index(inner.args[2].id)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fname = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        index = wrappers.get(fname)
+        if index is not None and len(node.args) > index \
+                and isinstance(node.args[index], ast.Constant) \
+                and isinstance(node.args[index].value, str):
+            called.add(node.args[index].value)
+
     called |= EXTRA_CALLED.get(rel, set())
 
     # Resolve client classes.

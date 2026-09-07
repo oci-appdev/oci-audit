@@ -14,7 +14,13 @@
 #      operations are HTTP GET but 18 are POST. "It is called get" is therefore
 #      not by itself proof of a read, so those 18 are named and blocked.
 #
-#   3. SECRET-RETURNING READS. 51 SDK read operations return credential or key
+#   3. READ-NAMED MUTATIONS. Two operations are named get_*, issue HTTP GET,
+#      and still change state: get_unsubscription deletes a notification
+#      subscription and get_confirm_subscription activates a pending one.
+#      Neither check above can see them -- they are not POST and they return no
+#      secret -- so they are named and blocked.
+#
+#   4. SECRET-RETURNING READS. 51 SDK read operations return credential or key
 #      material (wallets, auth tokens, API keys, PSKs, initial passwords).
 #      Read-only is not the same as safe to write into an evidence CSV, and
 #      this repository is public. The SC-8 collector already blocked
@@ -40,6 +46,41 @@ POST_READS = {
     "list-stack-resource-drift-details", "list-available-software-sources-to-add",
     "get-os-patch-details", "list-os-patches", "get-path-analysis",
     "get-secret-bundle-by-name",
+}
+
+# GET-shaped, read-named, STATE-CHANGING. A third defect class that neither of
+# the lists above catches, because the premise of POST_READS is "named get but
+# POST, so be suspicious" and these are named get AND issue GET -- yet they
+# change state.
+#
+#   get_unsubscription       GET /subscriptions/{id}/unsubscription
+#                            "Unsubscribes the subscription from the topic."
+#   get_confirm_subscription GET /subscriptions/{id}/confirmation
+#                            takes (id, token, protocol) and returns
+#                            ConfirmationResult -- it is the endpoint the
+#                            confirmation link hits, which activates a PENDING
+#                            subscription.
+#
+# Both pass every other check in this file: ALLOWED_ACTION accepts
+# "get-unsubscription", MUTATING does not match a token starting "get", they are
+# not POST, and they return no credential. A CA-7 notification collector calls
+# list_subscriptions and sits one autocomplete away from either. Deleting an
+# alerting subscription during an audit is a production incident caused by a
+# read-only collector.
+#
+# Derived by scanning all 3450 list_*/get_* operations in oci==2.185.1 for a
+# mutating verb in the docstring summary line; 16 matched and 15 were false
+# positives ("lists updates that CAN be applied", "generates a report").
+# get_unsubscription was the only genuine one, and get_confirm_subscription is
+# here because its parameters, not its summary, give it away.
+READ_NAMED_MUTATIONS = {
+    "get_unsubscription",
+    "get_confirm_subscription",
+}
+# CLI spellings, for the same kebab/snake reason as SECRET_READS below.
+READ_NAMED_MUTATION_CLI = {
+    "get-unsubscription", "unsubscription",
+    "get-confirm-subscription", "confirm-subscription",
 }
 
 # Reads that return credential or key material, in both the kebab spelling the
@@ -184,6 +225,8 @@ for path in shell_files:
 for action in sorted(actions):
     if action in POST_READS:
         failures.append(f"action {action!r} is named as a read but issues POST")
+    if action in READ_NAMED_MUTATION_CLI:
+        failures.append(f"action {action!r} is named as a read but changes state")
 
 for path in shell_files + py_files:
     for lineno, line in enumerate(pathlib.Path(path).read_text(errors="replace").split("\n"), 1):
@@ -196,6 +239,8 @@ for path in shell_files + py_files:
         for name in re.findall(r'\b([a-z][a-z0-9_]*)\s*\(', s):
             if name in SECRET_SDK_METHODS:
                 failures.append(f"{path}:{lineno}: secret-returning SDK read {name!r}")
+            if name in READ_NAMED_MUTATIONS:
+                failures.append(f"{path}:{lineno}: read-named state-changing call {name!r}")
         if "raw-request" in s and "http-method" not in s.lower():
             failures.append(f"{path}:{lineno}: raw-request")
 
@@ -213,6 +258,9 @@ for path in py_files:
                 failures.append(f"{path}: allowlist contains POST-read {name!r}")
             if name in SECRET_SDK_METHODS:
                 failures.append(f"{path}: allowlist contains secret-returning read {name!r}")
+            if name in READ_NAMED_MUTATIONS:
+                failures.append(f"{path}: allowlist contains read-named state-changing "
+                                f"operation {name!r}")
 
 if failures:
     print("READ-ONLY PROOF: FAILED", file=sys.stderr)
@@ -242,7 +290,10 @@ print(f"Verified {sites} OCI wrapper call sites; every one uses a list/get actio
 print(f"Distinct actions in use: {', '.join(sorted(actions))}")
 print(f"Screened against {len(SECRET_SDK_METHODS)} secret-returning SDK reads "
       f"and {len(SECRET_READS)} CLI spellings.")
-print("No mutating verb, no POST-shaped read, no secret-returning read, no raw-request.")
+print(f"Screened against {len(READ_NAMED_MUTATIONS)} read-named state-changing operations "
+      f"({', '.join(sorted(READ_NAMED_MUTATIONS))}).")
+print("No mutating verb, no POST-shaped read, no read-named mutation, "
+      "no secret-returning read, no raw-request.")
 PY
 
 echo "PASS: repository-wide read-only allowlist proof"
