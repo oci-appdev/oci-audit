@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import csv
 import json
 import os
 import sys
@@ -15,6 +16,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, 
 
 SCRIPT_PATH = Path(__file__).resolve()
 SCRIPT_DIR = SCRIPT_PATH.parent
+# lib/ is at the repository root (same directory as this file on main).
 sys.path.insert(0, str(SCRIPT_DIR / "lib"))
 
 from oci_audit_sdk import (  # noqa: E402
@@ -49,7 +51,18 @@ SDK_READ_METHODS: Set[str] = {
 }
 
 CROWDSTRIKE_KEYWORDS: Set[str] = {"crowdstrike", "falcon"}
-SIEM_TARGET_KINDS: Set[str] = {"functions", "http", "streaming", "loggingAnalytics"}
+
+# Service Connector Hub returns exactly these six target kinds in
+# oci==2.185.1 (TargetDetailsResponse.get_subtype). There is no "http" kind and
+# no HttpTargetDetails model, so no target exposes a destination URL of any
+# form -- see the note on target_http_url below.
+SCH_TARGET_KINDS: Set[str] = {
+    "monitoring", "loggingAnalytics", "functions", "objectStorage",
+    "streaming", "notifications",
+}
+# Kinds that can carry logs off-box to a SIEM. A match means "this connector
+# could be a SIEM path", never "this connector feeds CrowdStrike".
+SIEM_TARGET_KINDS: Set[str] = {"functions", "streaming", "loggingAnalytics"}
 
 CONNECTOR_FIELDS = [
     "connector_key", "connector_id", "connector_name", "compartment_id",
@@ -58,7 +71,7 @@ CONNECTOR_FIELDS = [
     "tasks_present", "task_kinds",
     "target_kind", "target_stream_id", "target_function_id",
     "target_http_url", "target_log_group_id", "target_bucket",
-    "crowdstrike_target", "siem_forwarding",
+    "crowdstrike_target", "siem_forwarding", "siem_attribution",
     "time_created", "time_updated", "region",
 ]
 
@@ -103,7 +116,8 @@ REVIEW_FIELDS = [
     "snapshot_sha256", "review_period",
     "total_connectors", "active_connectors", "inactive_connectors",
     "log_groups_discovered", "logs_discovered", "logs_forwarded",
-    "logs_not_forwarded", "crowdstrike_connectors", "siem_connectors",
+    "logs_not_forwarded", "crowdstrike_connectors",
+    "crowdstrike_connectors_unconfirmed", "siem_connectors",
     "test_events_executed", "test_events_passed",
     "coverage_gaps", "reviewer", "review_date",
     "approval_status", "evidence_reference", "notes",
@@ -120,16 +134,43 @@ def _text(obj: Any, attr: str) -> str:
     return "" if value is None else str(value)
 
 
-def _is_crowdstrike(name: str, url: str) -> bool:
-    combined = (name + " " + url).lower()
-    return any(kw in combined for kw in CROWDSTRIKE_KEYWORDS)
+def _name_suggests_crowdstrike(name: str) -> bool:
+    """A display-name keyword match. A hint about intent, not evidence.
+
+    OCI cannot state that a stream, function or bucket forwards to CrowdStrike:
+    the destination lives outside OCI and no Service Connector Hub model
+    records it. A connector called "prod-forwarder" that feeds CrowdStrike
+    matches nothing here, and one called "crowdstrike-test" that feeds nothing
+    matches. Callers must record how a determination was reached -- see
+    siem_attribution -- so a name is never read as proof.
+    """
+    return any(kw in name.lower() for kw in CROWDSTRIKE_KEYWORDS)
 
 
-def _is_siem_target(kind: str, url: str, name: str) -> bool:
+def _could_reach_a_siem(kind: str, name: str) -> bool:
     if kind in SIEM_TARGET_KINDS:
         return True
-    combined = (name + " " + url).lower()
-    return any(kw in combined for kw in {"siem", "splunk", "qradar", "sentinel"} | CROWDSTRIKE_KEYWORDS)
+    return any(kw in name.lower()
+               for kw in {"siem", "splunk", "qradar", "sentinel"} | CROWDSTRIKE_KEYWORDS)
+
+
+def _resolve_destination(target_resource: str, connector_name: str,
+                         destinations: Dict[str, str] | None) -> tuple:
+    """Return (crowdstrike_target, siem_attribution).
+
+    An operator-supplied destination map keyed on the target resource OCID is
+    the only thing that can actually establish where logs land. Without it the
+    row says so rather than promoting a keyword guess to a finding.
+    """
+    if destinations is not None and target_resource in destinations:
+        system = destinations[target_resource]
+        is_cs = "crowdstrike" in system.lower() or "falcon" in system.lower()
+        return ("YES" if is_cs else "NO",
+                f"GOVERNANCE-INPUT;system={system}")
+    if _name_suggests_crowdstrike(connector_name):
+        # Deliberately not "YES": a display name is not a destination.
+        return "UNCONFIRMED", "NAME-KEYWORD-ONLY;destination-not-verifiable-from-oci"
+    return "UNKNOWN", "MANUAL-VERIFY-SIEM-DESTINATION;no-destination-map-supplied"
 
 
 def _source_log_list(source: Any) -> List[Dict[str, str]]:
@@ -144,10 +185,42 @@ def _source_log_list(source: Any) -> List[Dict[str, str]]:
     return rows
 
 
+class DestinationMapUnusable(Exception):
+    """The destination map cannot establish anything; do not guess instead."""
+
+
+def load_destinations(path: str) -> Dict[str, str]:
+    """Map a connector target resource OCID to the SIEM system it feeds.
+
+    This is the only thing that can actually establish where logs land: the
+    destination is outside OCI and no Service Connector Hub model records it.
+    A malformed file fails the run rather than silently falling back to
+    keyword guessing, which would look like evidence and is not.
+    """
+    target_path = Path(path).expanduser()
+    if not target_path.is_file():
+        raise DestinationMapUnusable(f"destination map not found: {path}")
+    required = ("target_resource_ocid", "siem_system")
+    with target_path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        missing = [c for c in required if c not in (reader.fieldnames or [])]
+        if missing:
+            raise DestinationMapUnusable(
+                "destination map is missing required columns: " + ", ".join(missing))
+        rows = {(r.get("target_resource_ocid") or "").strip():
+                (r.get("siem_system") or "").strip()
+                for r in reader}
+    rows.pop("", None)
+    if not rows:
+        raise DestinationMapUnusable("destination map contains no usable rows")
+    return rows
+
+
 def connector_row(
     connector: Any,
     compartment_name: str,
     region: str,
+    destinations: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
     source = getattr(connector, "source", None)
     target = getattr(connector, "target", None)
@@ -169,10 +242,14 @@ def connector_row(
 
     target_stream_id = _text(target, "stream_id")
     target_function_id = _text(target, "function_id")
-    # oci==2.185.1 does not expose HttpTargetDetails.url on any target model
-    target_http_url = _text(target, "url") or _text(target, "endpoint")
-    if target_kind == "http" and not target_http_url:
-        target_http_url = "UNRESOLVED-SDK-LIMITATION"
+    # No Service Connector Hub target model exposes a URL or endpoint in
+    # oci==2.185.1 -- not on any of the six kinds SCH_TARGET_KINDS lists. The
+    # previous code read `url`/`endpoint` off the target and guarded the empty
+    # result with `target_kind == "http"`, but there is no "http" kind, so that
+    # guard could never fire and the field was silently always empty. Stating
+    # the API's limit is the honest value; the destination is established from
+    # the operator's map instead.
+    target_http_url = "not-exposed-by-sch-api"
     target_log_group_id = _text(target, "log_group_id")
     bucket = _text(target, "bucket_name")
 
@@ -181,8 +258,17 @@ def connector_row(
     )
 
     connector_name = _text(connector, "display_name")
-    is_cs = _is_crowdstrike(connector_name, target_http_url)
-    is_siem = is_cs or _is_siem_target(target_kind, target_http_url, connector_name)
+    # The target resource a destination map is keyed on, in kind order.
+    target_resource = (target_stream_id or target_function_id
+                       or target_log_group_id or bucket)
+    crowdstrike_target, siem_attribution = _resolve_destination(
+        target_resource, connector_name, destinations)
+    is_siem = (crowdstrike_target in ("YES", "UNCONFIRMED")
+               or _could_reach_a_siem(target_kind, connector_name))
+    if target_kind and target_kind not in SCH_TARGET_KINDS:
+        # A kind this build of the SDK does not model: record it rather than
+        # classifying it from a vocabulary that does not cover it.
+        siem_attribution += f";unmodelled-target-kind={target_kind}"
 
     connector_id = _text(connector, "id")
     return {
@@ -204,8 +290,9 @@ def connector_row(
         "target_http_url": target_http_url,
         "target_log_group_id": target_log_group_id,
         "target_bucket": bucket,
-        "crowdstrike_target": "YES" if is_cs else "NO",
+        "crowdstrike_target": crowdstrike_target,
         "siem_forwarding": "YES" if is_siem else "NO",
+        "siem_attribution": siem_attribution,
         "time_created": iso(getattr(connector, "time_created", None)),
         "time_updated": iso(getattr(connector, "time_updated", None)),
         "region": region,
@@ -314,6 +401,7 @@ def collect(
     args: argparse.Namespace,
     context: Any,
     targets: Sequence[ScopeItem],
+    destinations: Optional[Dict[str, str]] = None,
 ) -> Tuple[
     List[Dict[str, Any]],
     List[Dict[str, Any]],
@@ -373,7 +461,11 @@ def collect(
         sch_client = None
 
     try:
-        log_client = build_client(oci, context, "logging_management", "LoggingManagementClient")
+        # oci.logging_management does not exist; the client lives at
+        # oci.logging.LoggingManagementClient. The previous namespace raised
+        # AttributeError on the first real call, which the mock hid by
+        # defining a logging_management attribute of its own.
+        log_client = build_client(oci, context, "logging", "LoggingManagementClient")
     except Exception as exc:
         detail = error_record(exc)
         errors.append({
@@ -409,7 +501,7 @@ def collect(
                             "operation": f"get_service_connector/{cid}", **detail,
                         })
                         full = summary
-                    row = connector_row(full, target.name, args.region)
+                    row = connector_row(full, target.name, args.region, destinations)
                     new_connectors.append(row)
                     coverage_list.extend(coverage_rows_for_connector(row, args.region))
                 connectors.extend(new_connectors)
@@ -515,7 +607,10 @@ def test_event_template(connectors: Sequence[Mapping[str, Any]]) -> List[Dict[st
                 "connector_id": conn["connector_id"],
                 "connector_name": conn["connector_name"],
                 "source_kind": conn["source_kind"],
-                "siem_system": "CrowdStrike" if conn.get("crowdstrike_target") == "YES" else "",
+                "siem_system": ("CrowdStrike" if conn.get("crowdstrike_target") == "YES"
+                                else "CrowdStrike(UNCONFIRMED)"
+                                if conn.get("crowdstrike_target") == "UNCONFIRMED"
+                                else ""),
             })
     return rows
 
@@ -536,7 +631,12 @@ def expected_review(
     log_set = {ls["log_id"] for ls in log_sources if ls.get("log_id")}
     forwarded = sum(1 for ls in log_sources if ls.get("forwarding_coverage") == "COVERED")
     not_forwarded = sum(1 for ls in log_sources if ls.get("forwarding_coverage") == "NOT-COVERED")
+    # Confirmed means a supplied destination map said so. A display-name
+    # keyword match is counted separately and never folded into the total, so
+    # a summary line can never overstate what was actually established.
     cs_connectors = sum(1 for c in connectors if c.get("crowdstrike_target") == "YES")
+    cs_unconfirmed = sum(1 for c in connectors
+                         if c.get("crowdstrike_target") == "UNCONFIRMED")
     siem_connectors = sum(1 for c in connectors if c.get("siem_forwarding") == "YES")
     coverage_gaps = not_forwarded
     return {
@@ -550,6 +650,7 @@ def expected_review(
         "logs_forwarded": forwarded,
         "logs_not_forwarded": not_forwarded,
         "crowdstrike_connectors": cs_connectors,
+        "crowdstrike_connectors_unconfirmed": cs_unconfirmed,
         "siem_connectors": siem_connectors,
         "test_events_executed": "",
         "test_events_passed": "",
@@ -642,7 +743,8 @@ def validate_review_row(
     count_fields = (
         "snapshot_sha256", "total_connectors", "active_connectors", "inactive_connectors",
         "log_groups_discovered", "logs_discovered", "logs_forwarded",
-        "logs_not_forwarded", "crowdstrike_connectors", "siem_connectors", "coverage_gaps",
+        "logs_not_forwarded", "crowdstrike_connectors",
+        "crowdstrike_connectors_unconfirmed", "siem_connectors", "coverage_gaps",
     )
     for field in count_fields:
         if str(row.get(field, "")) != str(expected.get(field, "")):
@@ -665,12 +767,12 @@ def source_selfcheck() -> bool:
         not (name.startswith("list_") or name.startswith("get_"))
         for name in SDK_READ_METHODS
     ):
-        print("READ-ONLY SDK SELF-CHECK: FAILED — invalid method in allowlist", file=sys.stderr)
+        print("READ-ONLY SDK SELF-CHECK: FAILED ΓÇö invalid method in allowlist", file=sys.stderr)
         return False
     try:
         tree = ast.parse(SCRIPT_PATH.read_text(encoding="utf-8"))
     except (OSError, SyntaxError) as exc:
-        print(f"READ-ONLY SDK SELF-CHECK: FAILED — {exc}", file=sys.stderr)
+        print(f"READ-ONLY SDK SELF-CHECK: FAILED ΓÇö {exc}", file=sys.stderr)
         return False
     problems: List[str] = []
     for node in ast.walk(tree):
@@ -718,6 +820,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("-c", "--compartment-id", action="append", default=[])
     p.add_argument("-n", "--compartment-names", default="")
     p.add_argument("--tenancy-scope", action="store_true")
+    p.add_argument("--siem-destinations",
+                   help="CSV mapping target_resource_ocid to siem_system. The "
+                        "only input that can establish where a connector's logs "
+                        "actually land; without it destinations are reported as "
+                        "MANUAL-VERIFY-SIEM-DESTINATION.")
     p.add_argument("--non-interactive", action="store_true")
     p.add_argument("--confirm-scope-ocid", action="append", default=[])
     p.add_argument("--approve-scan", default="")
@@ -865,6 +972,16 @@ def main(argv: Optional[Sequence[str]] = None, oci_module: Any = None) -> int:
               file=sys.stderr)
         return 1
 
+    # Loaded before any scanning: an unusable map must not silently degrade the
+    # run to keyword guessing, which reads like evidence and is not.
+    destinations = None
+    if args.siem_destinations:
+        try:
+            destinations = load_destinations(args.siem_destinations)
+        except DestinationMapUnusable as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+
     now = utc_now()
     try:
         test_rows = (
@@ -926,7 +1043,7 @@ def main(argv: Optional[Sequence[str]] = None, oci_module: Any = None) -> int:
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     write_private_text(actual_outputs["plan"], plan + "SCAN APPROVED\n")
     connectors, log_sources, cov_rows, coll_cov, errors = collect(
-        oci, args, context, targets
+        oci, args, context, targets, destinations
     )
     write_csv(actual_outputs["connectors"], CONNECTOR_FIELDS, connectors)
     write_csv(actual_outputs["log_sources"], LOG_SOURCE_FIELDS, log_sources)
@@ -1020,10 +1137,10 @@ def main(argv: Optional[Sequence[str]] = None, oci_module: Any = None) -> int:
     print("\n" + "\n".join(summary_lines))
     print(f"\nEvidence directory: {output_dir}")
     if not collection_complete:
-        print(f"COLLECTION INCOMPLETE — review {actual_outputs['coll_coverage']}", file=sys.stderr)
+        print(f"COLLECTION INCOMPLETE ΓÇö review {actual_outputs['coll_coverage']}", file=sys.stderr)
         return 3
     if governance_mode and not governance_complete:
-        print(f"GOVERNANCE INPUTS NOT VALIDATED — review {actual_outputs['input_validation']}",
+        print(f"GOVERNANCE INPUTS NOT VALIDATED ΓÇö review {actual_outputs['input_validation']}",
               file=sys.stderr)
         return 3
     print("SI04-01 COLLECTION COMPLETE")

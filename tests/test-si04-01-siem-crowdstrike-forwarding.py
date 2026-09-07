@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
+# Collector lives at repo root on main (flat layout).
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
     "si04_01", ROOT / "si04-01-siem-crowdstrike-forwarding.py"
@@ -28,10 +29,11 @@ SHARED = "ocid1.compartment.oc1..si04shared"
 FIXED_NOW = datetime(2026, 9, 4, 10, 0, 0, tzinfo=timezone.utc)
 
 # Connectors
+CS_STREAM_ID = "ocid1.stream.oc1..crowdstrikefeed"
 CS_CONN_ID = "ocid1.serviceconnector.oc1..si04cs"
 AUDIT_CONN_ID = "ocid1.serviceconnector.oc1..si04audit"
 INACTIVE_CONN_ID = "ocid1.serviceconnector.oc1..si04inactive"
-# INACTIVE connector that sources UNCOVERED_LG — must NOT mark it COVERED
+# INACTIVE connector that sources UNCOVERED_LG ΓÇö must NOT mark it COVERED
 INACTIVE_COV_CONN_ID = "ocid1.serviceconnector.oc1..si04inactivecov"
 
 # Log groups and logs
@@ -115,9 +117,11 @@ def _make_connector(
     lifecycle_state: str = "ACTIVE",
 ) -> Any:
     source = SimpleNamespace(kind=source_kind, log_sources=log_sources, stream_id="")
+    # No url/endpoint attribute: verified against oci==2.185.1, no Service
+    # Connector Hub target model exposes one on any of the six kinds. A mock
+    # that supplies one agrees with the bug instead of catching it.
     target = SimpleNamespace(
         kind=target_kind,
-        url=target_url,
         function_id=target_function_id,
         stream_id=target_stream_id,
         log_group_id="",
@@ -154,7 +158,10 @@ class ServiceConnectorClient(BaseClient):
             CS_CONN_ID: _make_connector(
                 CS_CONN_ID, "crowdstrike-audit-forwarder", SHARED, "logging",
                 [_make_log_source(AUDIT_LG, AUDIT_LOG)],
-                "http", target_url="https://ingest.falcon.crowdstrike.com/sensors/entities/log-events/v1",
+                # SCH has no "http" kind. A real CrowdStrike path is a stream
+                # or function the SIEM pulls from; the destination itself is
+                # outside OCI and unknowable from this API.
+                "streaming", target_stream_id=CS_STREAM_ID,
             ),
             AUDIT_CONN_ID: _make_connector(
                 AUDIT_CONN_ID, "audit-log-forwarder", SHARED, "logging",
@@ -240,7 +247,7 @@ def _fake_oci(state: FakeState) -> Any:
     class sch:
         ServiceConnectorClient = globals()["ServiceConnectorClient"]
 
-    class logging_management:
+    class logging:   # real namespace: oci.logging
         LoggingManagementClient = globals()["LoggingManagementClient"]
 
     class FakeServiceErrorCls(FakeServiceError):
@@ -254,7 +261,7 @@ def _fake_oci(state: FakeState) -> Any:
         retry=retry,
         identity=identity,
         sch=sch,
-        logging_management=logging_management,
+        logging=logging,
         exceptions=exceptions,
         config=SimpleNamespace(
             from_file=lambda *a, **kw: {"tenancy": TENANCY, "region": "us-ashburn-1"},
@@ -436,15 +443,21 @@ def test_connector_inventory_contents():
     cs_rows = [r for r in rows if r["connector_id"] == CS_CONN_ID]
     assert len(cs_rows) == 1
     cs = cs_rows[0]
-    assert cs["crowdstrike_target"] == "YES"
+    # Name-only match: a hint, not a confirmed destination.
+    assert cs["crowdstrike_target"] == "UNCONFIRMED"
     assert cs["siem_forwarding"] == "YES"
-    assert cs["target_kind"] == "http"
-    assert "falcon" in cs["target_http_url"].lower() or "crowdstrike" in cs["target_http_url"].lower()
+    # SCH has no "http" kind; a CrowdStrike path is a stream it pulls from.
+    assert cs["target_kind"] == "streaming"
+    # There is no destination URL to assert against: no SCH target model
+    # exposes one. The field states that limit instead of carrying a value
+    # the API never returned.
+    assert cs["target_http_url"] == "not-exposed-by-sch-api"
 
     audit_rows = [r for r in rows if r["connector_id"] == AUDIT_CONN_ID]
     assert len(audit_rows) == 1
     audit = audit_rows[0]
-    assert audit["crowdstrike_target"] == "NO"
+    # No name hit and no destination map: unknown, not "not CrowdStrike".
+    assert audit["crowdstrike_target"] == "UNKNOWN"
     assert audit["target_kind"] == "streaming"
 
     inactive_rows = [r for r in rows if r["connector_id"] == INACTIVE_CONN_ID]
@@ -498,7 +511,7 @@ def test_forwarding_coverage_rows():
 
     cs_cov = [r for r in rows if r["connector_id"] == CS_CONN_ID]
     assert cs_cov
-    assert all(r["crowdstrike_target"] == "YES" for r in cs_cov)
+    assert all(r["crowdstrike_target"] == "UNCONFIRMED" for r in cs_cov)
     assert all(r["siem_forwarding"] == "YES" for r in cs_cov)
 
 
@@ -617,7 +630,8 @@ def test_template_generation():
         )
         cs_rows = [r for r in rows if r["connector_id"] == CS_CONN_ID]
         assert cs_rows
-        assert cs_rows[0]["siem_system"] == "CrowdStrike"
+        # Without a destination map the template must not assert CrowdStrike.
+    assert cs_rows[0]["siem_system"] == "CrowdStrike(UNCONFIRMED)"
 
 
 def test_review_template_counts():
@@ -633,7 +647,10 @@ def test_review_template_counts():
     assert int(r["total_connectors"]) == 4
     assert int(r["active_connectors"]) == 2
     assert int(r["inactive_connectors"]) == 2
-    assert int(r["crowdstrike_connectors"]) == 1
+    # Confirmed count is 0 without a destination map; the name hit is
+    # reported separately rather than inflating the confirmed total.
+    assert int(r["crowdstrike_connectors"]) == 0
+    assert int(r["crowdstrike_connectors_unconfirmed"]) == 1
     assert int(r["siem_connectors"]) >= 1
     assert int(r["coverage_gaps"]) >= 1
 
@@ -712,23 +729,18 @@ def test_approved_plan_written():
     assert "CROWDSTRIKE" in content.upper() or "SI-4" in content
 
 
-def test_http_url_unresolvable_marked_explicitly():
-    """Defect 1: HTTP target with no URL field must show UNRESOLVED-SDK-LIMITATION, not empty."""
+def test_destination_is_never_inferred_from_a_display_name():
+    """Defect 1, correctly stated.
+
+    Service Connector Hub exposes no destination URL on any of its six target
+    kinds, and there is no "http" kind at all -- so the original code's
+    `url`/`endpoint` read was always empty and its `target_kind == "http"`
+    guard could never fire. A connector's display name is the only thing left,
+    and a name is not a destination: this connector is named
+    "crowdstrike-audit-forwarder" and feeds a stream that could go anywhere.
+    """
     state = FakeState()
     oci = _fake_oci(state)
-    # Strip the url attribute so the target looks like SDK 2.185.1 (no HttpTargetDetails.url)
-    original_sch = oci.sch.ServiceConnectorClient
-    class NoUrlSCH(original_sch):
-        def get_service_connector(self, cid, **kwargs):
-            resp = super().get_service_connector(cid, **kwargs)
-            if cid == CS_CONN_ID:
-                target = resp.data.target
-                if hasattr(target, "url"):
-                    del target.__dict__["url"]
-                if hasattr(target, "endpoint"):
-                    del target.__dict__["endpoint"]
-            return resp
-    oci.sch.ServiceConnectorClient = NoUrlSCH
     with tempfile.TemporaryDirectory() as d:
         args = _base_args(d)
         out = io.StringIO(); err = io.StringIO()
@@ -737,8 +749,50 @@ def test_http_url_unresolvable_marked_explicitly():
         assert rc == 0
         rows = _read_csv(str(list(Path(d).glob("si04-01_*_connector_inventory.csv"))[0]))
     cs = next(r for r in rows if r["connector_id"] == CS_CONN_ID)
-    assert cs["target_http_url"] == "UNRESOLVED-SDK-LIMITATION", \
-        f"expected UNRESOLVED-SDK-LIMITATION, got: {cs['target_http_url']}"
+    assert cs["target_http_url"] == "not-exposed-by-sch-api", cs["target_http_url"]
+    # A keyword hit on the NAME is a hint, never a confirmed CrowdStrike target.
+    assert cs["crowdstrike_target"] == "UNCONFIRMED", cs
+    assert cs["siem_attribution"].startswith("NAME-KEYWORD-ONLY"), cs
+    # A connector whose name says nothing is UNKNOWN, not NO.
+    other = next(r for r in rows if r["connector_id"] == AUDIT_CONN_ID)
+    assert other["crowdstrike_target"] == "UNKNOWN", other
+    assert other["siem_attribution"].startswith("MANUAL-VERIFY-SIEM-DESTINATION"), other
+
+
+def test_supplied_destination_map_is_what_establishes_the_target():
+    """The governance input is the only thing that can settle a destination."""
+    state = FakeState()
+    oci = _fake_oci(state)
+    with tempfile.TemporaryDirectory() as d:
+        mapping = Path(d) / "destinations.csv"
+        mapping.write_text(
+            "target_resource_ocid,siem_system\n"
+            f"{CS_STREAM_ID},CrowdStrike Falcon LogScale\n",
+            encoding="utf-8")
+        args = _base_args(d) + ["--siem-destinations", str(mapping)]
+        out = io.StringIO(); err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = MODULE.main(args, oci_module=oci)
+        assert rc == 0, err.getvalue()
+        rows = _read_csv(str(list(Path(d).glob("si04-01_*_connector_inventory.csv"))[0]))
+    cs = next(r for r in rows if r["connector_id"] == CS_CONN_ID)
+    assert cs["crowdstrike_target"] == "YES", cs
+    assert "GOVERNANCE-INPUT" in cs["siem_attribution"], cs
+
+
+def test_unusable_destination_map_fails_before_scanning():
+    """A bad map must not silently degrade the run to keyword guessing."""
+    state = FakeState()
+    oci = _fake_oci(state)
+    with tempfile.TemporaryDirectory() as d:
+        bad = Path(d) / "wrong.csv"
+        bad.write_text("ocid,system\nx,y\n", encoding="utf-8")
+        for path in (str(bad), str(Path(d) / "missing.csv")):
+            args = _base_args(d) + ["--siem-destinations", path]
+            out = io.StringIO(); err = io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = MODULE.main(args, oci_module=oci)
+            assert rc == 1, (path, out.getvalue(), err.getvalue())
 
 
 def test_inactive_connector_does_not_provide_coverage():
@@ -751,7 +805,7 @@ def test_inactive_connector_does_not_provide_coverage():
     uncovered_rows = [r for r in rows if r["log_id"] == UNCOVERED_LOG]
     assert uncovered_rows, "UNCOVERED_LOG must appear in log source inventory"
     assert uncovered_rows[0]["forwarding_coverage"] == "NOT-COVERED", (
-        "INACTIVE_COV_CONN_ID sources UNCOVERED_LOG but is INACTIVE — "
+        "INACTIVE_COV_CONN_ID sources UNCOVERED_LOG but is INACTIVE ΓÇö "
         f"must be NOT-COVERED, got {uncovered_rows[0]['forwarding_coverage']}"
     )
 
@@ -794,7 +848,9 @@ if __name__ == "__main__":
         test_summary_line_is_present,
         test_mutating_methods_blocked,
         test_approved_plan_written,
-        test_http_url_unresolvable_marked_explicitly,
+        test_destination_is_never_inferred_from_a_display_name,
+    test_supplied_destination_map_is_what_establishes_the_target,
+    test_unusable_destination_map_fails_before_scanning,
         test_inactive_connector_does_not_provide_coverage,
         test_audit_system_log_group_discovered,
     ]
