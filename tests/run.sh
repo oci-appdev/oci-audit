@@ -65,6 +65,8 @@ python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm07-01/cm07-01-open-po
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cm07-01/tests/test-cm07-01-open-ports.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("si04-01/si04-01-siem-crowdstrike-forwarding.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("ca07-01/ca07-01-continuous-monitoring.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp02-01/cp02-01-contingency-planning.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("cp04-01/cp04-01-contingency-plan-testing.py").read_text(encoding="utf-8"))'
 
 bash cp09-01/cp09-01-backup-type-config-frequency.sh --selfcheck
 bash cp09-02/cp09-02-backup-access-files-check.sh --selfcheck
@@ -87,6 +89,8 @@ python3 cm11-01/cm11-01-software-installation-control.py --selfcheck
 python3 cm07-01/cm07-01-open-ports.py --selfcheck
 python3 si04-01/si04-01-siem-crowdstrike-forwarding.py --selfcheck
 python3 ca07-01/ca07-01-continuous-monitoring.py --selfcheck
+python3 cp02-01/cp02-01-contingency-planning.py --selfcheck
+python3 cp04-01/cp04-01-contingency-plan-testing.py --selfcheck
 
 # Repository-wide gates first: the read-only proof must cover every collector
 # in whatever layout the tree currently has.
@@ -120,5 +124,7 @@ bash cm08-01/tests/test-cm08-01-component-inventory.sh
 python3 cm02-01/tests/test-cm02-cm08-baseline-inventory.py
 python3 ra05-01/tests/test-ra05-01-vulnerability-tracking.py
 python3 ca07-01/tests/test-ca07-01-continuous-monitoring.py
+python3 cp02-01/tests/test-cp02-01-contingency-planning.py
+python3 cp04-01/tests/test-cp04-01-contingency-plan-testing.py
 
-echo "PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, SI-4 and CA-7 static, read-only and mock test suite"
+echo "PASS: CP-9, CP-2, CP-4, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, SI-4 and CA-7 static, read-only and mock test suite"
