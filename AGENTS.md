@@ -5,7 +5,8 @@ and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
 **Last updated:** 2026-09-07 (Tasks 5, 16 and 18 added; 13 SDK collectors on this
-branch, 14 surface-verified including Codex's RA-5)
+branch, 14 surface-verified including Codex's RA-5; manual evidence procedures
+documented in `MANUAL-EVIDENCE-PROCEDURES.md`)
 
 ## Non-negotiable repository rules
 
@@ -611,6 +612,44 @@ feeds CrowdStrike. Name keywords guess in both directions. That belongs in a
 governance input with a `MANUAL-VERIFY` finding, as the other collectors do
 with facts the API cannot establish.
 
+## The manual half is documented — do not re-derive it
+
+`MANUAL-EVIDENCE-PROCEDURES.md` is the step-by-step procedure for every piece of
+evidence the SDK cannot produce, and it is the companion to this file:
+`AGENTS.md` says how the collectors behave, `MASTER-TASK-LIST.md` says what is
+outstanding, and that document says how a human closes the gap.
+
+It carries three things worth knowing before you touch a collector's governance
+input:
+
+- **The exact column schemas** every `--baseline` / `--register` flag validates,
+  in one table. A missing column fails the run *before* scanning, deliberately.
+  If you change a `*_FIELDS` constant, that table is now wrong — update it.
+- **Why two templates are blank and must stay blank**: the CA-7 monitoring
+  baseline and the CP-2 ISCP register. Pre-populating either from the tenancy
+  would make it agree with any gap by construction.
+- **The reading rules for ambiguous output** — an empty CSV proves absence only
+  when the coverage ledger says `OK`; `MATCHED-DEGRADED` is a control that
+  exists but does not work; `PATH-UNKNOWN-DESTINATION-OUT-OF-SCOPE` is a scope
+  limitation, not a failure.
+
+When you add a collector, add its manual remainder there in the same pass. A
+collector whose governance inputs are undocumented cannot be run correctly by
+anyone but its author.
+
+**`tests/test-doc-schema-drift.sh` enforces the schema table.** It compares the
+documented columns against the `*_FIELDS` constants the collectors validate
+against, and fails if they diverge. This is the same reasoning as the CM07-01
+template-drift gate: an operator builds a register from that table, so a stale
+one sends them to build something the collector will reject before it scans
+anything. Verified by injection (dropping `resource_ocid` from the CP-2 row
+fails the gate). If you rename a field constant, the gate tells you which
+document row is now wrong.
+
+Per-task guides sit in the task folders and defer to it rather than repeating
+it: `ca07-01/TASK5-…`, `cp02-01/TASK16-…`, `cp04-01/TASK18-…`, plus the
+pre-existing guides for Tasks 2, 3, 6, 7, 8, 9, 10 and 14.
+
 ## Tasks with no OCI API surface — do not build a collector for these
 
 Three worksheet items cannot be evidenced from any OCI API, and writing a
@@ -619,7 +658,9 @@ collector for them would mean inventing evidence:
 - **Task 17 — ISCP training (CP-3).** There is no operation anywhere in the SDK
   that reports whether training was delivered, who attended, or what the
   results were. This is attendance records, materials and lessons learned. No
-  collector; do not add one.
+  collector; do not add one. Its full nine-step procedure is
+  `MANUAL-EVIDENCE-PROCEDURES.md` §Task 17 — that document *is* the task. It
+  gets no task folder either, because there is nothing to collect.
 - **Task 5's form review and Task 18's test report.** CA07-01 and CP04-01
   collect the *technical* half of each. The reviewed form, the participant
   list, the test report, the findings and the corrective actions are governance

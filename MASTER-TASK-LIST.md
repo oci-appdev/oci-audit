@@ -4,6 +4,13 @@
 
 **Tracking basis:** repository implementation plus evidence artifacts visible in this repository
 
+**Manual procedures:** every piece of evidence the SDK cannot produce now has a
+step-by-step procedure in
+[`MANUAL-EVIDENCE-PROCEDURES.md`](MANUAL-EVIDENCE-PROCEDURES.md), including the
+exact governance-input schemas each collector validates. The "Required next
+evidence/action" column below says *what* is outstanding; that document says
+*how* to produce it.
+
 **Collector API verification:** the Task 1, 2, 3, 7 and 9 collectors were
 rechecked field-by-field against `oracle/oci-python-sdk` v2.185.1 on 2026-09-02.
 Three defects were found and fixed; see the 2026-09-02 entry in `AUDIT.md`.
@@ -49,7 +56,7 @@ fail-closed regression is `tests/test-task1-3-automation-contract.sh`.
 | 14 | SIEM integration/CrowdStrike forwarding | Implementation complete | `si04-01/si04-01-siem-crowdstrike-forwarding.py`. Copilot's original plus four defect fixes (2026-09-07), one of them runtime-fatal: `oci.logging_management` does not exist. Destination attribution comes from `--siem-destinations`, never from a display-name keyword. 28 mock regressions | Capture forwarding configuration, source coverage, test event and SIEM receipt evidence; supply the governance destination map |
 | 15 | N/A | N/A | None required | None |
 | 16 | Contingency planning | Partial | SDK-native `cp02-01/cp02-01-contingency-planning.py` (2026-09-07). Full Stack DR protection groups and members, DR plans and steps, region subscriptions and AD/FD spread; ISCP reconciliation by OCID via `--iscp-register`. **OCI has no RTO/RPO field anywhere in the SDK**, so those come from the register only. Absence of Full Stack DR is `MANUAL-VERIFY-NO-OCI-DR-RECORD`, not a failure. 22 mock regressions | Run in every in-scope region/scope; **then** define and approve RTO/RPO, BIA, communications bridge, recovery procedures, the ISCP itself and the test plan — none of which any API can supply |
-| 17 | ISCP training | Not started | **None possible.** No OCI API reports whether training was delivered, who attended or what the results were. No collector exists or should be written | Conduct training; retain materials, attendance, results and lessons learned |
+| 17 | ISCP training | Not started | **No collector is possible.** No OCI API reports whether training was delivered, who attended or what the results were. The full nine-step procedure is `MANUAL-EVIDENCE-PROCEDURES.md` §Task 17, which *is* the task | Identify everyone holding an ISCP role (cross-check the CP-2 register's `system_owner` column); deliver training against the **current** approved ISCP version; retain materials, attendance, results and lessons learned; set the refresh cycle; approve and archive |
 | 18 | ISCP testing | Partial | SDK-native `cp04-01/cp04-01-contingency-plan-testing.py` (2026-09-07). DR plan executions classified as DRILL / REAL-MOVE / PRECHECK — **a `*_PRECHECK` validates that a plan could run without running it and is never counted as a test** — with recency against `--test-window-days` and corroboration of `--test-register` entries against real executions. 20 mock regressions | Execute a drill; **then** publish the test report, participant list, findings and corrective actions, record them in the test register, and finalize the ISCP/BIA — none of which any API can supply |
 
 ## Completion snapshot
@@ -77,6 +84,15 @@ activity records — training attendance, test participants, test reports,
 findings and corrective actions. A collector that produced any of these would
 be inventing evidence.
 
+A fourth, narrower category is specific facts the API is blind to: Service
+Connector Hub exposes no destination URL on any of its six target kinds, NLB
+`Listener` has no `ssl_configuration`, `MountTarget` has no in-transit field,
+psql `NetworkDetails` has no TLS field, and nothing in the control plane sees
+inside a guest OS.
+
+All four are now covered step by step in
+[`MANUAL-EVIDENCE-PROCEDURES.md`](MANUAL-EVIDENCE-PROCEDURES.md).
+
 ## Work order
 
 The order has changed: collector development is essentially finished, so the
@@ -96,6 +112,6 @@ first item is no longer "write the next one".
    event and SIEM receipt.
 7. Run CP02-01 for Task 16, then define and approve the ISCP, RTO/RPO and BIA.
 8. Conduct Task 17 ISCP training and retain the records; there is nothing to
-   automate.
+   automate — follow `MANUAL-EVIDENCE-PROCEDURES.md` §Task 17 end to end.
 9. Run a DR drill, then run CP04-01 for Task 18 and complete the test report
    and corrective actions.

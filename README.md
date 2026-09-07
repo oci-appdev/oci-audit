@@ -36,6 +36,21 @@ files it invokes, or stating that it uses none.
 `tests/test-repo-structure.sh` enforces the layout and checks each header
 against what the script actually calls.
 
+## Manual evidence — what the SDK cannot collect
+
+Fifteen of the sixteen actionable worksheet tasks have an SDK-native collector,
+and **not one can close its task alone**. Approvals, objectives (RTO/RPO,
+baselines, retention floors) and human activity (training, DR tests, reviews)
+exist in no OCI API.
+
+**[MANUAL-EVIDENCE-PROCEDURES.md](MANUAL-EVIDENCE-PROCEDURES.md)** is the
+step-by-step procedure for all of it — per task, with the exact governance-input
+schemas each collector validates, the commands for in-guest checks, and the
+acceptance criteria. Start there for any task whose collector has already run.
+
+Task 17 (ISCP training) has no collector and should never have one; its whole
+procedure lives in that document.
+
 ## Current position
 
 - Tasks 1, 2, 3, 7, 9 and 10: implementation milestones complete;

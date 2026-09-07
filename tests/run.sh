@@ -35,6 +35,7 @@ bash -n \
   cm02-01/tests/test-cm02-01-configuration-baseline.sh \
   cm08-01/tests/test-cm08-01-component-inventory.sh \
   tests/test-readonly-proof.sh \
+  tests/test-doc-schema-drift.sh \
   tests/test-repo-structure.sh \
   tests/test-task1-3-automation-contract.sh \
   tests/test-scope-selection.sh
@@ -96,6 +97,8 @@ python3 cp04-01/cp04-01-contingency-plan-testing.py --selfcheck
 # in whatever layout the tree currently has.
 bash tests/test-repo-structure.sh
 bash tests/test-readonly-proof.sh
+# The documented governance-input schemas must match what the collectors validate.
+bash tests/test-doc-schema-drift.sh
 # Proves declared SDK methods actually exist. Skips loudly, and only
 # when the oci package is absent -- never silently.
 python3 tests/verify-sdk-surface.py
