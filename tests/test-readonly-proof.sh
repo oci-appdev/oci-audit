@@ -103,10 +103,25 @@ SECRET_READS = [
 # certificates or federation trust material. A federation or account-management
 # collector sits directly beside them.
 SECRET_SDK_METHODS = {
+    # Narrowed 2026-09-08 against the SDK models. The rule is now checkable
+    # rather than a judgement: an operation is blocked iff its response model
+    # DECLARES a field that can carry credential material.
+    #   list_api_keys        -> ApiKey.key_value        (declared)  BLOCKED
+    #   list_auth_tokens     -> AuthToken.token         (declared)  BLOCKED
+    #   list_swift_passwords -> SwiftPassword.password  (declared)  BLOCKED
+    # These three returned a *Summary model with no such field at all, so there
+    # was nothing for them to leak, and blocking them denied AC-2 the only API
+    # that enumerates a user's credentials:
+    #   list_customer_secret_keys -> CustomerSecretKeySummary
+    #   list_smtp_credentials     -> SmtpCredentialSummary
+    #   list_db_credentials       -> DbCredentialSummary
+    # The singular get_* forms stay blocked: those return the full model.
+    # Where a collector genuinely needs an operation whose model does declare a
+    # secret field, the answer is a field-level guard proving it never reads
+    # that attribute -- see redact_endpoint in ca07-01 -- not an exemption here.
     "get_api_key", "list_api_keys", "search_api_keys",
     "get_auth_token", "list_auth_tokens", "search_auth_tokens",
-    "get_customer_secret_key", "list_customer_secret_keys",
-    "search_customer_secret_keys",
+    "get_customer_secret_key", "search_customer_secret_keys",
     "get_identity_propagation_trust", "list_identity_propagation_trusts",
     "get_o_auth2_client_credential", "list_o_auth2_client_credentials",
     "search_o_auth2_client_credentials",
@@ -114,7 +129,7 @@ SECRET_SDK_METHODS = {
     "search_o_auth_client_certificates",
     "get_o_auth_partner_certificate", "list_o_auth_partner_certificates",
     "search_o_auth_partner_certificates",
-    "get_smtp_credential", "list_smtp_credentials", "search_smtp_credentials",
+    "get_smtp_credential", "search_smtp_credentials",
     "get_user_db_credential", "list_user_db_credentials",
     "search_user_db_credentials",
     "get_my_api_key", "list_my_api_keys",
@@ -128,8 +143,7 @@ SECRET_SDK_METHODS = {
     "get_console_history_content",
     "get_autonomous_database_wallet", "get_autonomous_database_regional_wallet",
     "get_user_ui_password_information",
-    "list_swift_passwords", "list_db_credentials",
-    # PreauthenticatedRequest.access_uri is a bearer URL granting direct object
+    "list_swift_passwords", # PreauthenticatedRequest.access_uri is a bearer URL granting direct object
     # access without any further authentication. The list operation returns
     # only PreauthenticatedRequestSummary, which has no access_uri, so listing
     # PARs is legitimate access evidence -- the get is what must never run.

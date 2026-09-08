@@ -107,6 +107,25 @@ beside them. `get_identity_propagation_trust` returns a client secret;
 families and all their `list_*`/`search_*`/`*_my_*` variants are blocked by
 name in `tests/test-readonly-proof.sh`.
 
+**The blocklist rule is now a fact, not a judgement, and it is enforced.**
+An operation is blocked iff its response model **declares** a field that can
+carry credential material. `tests/verify-secret-blocklist.py` resolves every
+`list_*` on `IdentityClient` to its model and fails both ways: an entry blocked
+with nothing to leak, or an operation with a secret field left unblocked.
+
+That narrowing removed three entries on 2026-09-08 —
+`list_customer_secret_keys`, `list_smtp_credentials` and `list_db_credentials`
+all return `*Summary` models with no secret field at all, and blocking them
+denied AC-2 the only API that enumerates a user's credentials.
+`list_api_keys` (`ApiKey.key_value`) and `list_auth_tokens` (`AuthToken.token`)
+stay blocked: the field is declared on the returned model, and "when is it
+populated" is a judgement where "does the model declare it" is checkable.
+
+Where a collector genuinely needs an operation whose model declares a secret
+field, the answer is a **field-level guard** proving it never reads that
+attribute — `redact_endpoint` in `ca07-01`, enforced by an AST check and a
+behavioural test — not an exemption in the blocklist.
+
 Password **policy** operations (`list_password_policies`,
 `get_password_policy`) are deliberately **not** blocked: they return complexity
 and expiry configuration, which is exactly the AC-2/IA-5 evidence such a

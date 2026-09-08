@@ -80,26 +80,56 @@ models rather than assumed:
 So the gate blocks by operation name, while the confidentiality risk lives in
 specific *fields*, most of which these list operations do not return.
 
-**This needs a decision and is not mine to make unilaterally**, because either
-route changes something owned elsewhere:
+**Resolved 2026-09-08 (Option A, narrowed by evidence).** The user approved
+narrowing the blocklist. Re-checking each candidate's *response model* before
+removing it changed the answer from the four proposed above to three, and the
+difference matters:
 
-- **Option A — narrow the blocklist.** Remove the four operations whose list
-  responses carry no secret, keeping `get_*` singular reads and anything that
-  returns a value. Most correct, and it unblocks a legitimate AC-2 control. But
-  it loosens a safety gate on the strength of this analysis, and AGENTS.md rule
-  6 says "Do not add an exemption to get a call past this gate."
-- **Option B — leave the gate, change AC-2.** Drop the five calls and collect
-  credential inventory some other way. Loses real AC-2(1)/(3) evidence; there is
-  no other API that enumerates a user's credentials.
-- **Option C — split the list.** Keep one blocklist for operations that return
-  secrets and a second, softer one for credential-adjacent reads that must
-  additionally prove they write no sensitive field. Most work, most precise.
+| Operation | Response model | Declares a secret field? | Outcome |
+|---|---|---|---|
+| `list_api_keys` | `ApiKey` | **yes** — `key_value` | stays blocked |
+| `list_auth_tokens` | `AuthToken` | **yes** — `token` | stays blocked |
+| `list_customer_secret_keys` | `CustomerSecretKeySummary` | no | **unblocked** |
+| `list_smtp_credentials` | `SmtpCredentialSummary` | no | **unblocked** |
+| `list_db_credentials` | `DbCredentialSummary` | no | **unblocked** |
 
-**Recommendation: Option A, narrowed to exactly the four verified-clean
-operations, with `list_api_keys` retained on the blocklist** — its response does
-carry key material, and public or not, an evidence CSV full of PEM blocks in a
-public-repo workflow is not worth the argument. AC-2 can count API keys by
-fingerprint without it.
+`list_auth_tokens` was in my original recommendation to unblock, on the strength
+of the docstring saying the value is only populated by `CreateAuthToken`. That
+is true, but the field is still **declared on the model the operation returns**,
+so a naive serialisation emits a column called `token`. "When is this field
+populated" is a judgement; "does the model declare it" is a fact. The rule
+adopted is the fact:
+
+> An operation is blocked iff its response model **declares** a field that can
+> carry credential material.
+
+`list_o_auth_client_credentials`, which AC-2 also declares, was never blocked —
+the blocklist names `list_o_auth2_client_credentials`, with the `2`. Checked:
+it returns `OAuth2ClientCredentialSummary`, which declares no secret field, so
+the omission was correct rather than a typo-shaped gap.
+
+**The rule is now enforced, not just written down.**
+`tests/verify-secret-blocklist.py` resolves every `list_*` operation on
+`IdentityClient` to its response model and fails in both directions — an entry
+blocked with nothing to leak, or an operation with a secret field left
+unblocked. Verified by injection both ways. It skips loudly without the SDK,
+like `verify-sdk-surface.py`.
+
+**AC-2 still cannot merge unchanged**, but the remaining collision is now two
+calls rather than five, and both are genuinely secret-bearing. Codex has two
+routes:
+
+- Drop `list_api_keys` and `list_auth_tokens`, and count API keys by fingerprint
+  from elsewhere. Loses auth-token inventory.
+- Keep them and add a **field-level guard** — a `--selfcheck` that fails if
+  `key_value` or `token` is read anywhere in the source, exactly as `ca07-01`
+  does for subscription endpoints with `redact_endpoint`. Given `CREDENTIAL_FIELDS`
+  already reads neither, this is the smaller change and preserves the evidence.
+  It would also need the blocklist to grow a per-collector exemption mechanism,
+  which does not exist yet and should not be added casually.
+
+Recommendation: the second, once someone is prepared to design the exemption
+mechanism properly. Until then the first is the safe interim.
 
 ## Finding 2 — IA-2 exits 2 on an incomplete collection, not 3
 
@@ -150,3 +180,7 @@ the branch cannot go dead silently again. Coverage went from 0 entries to 140.
 
 That is the finding with the longest reach. Finding 1 is only visible *because*
 the gate now works.
+
+**Second change, following the Finding 1 decision:** the blocklist was narrowed
+by three operations and `tests/verify-secret-blocklist.py` now holds it to the
+SDK models, so it can no longer drift too broad or too narrow by hand.

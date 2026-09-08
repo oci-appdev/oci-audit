@@ -102,6 +102,9 @@ bash tests/test-doc-schema-drift.sh
 # Proves declared SDK methods actually exist. Skips loudly, and only
 # when the oci package is absent -- never silently.
 python3 tests/verify-sdk-surface.py
+# Proves the secret-read blocklist matches the SDK models in both directions:
+# nothing blocked that has no secret to leak, nothing missed that does.
+python3 tests/verify-secret-blocklist.py
 bash tests/test-scope-selection.sh
 bash tests/test-task1-3-automation-contract.sh
 
