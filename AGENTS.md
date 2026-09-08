@@ -4,7 +4,9 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-07 (Tasks 5, 16 and 18 added; 13 SDK collectors on this
+**Last updated:** 2026-09-08 (Codex's Tasks 11-13 reviewed; the read-only gate's
+allowlist branch fixed after it was found to have never inspected anything;
+Tasks 5, 16 and 18 added; 13 SDK collectors on this
 branch, 14 surface-verified including Codex's RA-5; manual evidence procedures
 documented in `MANUAL-EVIDENCE-PROCEDURES.md`)
 
@@ -55,6 +57,14 @@ documented in `MANUAL-EVIDENCE-PROCEDURES.md`)
    it still reported PASS. A safety check that can quietly stop checking is
    worse than none. If the floor trips, fix discovery — never lower the floor.
    Do not add an exemption to get a call past this gate. The call is wrong.
+   **Its allowlist branch was dead from the day the SDK collectors were
+   written** and nobody noticed, because it matched constants named `ALLOW*` by
+   regex while every SDK collector names its allowlist `SDK_READ_METHODS`.
+   Injecting `get_auth_token` into a live collector's allowlist passed. Fixed
+   2026-09-08 (`6a87b0f`): parsed with `ast`, following `A | B` unions, with a
+   `MIN_ALLOWLIST_ENTRIES` floor — 0 entries inspected now fails loudly. That is
+   the second time a branch of this gate silently stopped covering the
+   collectors. When you touch this file, check the printed counts moved.
 
 ### Read-named, GET-shaped, state-changing: the third blocklist
 
@@ -463,9 +473,9 @@ making it.
 | Area | Owner | Status |
 |---|---|---|
 | Task 10 — vulnerability tracking (RA-5/SI-2) | **Codex** | Delivered to `main` (`030af450`). `ra05-01/ra05-01-vulnerability-tracking.py`, `lib/oci_audit_sdk.py`, `ra05-01/tests/test-ra05-01-vulnerability-tracking.py`, `ra05-01/TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`. Claude did not review it. |
-| Task 11 — configuration change tracking | **Codex** | **Published to `main` (`915cc12`)** as `cm03-01-configuration-change-tracking.py`. Not reviewed by Claude. Still Codex's. |
-| Task 12 — account management | **Codex** | **Published to `main` (`915cc12`)** as `ac02-01-account-management.py`. Not reviewed by Claude. Still Codex's. |
-| Task 13 — OKTA/DOJLogin federation (IA-2) | **Codex** | **Published to `main` (`915cc12`)** as `ia02-01-federation-configuration.py`. Not reviewed by Claude. Still Codex's. |
+| Task 11 — configuration change tracking | **Codex** | **Published to `main` (`915cc12`)** as `cm03-01-configuration-change-tracking.py`. Reviewed by Claude 2026-09-08 — see `CODEX-TASKS-11-13-REVIEW.md`. No defects in its own logic; handles the OCI Audit 365-day retention boundary correctly. Still Codex's. |
+| Task 12 — account management | **Codex** | **Published to `main` (`915cc12`)** as `ac02-01-account-management.py`. Reviewed 2026-09-08. Writes no secret field, but declares five reads the repo blocklist names, so **it cannot merge until that collision is decided** — see `CODEX-TASKS-11-13-REVIEW.md` Finding 1. Still Codex's. |
+| Task 13 — OKTA/DOJLogin federation (IA-2) | **Codex** | **Published to `main` (`915cc12`)** as `ia02-01-federation-configuration.py`. Reviewed 2026-09-08. Correctly avoids `App.client_secret` with an explicit `attributes=` allowlist. One defect: exits `2` on an incomplete collection where rule 3 says `3`. Still Codex's. |
 | Tasks 1, 2, 3, 7, 9 collectors | Claude (SDK recheck + bug review, 2026-09-02) | See below. Do not revert without reading the rationale. |
 | Task 10 RA-5 collector | Codex (built) / Claude (reviewed 2026-09-02) | Reviewed, no defects found. Still Codex's to change. |
 | Per-task folder layout | Copilot (authored) / Claude (merged 2026-09-02) | Copilot's `copilot/review-repo` reorg was reviewed (`COPILOT-REORG-REVIEW.md`) and **merged** into `claude/repo-study-u22ntx`. The two `.pyc` files were dropped, the read-only gate was made layout-independent first, and `tests/test-repo-structure.sh` now guards the layout. |
