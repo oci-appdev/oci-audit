@@ -34,7 +34,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 python3 - <<'PY'
-import re, pathlib, sys
+import ast, re, pathlib, sys
 
 WRAPPERS = ("oci_capture", "oci_try", "oci_q", "oci_discover", "oci_json", "emit", "o")
 ALLOWED_ACTION = re.compile(r'^(list|get)(-[a-z0-9-]+)?$')
@@ -194,6 +194,7 @@ py_files = discover(".py")
 failures = []
 sites = 0
 actions = set()
+allowlist_entries_checked = 0
 
 for path in shell_files:
     for lineno, cmd in joined(str(path)):
@@ -245,21 +246,77 @@ for path in shell_files + py_files:
             failures.append(f"{path}:{lineno}: raw-request")
 
 # SDK collectors: their declared allowlists must contain only reads.
+#
+# This was a regex matching constants named ALLOW*, and every SDK collector in
+# this repository names its allowlist SDK_READ_METHODS -- so the whole branch
+# inspected nothing, silently, for as long as the SDK collectors have existed.
+# Injecting get_auth_token into a live collector's SDK_READ_METHODS still
+# reported PASS. The line-scan above cannot cover for it either: that looks for
+# a call, "name(", and an allowlist entry is a bare string in a set.
+#
+# Parsed with ast now, not a name-shaped regex, so an allowlist is found by
+# being a set/list/tuple of strings assigned to an upper-case *_METHODS or
+# ALLOW* name -- including the "A | B" unions Codex's AC-2 and IA-2 collectors
+# use. Blocklist constants are excluded by name: they contain forbidden method
+# names on purpose.
+ALLOWLIST_NAME = re.compile(r'^(ALLOW[A-Z0-9_]*|[A-Z0-9_]*_METHODS?|[A-Z0-9_]*METHODS)$')
+BLOCKLIST_NAME = re.compile(r'SECRET|MUTATION|MUTATING|FORBIDDEN|BLOCK|POST_READS|DENY')
+# An SDK method name is a lower-case identifier. This skips constants that are
+# *_METHODS but hold something else -- CM03-01's MUTATING_HTTP_METHODS holds
+# {POST, PUT, PATCH, DELETE}, which are HTTP verbs used to classify audit
+# events, not operations this collector calls.
+SDK_METHOD_SHAPE = re.compile(r'^[a-z][a-z0-9_]*$')
+
+
+def allowlist_strings(node):
+    """Every string constant in a set/list/tuple literal, following | unions."""
+    out = []
+    if isinstance(node, ast.BinOp):
+        return allowlist_strings(node.left) + allowlist_strings(node.right)
+    for elt in getattr(node, "elts", []) or []:
+        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+            out.append(elt.value)
+    return out
+
+
 for path in py_files:
     text = pathlib.Path(path).read_text(errors="replace")
-    for m in re.finditer(r'ALLOW[A-Z_]*\s*=\s*[({]([^)}]*)[)}]', text):
-        for name in re.findall(r'["\']([a-z_][a-z0-9_]*)["\']', m.group(1)):
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        failures.append(f"{path}: could not parse to verify its allowlist: {exc}")
+        continue
+    declared = {}
+    for node in ast.walk(tree):
+        targets = []
+        if isinstance(node, ast.AnnAssign):
+            targets = [getattr(node.target, "id", "")]
+        elif isinstance(node, ast.Assign):
+            targets = [getattr(t, "id", "") for t in node.targets]
+        for target in targets:
+            if not target or not ALLOWLIST_NAME.match(target):
+                continue
+            if BLOCKLIST_NAME.search(target):
+                continue
+            values = allowlist_strings(node.value)
+            if values:
+                declared.setdefault(target, []).extend(values)
+    for constant, names in declared.items():
+        for name in names:
+            if not SDK_METHOD_SHAPE.match(name):
+                continue
+            allowlist_entries_checked += 1
             # search_* is a real read in Identity Domains but issues POST, so it
             # is allowed by prefix and then screened for sensitivity like the
             # others rather than being waved through on its name.
             if not name.startswith(("list_", "get_", "search_")):
-                failures.append(f"{path}: allowlist contains non-read {name!r}")
+                failures.append(f"{path}: {constant} contains non-read {name!r}")
             if name.replace("_", "-") in POST_READS:
-                failures.append(f"{path}: allowlist contains POST-read {name!r}")
+                failures.append(f"{path}: {constant} contains POST-read {name!r}")
             if name in SECRET_SDK_METHODS:
-                failures.append(f"{path}: allowlist contains secret-returning read {name!r}")
+                failures.append(f"{path}: {constant} contains secret-returning read {name!r}")
             if name in READ_NAMED_MUTATIONS:
-                failures.append(f"{path}: allowlist contains read-named state-changing "
+                failures.append(f"{path}: {constant} contains read-named state-changing "
                                 f"operation {name!r}")
 
 if failures:
@@ -274,6 +331,10 @@ if failures:
 # change that drops whole collectors out of scope fails loudly.
 MIN_SHELL_FILES = 18
 MIN_CALL_SITES = 200
+# This branch matched only constants named ALLOW* while every SDK collector
+# names its allowlist SDK_READ_METHODS, so it inspected nothing at all and
+# still reported PASS. A floor makes that failure mode loud instead of silent.
+MIN_ALLOWLIST_ENTRIES = 60
 if len(shell_files) < MIN_SHELL_FILES:
     print(f"READ-ONLY PROOF: FAILED — only {len(shell_files)} shell files discovered, "
           f"expected at least {MIN_SHELL_FILES}. The collectors are not being scanned; "
@@ -285,11 +346,21 @@ if sites < MIN_CALL_SITES:
           f"lowering this floor.", file=sys.stderr)
     sys.exit(1)
 
+if allowlist_entries_checked < MIN_ALLOWLIST_ENTRIES:
+    print(f"READ-ONLY PROOF: FAILED — only {allowlist_entries_checked} declared SDK "
+          f"allowlist entries were inspected, expected at least "
+          f"{MIN_ALLOWLIST_ENTRIES}. The allowlist branch is not seeing the "
+          f"collectors; fix discovery rather than lowering this floor.",
+          file=sys.stderr)
+    sys.exit(1)
+
 print(f"Scanned {len(shell_files)} shell and {len(py_files)} Python files.")
 print(f"Verified {sites} OCI wrapper call sites; every one uses a list/get action.")
 print(f"Distinct actions in use: {', '.join(sorted(actions))}")
 print(f"Screened against {len(SECRET_SDK_METHODS)} secret-returning SDK reads "
       f"and {len(SECRET_READS)} CLI spellings.")
+print(f"Inspected {allowlist_entries_checked} declared SDK allowlist entries across "
+      f"{len(py_files)} Python files.")
 print(f"Screened against {len(READ_NAMED_MUTATIONS)} read-named state-changing operations "
       f"({', '.join(sorted(READ_NAMED_MUTATIONS))}).")
 print("No mutating verb, no POST-shaped read, no read-named mutation, "
