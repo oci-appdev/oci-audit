@@ -70,6 +70,7 @@ class ServiceError(Exception):
 class Denials:
     search = False
     instances = False
+    images = False
 
 
 class BaseClient:
@@ -127,6 +128,9 @@ class ComputeClient(BaseClient):
         return Response(list(INSTANCES))
 
     def get_image(self, image_id, **kw):
+        if Denials.images:
+            raise ServiceError(403, "NotAuthorizedOrNotFound",
+                               "get image was denied")
         if image_id.endswith("ol8"):
             return Response(Obj(id=image_id, display_name="Oracle-Linux-8.9-2026.01"))
         raise ServiceError(404, "NotFound", "image not found")
@@ -386,6 +390,40 @@ def test_readonly_allowlists_are_the_complete_cloud_surface():
         for name in module.SDK_READ_METHODS:
             assert name.startswith(("list_", "get_", "search_")), (module.COLLECTOR, name)
         assert module.source_selfcheck(), module.COLLECTOR
+
+
+
+@check
+def test_cm02_denied_image_read_is_not_reported_as_drift():
+    """A denied get_image must not become a CONFIGURATION-DRIFT finding.
+
+    image_name() used to swallow the failure, cache the sentinel
+    "UNRESOLVED-IMAGE:<ocid>", and let classify() compare that literal against
+    the baseline's image_name. The rows came out as DEVIATION /
+    CONFIGURATION-DRIFT with an OK coverage row and exit 0: a denied read
+    presented as drift, which is exactly what rule 3 forbids.
+    """
+    Denials.images = True
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, _ = run(CM02, ["--baseline", write_baseline(tmp, APPROVED)], tmp)
+            rows = read_csv(tmp, "configuration_baseline_2")
+            compared = [r for r in rows
+                        if r.get("baseline_status") not in ("", "UNAPPROVED")]
+            assert compared, "expected at least one baseline-compared row"
+            for row in compared:
+                assert row["finding"] != "CONFIGURATION-DRIFT", (
+                    f"denied image read reported as drift: {row}")
+                assert not row["baseline_deviation"].startswith("image_name:"), (
+                    f"sentinel compared against the baseline: {row}")
+            unknown = [r for r in compared
+                       if r["finding"] == "BASELINE-COMPARISON-INCOMPLETE"]
+            assert unknown, "an unresolvable field must yield UNKNOWN, not a verdict"
+            assert rc == 3, f"an unrecorded failed read must not exit 0 (got {rc})"
+            errors = sorted(Path(tmp).rglob("*error*.csv"))
+            assert errors, "the failed get_image must reach the error ledger"
+    finally:
+        Denials.images = False
 
 
 def main() -> int:

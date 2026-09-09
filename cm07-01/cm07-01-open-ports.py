@@ -271,6 +271,11 @@ class Collector:
         if disposition == "RESTRICTED":
             return ("RESTRICTED", reference,
                     "RESTRICTED-PORT-WORLD-OPEN" if world else "RESTRICTED-PORT-OPEN")
+        if not self.approval_covers_rule(rule):
+            # The rule overlaps an approval but opens more than the approval
+            # grants. Reporting this OK would pass the widest exposure in the
+            # tenancy on the strength of a single-port approval.
+            return ("BROADER-THAN-APPROVED", reference, "BROADER-THAN-APPROVED")
         return ("APPROVED", reference,
                 "APPROVED-BUT-WORLD-OPEN" if world else "OK-APPROVED-PORT")
 
@@ -280,15 +285,66 @@ class Collector:
         A rule that matches both a PROHIBITED and an APPROVED line must be
         reported as prohibited; taking whichever appears first in the file
         would make the finding depend on row order.
+
+        Prohibition and restriction match on OVERLAP: if any part of what the
+        rule opens is prohibited, the rule is prohibited. Approval is the
+        opposite question and must match on CONTAINMENT -- see
+        approval_covers_rule. Using overlap for both let a rule opening every
+        TCP port be adjudicated OK-APPROVED-PORT against a PPSM line approving
+        only port 443, which is the widest possible exposure reported as a pass.
         """
         candidates = [r for r in self.ppsm or [] if self.ppsm_applies(rule, r)]
         if not candidates:
             return None
-        for wanted in ("PROHIBITED", "RESTRICTED", "APPROVED"):
+        for wanted in ("PROHIBITED", "RESTRICTED"):
             for row in candidates:
                 if row.get("disposition", "").upper() == wanted:
                     return row
+        approvals = [r for r in candidates
+                     if r.get("disposition", "").upper() == "APPROVED"]
+        if approvals:
+            return approvals[0]
         return candidates[0]
+
+    def approval_covers_rule(self, rule: Rule) -> bool:
+        """Is everything this rule opens actually approved?
+
+        Checked against the UNION of approved port ranges, not one row: a rule
+        opening 80-443 is not covered by an approval of 80 plus an approval of
+        443. A portless rule (ICMP) is covered when a protocol-scoped approval
+        applies to it, since there is no port extent to contain.
+        """
+        approvals = [r for r in self.ppsm or []
+                     if r.get("disposition", "").upper() == "APPROVED"
+                     and self.ppsm_applies(rule, r)]
+        if not approvals:
+            return False
+        if rule.portless:
+            return True
+        if rule.port_range is None:
+            # The rule opens every port; only an approval that itself names no
+            # port bound can cover that.
+            return any(not (r.get("port_from") or r.get("port_to"))
+                       for r in approvals)
+
+        low, high = rule.port_range
+        covered = []
+        for row in approvals:
+            try:
+                entry_low = int(row.get("port_from") or 0)
+                entry_high = int(row.get("port_to") or 65535)
+            except ValueError:
+                continue
+            covered.append((entry_low, entry_high))
+        # Walk the rule's range and confirm every port is inside some approval.
+        cursor = low
+        for entry_low, entry_high in sorted(covered):
+            if entry_low > cursor:
+                return False
+            cursor = max(cursor, entry_high + 1)
+            if cursor > high:
+                return True
+        return cursor > high
 
     def ppsm_applies(self, rule: Rule, entry: Dict[str, str]) -> bool:
         direction = entry.get("direction", "").upper()

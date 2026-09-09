@@ -111,6 +111,10 @@ BASELINE_REQUIRED = ("resource_ocid", "shape", "image_name")
 # Fields compared against the baseline, in report order.
 COMPARED_FIELDS = ("shape", "image_name", "legacy_imds", "agent_plugins")
 
+# Marks a value the collector could not read. classify() treats any field
+# carrying it as UNKNOWN rather than as a deviation.
+UNRESOLVED_PREFIX = "UNRESOLVED-IMAGE:"
+
 GONE_STATES = {"TERMINATED", "DELETED"}
 
 
@@ -175,7 +179,8 @@ class Collector:
         complete = self.blank()
         complete.update(row)
         complete["control"] = CONTROLS
-        complete.setdefault("collection_status", "OK")
+        if not complete.get("collection_status"):
+            complete["collection_status"] = "OK"
         self.rows.append(complete)
 
     def failed(self, target: ScopeItem, name: str, exc: Exception) -> None:
@@ -189,7 +194,16 @@ class Collector:
             "collection_error": record.get("message", ""),
         })
 
-    def image_name(self, image_id: str) -> str:
+    def image_name(self, target: ScopeItem, image_id: str) -> str:
+        """Resolve an image OCID to its display name.
+
+        A failed get_image must never be silently swallowed. The sentinel it
+        returns is compared against the baseline's image_name, so an
+        unrecorded failure became a CONFIGURATION-DRIFT finding with an OK
+        coverage row and exit 0 -- a denied read presented as drift, which is
+        exactly what rule 3 forbids. The failure now reaches the ledger, which
+        drives exit 3, and classify() refuses to call it a deviation.
+        """
         if not image_id:
             return "not-exposed"
         if image_id not in self._image_cache:
@@ -198,8 +212,9 @@ class Collector:
                 image = sdk_get(self.oci, client, "get_image", SDK_READ_METHODS,
                                 image_id=image_id).data
                 self._image_cache[image_id] = text(image, "display_name", image_id)
-            except Exception:
-                self._image_cache[image_id] = f"UNRESOLVED-IMAGE:{image_id}"
+            except Exception as exc:  # noqa: BLE001
+                self.ledger.failed(target, "ComputeImage", exc)
+                self._image_cache[image_id] = f"{UNRESOLVED_PREFIX}{image_id}"
         return self._image_cache[image_id]
 
     def snapshot(self, target: ScopeItem, instance: Any) -> Dict[str, Any]:
@@ -228,7 +243,7 @@ class Collector:
             "shape": text(instance, "shape", "not-exposed"),
             "ocpus": text(shape_config, "ocpus", "not-exposed") if shape_config else "not-exposed",
             "memory_gb": text(shape_config, "memory_in_gbs", "not-exposed") if shape_config else "not-exposed",
-            "image_name": self.image_name(image_id),
+            "image_name": self.image_name(target, image_id),
             "image_ocid": image_id or "not-exposed",
             "launch_options": (
                 f"firmware={text(launch, 'firmware', '?')};"
@@ -261,13 +276,27 @@ class Collector:
             return snapshot
 
         deviations = []
+        unresolved = []
         for field in COMPARED_FIELDS:
             expected = approved.get(field, "")
             if not expected:
                 continue  # the baseline does not constrain this field
             actual = str(snapshot.get(field, ""))
+            if actual.startswith(UNRESOLVED_PREFIX):
+                # We could not read the current value. Comparing the sentinel
+                # against the baseline would manufacture drift out of a denied
+                # read; the field is simply unknown.
+                unresolved.append(field)
+                continue
             if expected != actual:
                 deviations.append(f"{field}:expected={expected};actual={actual}")
+
+        if unresolved:
+            snapshot["baseline_status"] = "UNKNOWN"
+            snapshot["baseline_deviation"] = (
+                "comparison incomplete: " + ", ".join(unresolved))
+            snapshot["finding"] = "BASELINE-COMPARISON-INCOMPLETE"
+            return snapshot
 
         if deviations:
             snapshot["baseline_status"] = "DEVIATION"

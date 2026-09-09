@@ -402,9 +402,70 @@ def test_readonly_allowlist_is_the_complete_cloud_surface():
     assert MODULE.source_selfcheck()
 
 
+
+def test_approval_requires_containment_not_overlap() -> None:
+    """A rule may only be APPROVED if the PPSM approves everything it opens.
+
+    PPSM matching is overlap-based for prohibition and restriction -- if any
+    part of what a rule opens is prohibited, the rule is prohibited. Approval
+    is the opposite question. Using overlap for approval too meant a rule
+    opening EVERY TCP port was reported OK-APPROVED-PORT against a PPSM line
+    approving only port 443: the widest possible exposure in the tenancy,
+    adjudicated as a pass.
+    """
+    import types as _types
+
+    class _Ports:
+        def __init__(self, lo=None, hi=None):
+            self.destination_port_range = (
+                None if lo is None else _types.SimpleNamespace(min=lo, max=hi))
+            self.source_port_range = None
+
+    owner = next(v for v in MODULE.__dict__.values()
+                 if isinstance(v, type)
+                 and hasattr(v, "adjudicate") and hasattr(v, "ppsm_applies"))
+
+    def adjudicate(ppsm, lo=None, hi=None):
+        collector = owner.__new__(owner)
+        collector.ppsm = ppsm
+        rule = MODULE.Rule("INGRESS", "6", "10.0.0.0/16", "CIDR_BLOCK",
+                           _Ports(lo, hi), None, False, "probe")
+        return collector.adjudicate(rule)
+
+    approve = lambda lo, hi: {
+        "direction": "INGRESS", "protocol": "TCP", "port_from": str(lo),
+        "port_to": str(hi), "disposition": "APPROVED", "approval_id": "PPSM-1"}
+
+    only_443 = [approve(443, 443)]
+    assert adjudicate(only_443, 443, 443)[0] == "APPROVED", "exact match must pass"
+    assert adjudicate(only_443)[0] == "BROADER-THAN-APPROVED", (
+        "a rule opening every TCP port must not be APPROVED by a 443-only PPSM")
+    assert adjudicate(only_443, 440, 450)[0] == "BROADER-THAN-APPROVED", (
+        "a range wider than the approval must not be APPROVED")
+
+    # Containment is against the UNION of approvals, and a gap is not covered.
+    two = [approve(80, 80), approve(443, 443)]
+    assert adjudicate(two, 80, 80)[0] == "APPROVED"
+    assert adjudicate(two, 80, 443)[0] == "BROADER-THAN-APPROVED", (
+        "80-443 spans a gap between two point approvals")
+
+    # An approval that names no port bound legitimately covers the whole
+    # protocol; the fix must not turn that into a false positive.
+    wide = [{"direction": "INGRESS", "protocol": "TCP", "port_from": "",
+             "port_to": "", "disposition": "APPROVED", "approval_id": "PPSM-WIDE"}]
+    assert adjudicate(wide)[0] == "APPROVED"
+
+    # Prohibition still wins, and still on overlap.
+    with_prohibition = only_443 + [{
+        "direction": "INGRESS", "protocol": "TCP", "port_from": "3389",
+        "port_to": "3389", "disposition": "PROHIBITED", "approval_id": "P-1"}]
+    assert adjudicate(with_prohibition)[0] == "PROHIBITED", (
+        "a wide rule overlapping a prohibited port stays PROHIBITED")
+
+
 def main() -> int:
     failures = 0
-    for fn in CHECKS:
+    for fn in CHECKS + [test_approval_requires_containment_not_overlap]:
         try:
             fn()
             print(f"  ok   {fn.__name__}")
