@@ -43,8 +43,12 @@ and **not one can close its task alone**. Approvals, objectives (RTO/RPO,
 baselines, retention floors) and human activity (training, DR tests, reviews)
 exist in no OCI API.
 
+**[MANUAL-PROCESS-INSTRUCTIONS.md](MANUAL-PROCESS-INSTRUCTIONS.md)** is the
+operator runbook: sequenced phases, the literal commands to run, what to type in
+each register column, and a tracking checklist. Blank forms are in `templates/`.
+
 **[MANUAL-EVIDENCE-PROCEDURES.md](MANUAL-EVIDENCE-PROCEDURES.md)** is the
-step-by-step procedure for all of it — per task, with the exact governance-input
+reference behind it — per task, with the exact governance-input
 schemas each collector validates, the commands for in-guest checks, and the
 acceptance criteria. Start there for any task whose collector has already run.
 

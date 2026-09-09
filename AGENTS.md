@@ -4,7 +4,9 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-08 (Codex's Tasks 11-13 reviewed; the read-only gate's
+**Last updated:** 2026-09-09 (operator runbook `MANUAL-PROCESS-INSTRUCTIONS.md`
+added, with shipped templates for every governance input; Codex's Tasks 11-13
+reviewed; the read-only gate's
 allowlist branch fixed after it was found to have never inspected anything;
 Tasks 5, 16 and 18 added; 13 SDK collectors on this
 branch, 14 surface-verified including Codex's RA-5; manual evidence procedures
@@ -666,14 +668,32 @@ When you add a collector, add its manual remainder there in the same pass. A
 collector whose governance inputs are undocumented cannot be run correctly by
 anyone but its author.
 
-**`tests/test-doc-schema-drift.sh` enforces the schema table.** It compares the
+**Two documents, two audiences.** `MANUAL-EVIDENCE-PROCEDURES.md` is the
+reference — per task, why the gap exists, what the API cannot establish,
+acceptance criteria. `MANUAL-PROCESS-INSTRUCTIONS.md` is the operator runbook —
+sequenced by dependency, with the literal commands, the column-by-column fill-in
+guidance and a tracking checklist. Keep them distinct: the runbook should not
+grow explanations, and the reference should not grow commands.
+
+Every governance input now ships a blank template in `templates/`, generated
+from the collector's own `*_FIELDS` constant rather than hand-typed.
+
+**`tests/test-doc-schema-drift.sh` enforces the schema table**, the shipped
+template headers, and the runbook's literal commands. It compares the
 documented columns against the `*_FIELDS` constants the collectors validate
 against, and fails if they diverge. This is the same reasoning as the CM07-01
 template-drift gate: an operator builds a register from that table, so a stale
 one sends them to build something the collector will reject before it scans
-anything. Verified by injection (dropping `resource_ocid` from the CP-2 row
-fails the gate). If you rename a field constant, the gate tells you which
-document row is now wrong.
+anything. Verified by injection at every layer — dropping `resource_ocid` from the CP-2
+row, corrupting a template header, deleting a template, and naming a flag a
+collector does not accept all fail it.
+
+It earned its keep immediately: it caught **nine wrong commands in the runbook's
+first draft**, because `--tenancy-scope` exists on only five of the fourteen
+collectors. Two of its own bugs surfaced the same way — checks appended after
+the `if failures: sys.exit()` block never ran, and a per-line flag scan missed
+flags on backslash continuation lines. Both were found by injection, not by
+reading.
 
 Per-task guides sit in the task folders and defer to it rather than repeating
 it: `ca07-01/TASK5-…`, `cp02-01/TASK16-…`, `cp04-01/TASK18-…`, plus the
@@ -748,6 +768,12 @@ in per-task folders. Do not resolve it by taking one side wholesale.
   `provider=OCI` misclassified as an external key). Mock agreement is not
   evidence. Until a controlled live run exists for a collector, treat its
   output as unproven.
+- **The collectors have two different scope interfaces**, and an operator hits
+  this immediately. `ra05-01`, `si04-01`, `ca07-01`, `cp02-01` and `cp04-01`
+  accept `--tenancy-scope`; the other nine have no such flag and require
+  omitting `-c`/`-n` so the interactive catalog can take a tenancy OCID. Both
+  reach the same scope. Worth unifying, but not by editing a Bash collector —
+  see the canonical-implementation rule.
 - **The Bash collectors are retained deliberately.** They are the only
   implementations with any operational history. Do not delete one until its
   SDK counterpart has been live-validated, and do not edit one to match the

@@ -1,15 +1,18 @@
 # OCS Audit Master Task List
 
-**Last reviewed:** 2026-09-08
+**Last reviewed:** 2026-09-09
 
 **Tracking basis:** repository implementation plus evidence artifacts visible in this repository
 
-**Manual procedures:** every piece of evidence the SDK cannot produce now has a
-step-by-step procedure in
-[`MANUAL-EVIDENCE-PROCEDURES.md`](MANUAL-EVIDENCE-PROCEDURES.md), including the
-exact governance-input schemas each collector validates. The "Required next
-evidence/action" column below says *what* is outstanding; that document says
-*how* to produce it.
+**Manual procedures.** Two documents cover everything the SDK cannot produce.
+[`MANUAL-PROCESS-INSTRUCTIONS.md`](MANUAL-PROCESS-INSTRUCTIONS.md) is the
+operator runbook — sequenced phases, literal commands, column-by-column fill-in
+guidance and a tracking checklist. **Start there.**
+[`MANUAL-EVIDENCE-PROCEDURES.md`](MANUAL-EVIDENCE-PROCEDURES.md) is the
+reference behind it: why each gap exists and what the API can and cannot
+establish. Blank forms for every governance input are in `templates/`. The
+"Required next evidence/action" column below says *what* is outstanding; those
+say *how*.
 
 **Collector API verification:** the Task 1, 2, 3, 7 and 9 collectors were
 rechecked field-by-field against `oracle/oci-python-sdk` v2.185.1 on 2026-09-02.
