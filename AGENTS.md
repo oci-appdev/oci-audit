@@ -668,6 +668,11 @@ When you add a collector, add its manual remainder there in the same pass. A
 collector whose governance inputs are undocumented cannot be run correctly by
 anyone but its author.
 
+The SDK-vs-manual split for all 18 worksheet items is one table in
+`MASTER-TASK-LIST.md`. 15 tasks are SDK + manual, Task 17 is manual-only, two
+are N/A, and **none is SDK-only** — every task needs human input to close.
+Do not describe a collector as completing a task.
+
 **Two documents, two audiences.** `MANUAL-EVIDENCE-PROCEDURES.md` is the
 reference — per task, why the gap exists, what the API cannot establish,
 acceptance criteria. `MANUAL-PROCESS-INSTRUCTIONS.md` is the operator runbook —

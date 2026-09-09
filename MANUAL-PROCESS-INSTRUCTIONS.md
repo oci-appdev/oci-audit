@@ -10,6 +10,12 @@ the reasoning, go there. When you want to get the work done, stay here.
 
 **Last updated:** 2026-09-09
 
+**Which tasks need which:** the SDK-vs-manual split for all 18 worksheet
+items is one table in [`MASTER-TASK-LIST.md`](MASTER-TASK-LIST.md#which-tasks-are-sdk-which-are-manual).
+Short version: 15 tasks are SDK + manual, Task 17 is manual-only, two are
+N/A, and **none is SDK-only**.
+
+
 ---
 
 ## 0. Before you start

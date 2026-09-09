@@ -38,6 +38,12 @@ against what the script actually calls.
 
 ## Manual evidence — what the SDK cannot collect
 
+**Which tasks need which:** the SDK-vs-manual split for all 18 worksheet
+items is one table in [`MASTER-TASK-LIST.md`](MASTER-TASK-LIST.md#which-tasks-are-sdk-which-are-manual).
+Short version: 15 tasks are SDK + manual, Task 17 is manual-only, two are
+N/A, and **none is SDK-only**.
+
+
 Fifteen of the sixteen actionable worksheet tasks have an SDK-native collector,
 and **not one can close its task alone**. Approvals, objectives (RTO/RPO,
 baselines, retention floors) and human activity (training, DR tests, reviews)

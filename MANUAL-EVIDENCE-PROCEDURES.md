@@ -11,6 +11,12 @@ cannot produce.**
 
 ## 1. Why this document exists
 
+**Which tasks need which:** the SDK-vs-manual split for all 18 worksheet
+items is one table in [`MASTER-TASK-LIST.md`](MASTER-TASK-LIST.md#which-tasks-are-sdk-which-are-manual).
+Short version: 15 tasks are SDK + manual, Task 17 is manual-only, two are
+N/A, and **none is SDK-only**.
+
+
 Fifteen of the sixteen actionable worksheet tasks now have an SDK-native
 collector. Not one of them can close its task alone, because three categories of
 evidence are not present in any OCI API:

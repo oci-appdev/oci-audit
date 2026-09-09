@@ -39,6 +39,44 @@ fail-closed regression is `tests/test-task1-3-automation-contract.sh`.
 | Not started | No substantive implementation or evidence package exists in this repository |
 | N/A | Worksheet marks the item not applicable |
 
+## Which tasks are SDK, which are manual
+
+**No task is SDK-only.** Every actionable task needs human input to close, and
+exactly one needs no collector at all. The split below is the practical answer
+to "what can the tooling do for me".
+
+| # | Task | Coverage | SDK collector | SDK gives you | You produce manually |
+|---:|---|---|---|---|---|
+| 1 | Backups | SDK + manual | `cp09-01/02/03` | Backup policies, schedules, retention, WORM, access, replication | Approvals; disposition of findings; signed package |
+| 2 | Encryption in transit | SDK + manual | `sc08-02` | LB/DB/storage/API GW TLS config, IPSec Phase 1+2 crypto | `sqlnet.ora`, FSS mount type, NLB backend TLS, psql `sslmode`, IPSec screenshots |
+| 3 | Encryption at rest | SDK + manual | `sc28` | CMK custody, Vault/HSM, key rotation, AES shape | Key-admin evidence, rotation procedure, reviewer sign-off |
+| 4 | — | **N/A** | — | — | — |
+| 5 | Continuous monitoring | SDK + manual | `ca07-01` | Cloud Guard, alarms, topics, rules, retention, delivery paths | Approved monitoring baseline, retention floor, delivery test, CM Form review + feedback |
+| 6 | Ports/protocols/services | SDK + manual | `cm07-01` | Open ports from security lists + NSGs, PPSM reconciliation | Approved PPSM, current signed restricted list, live validation |
+| 7 | Software install control | SDK + manual | `cm11-01` | IAM install entitlements, OSMH packages, images | sudo/SSH/local admin, break-glass, unmanaged hosts, K8s admission |
+| 8 | Configuration baseline | SDK + manual | `cm02-01` | Instance shape/image/agents snapshot | Approved baseline from the System Design Form, CI register, monthly review |
+| 9 | HW/SW inventory | SDK + manual | `cm08-01` | Resource Search inventory + Compute enrichment | Approved inventory, in-guest/unmanaged gaps, monthly review |
+| 10 | Vulnerability tracking | SDK + manual | `ra05-01` | VSS host/container scans, CVE rows | Approved SLA, owner + ticket per finding, non-VSS coverage |
+| 11 | Change tracking | SDK + manual | `cm03-01` * | Audit events within retention | Remedy CRQ/SO process, approved change samples |
+| 12 | Account management | SDK + manual | `ac02-01` * | Users, groups, MFA, last login, credential inventory | Lifecycle procedures, inactivity policy, access review |
+| 13 | OKTA/DOJLogin federation | SDK + manual | `ia02-01` * | IdPs, apps, policies, MFA settings | Applicability decision, approved configuration evidence |
+| 14 | SIEM / CrowdStrike | SDK + manual | `si04-01` | Connectors, log sources, forwarding coverage | Destination map (SCH exposes no URL), test event + SIEM receipt |
+| 15 | — | **N/A** | — | — | — |
+| 16 | Contingency planning | SDK + manual | `cp02-01` | DR groups/members/plans, region subscriptions, AD/FD | BIA, RTO/RPO (no SDK field exists), ISCP, call tree, procedures |
+| 17 | **ISCP training** | **Manual only** | **none — and none possible** | *nothing* | Audience, materials, delivery, attendance, results, lessons, refresh cycle |
+| 18 | ISCP testing | SDK + manual | `cp04-01` | DR executions, drill vs precheck vs real move | Run the drill, test report, participants, corrective actions |
+
+\* Published on `main`, not yet merged into this branch. See
+`CODEX-TASKS-11-13-REVIEW.md`.
+
+**Totals: 15 SDK + manual, 1 manual-only, 2 N/A, 0 SDK-only.**
+
+Why nothing is SDK-only: three categories of evidence exist in no OCI API —
+approvals and ownership, objectives and thresholds (RTO, RPO, baselines,
+retention floors), and human activity (training, tests, reviews). A fourth is
+narrower: specific facts the API is blind to, such as a Service Connector Hub
+destination URL, NLB backend TLS, or anything inside a guest OS.
+
 ## Worksheet tracker
 
 | # | Worksheet task | Status | Repository coverage | Required next evidence/action |
