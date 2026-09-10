@@ -477,9 +477,20 @@ def main(argv: Sequence[str] | None = None, oci_module: Any = None) -> int:
                          f"entries={len(approved)};"
                          f"sha256={sha256_file(args.approved_sources)}")
 
-    oci = oci_module if oci_module is not None else load_oci()
-    context = build_auth_context(oci, args)
-    identity = build_client(oci, context, "identity", "IdentityClient")
+    # Startup is guarded: a missing SDK, an absent or malformed ~/.oci/config,
+    # an unresolvable tenancy OCID and a denied identity call all surface here.
+    # These were previously uncaught, so the first thing a real operator hit was
+    # a raw traceback instead of an actionable message. oci.exceptions.ServiceError
+    # and ClientError derive from Exception, not RuntimeError/ValueError/OSError,
+    # so the catch has to be broad.
+    try:
+        oci = oci_module if oci_module is not None else load_oci()
+        context = build_auth_context(oci, args)
+        identity = build_client(oci, context, "identity", "IdentityClient")
+    except Exception as exc:  # noqa: BLE001
+        print(f"ERROR: {exc}", file=sys.stderr)
+        print("Nothing was scanned and no evidence file was written.", file=sys.stderr)
+        return 1
 
     try:
         catalog = discover_scope(oci, identity, context.tenancy_id, SDK_READ_METHODS)
