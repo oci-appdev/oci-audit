@@ -29,13 +29,28 @@ class ScopeItem:
     kind: str
 
 
+def _requirements_path() -> str:
+    """Locate the pinned requirements file rather than naming a fixed path.
+
+    The file sits at the repository root in the flat layout and under ra05-01/
+    in the per-task layout. An install hint that names the wrong one sends the
+    operator to a file that is not there, so look before telling them.
+    """
+
+    root = Path(__file__).resolve().parent.parent
+    for candidate in ("requirements-oci-sdk.txt", "ra05-01/requirements-oci-sdk.txt"):
+        if (root / candidate).is_file():
+            return candidate
+    return "requirements-oci-sdk.txt"
+
+
 def load_oci() -> Any:
     try:
         import oci  # type: ignore
     except ImportError as exc:
         raise RuntimeError(
             "Oracle OCI Python SDK is required. Install the pinned dependency with "
-            "'python3 -m pip install -r ra05-01/requirements-oci-sdk.txt'."
+            f"'python3 -m pip install -r {_requirements_path()}'."
         ) from exc
     return oci
 
@@ -67,12 +82,28 @@ def build_auth_context(oci: Any, args: Any) -> AuthContext:
     return AuthContext(config, signer, tenancy_id, label, args.profile)
 
 
-def build_client(oci: Any, context: AuthContext, namespace: str, class_name: str) -> Any:
+def build_client(
+    oci: Any,
+    context: AuthContext,
+    namespace: str,
+    class_name: str,
+    *,
+    service_endpoint: Optional[str] = None,
+) -> Any:
+    """Build a generated OCI client.
+
+    service_endpoint is required by the Identity Domains clients, whose base URL
+    is per-domain and not derivable from the region alone; ac02-01 and ia02-01
+    pass it. Every other collector omits it and gets the region default.
+    """
+
     module = getattr(oci, namespace)
     client_class = getattr(module, class_name)
     kwargs: Dict[str, Any] = {"retry_strategy": oci.retry.DEFAULT_RETRY_STRATEGY}
     if context.signer is not None:
         kwargs["signer"] = context.signer
+    if service_endpoint is not None:
+        kwargs["service_endpoint"] = service_endpoint
     return client_class(context.config, **kwargs)
 
 
