@@ -4,7 +4,8 @@ Shared contract for every AI agent working in this repository (Codex, Claude
 and any other). Read this before editing. `CLAUDE.md` points here; this file is
 the single source of truth.
 
-**Last updated:** 2026-09-09 (operator runbook `MANUAL-PROCESS-INSTRUCTIONS.md`
+**Last updated:** 2026-09-10 (subagent review round two: nine denied-read
+defects fixed across six collectors; operator runbook `MANUAL-PROCESS-INSTRUCTIONS.md`
 added, with shipped templates for every governance input; Codex's Tasks 11-13
 reviewed; the read-only gate's
 allowlist branch fixed after it was found to have never inspected anything;
@@ -343,7 +344,44 @@ now also catch `Exception` and report it as a failure. Fixed 2026-09-05.
   a security list held elsewhere; referenced lists are resolved by OCID and an
   unreadable one is `UNRESOLVED-SECURITY-LIST`, never "no rules".
 
-### The summary-vs-full trap keeps recurring — assume it until you check
+### The denied-read trap — the most productive defect class in this repository
+
+A read fails. The collection it would have filled stays empty. Downstream, an
+adjudicator reads that empty collection as an observed negative and writes a
+**definite finding** into evidence. Exit 3 and a DENIED coverage row are both
+correct, and the evidence file still says something false.
+
+Two review rounds found this **nine times**, in six different collectors, and
+in every case the author's own tests passed — because they asserted on the
+inventory CSV while the fabricated verdict lived in a *different* output file:
+
+| Collector | Denied read | Fabricated verdict |
+|---|---|---|
+| cm02-01 | `get_image` | `CONFIGURATION-DRIFT` (and `collection_status: OK`, exit 0) |
+| cp09-03 | (summary-only read) | a FAILED replication as `REPLICATION-NEVER-SYNCED` |
+| cp04-01 | `list_dr_plan_executions` | `PLAN-NEVER-EXECUTED`, `executions_total=0` |
+| ca07-01 | `list_subscriptions` | `TOPIC-NO-ACTIVE-SUBSCRIPTION` + `PATH-BROKEN-NO-ACTIVE-SUBSCRIBER` |
+| ca07-01 | `get_rule` | `PATH-BROKEN-NO-DESTINATION` — contradicting its own rules CSV |
+| cp02-01 | `get_dr_protection_group` | `NOT-IN-DR-PROTECTION-GROUP` |
+| cp02-01 | `list_dr_plans` | `GROUP-HAS-NO-PLAN`, `has_drill_plan=NO` |
+| si04-01 | `get_service_connector` | every log `NOT-COVERED` |
+| ra05-01 | `list_host_scan_targets` | `target_configured=NO` *(Codex's; reported, not fixed)* |
+
+**When you add or review a collector, trace every `except` to the row it
+produces.** Two questions, and the second is the one that gets missed:
+
+1. Does the failure reach the ledger? (Almost always yes.)
+2. **Does the empty result reach an adjudicator?** Find every file the run
+   writes and ask what each says about that resource. A test that only checks
+   the inventory and the coverage ledger cannot see this bug.
+
+The fix is always the same shape: thread a `*_read` flag from the `except` to
+the adjudication, and emit `UNKNOWN` / `*-NOT-READ` instead of the negative.
+`Ledger.ok()` now also downgrades itself to `PARTIAL` when a read for the same
+(compartment, service) already failed, because it was emitting an `OK, 0` row
+beside the `DENIED` one.
+
+## The summary-vs-full trap keeps recurring — assume it until you check
 
 Six models now follow the same shape: the `*Summary` returned by `list_*` omits
 the field the control actually turns on, and only the full object from `get_*`

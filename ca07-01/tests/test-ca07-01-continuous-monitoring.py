@@ -884,6 +884,53 @@ def test_no_client_method_outside_the_allowlist_is_reachable():
         raise AssertionError("an undeclared method must be refused at runtime")
 
 
+
+def test_denied_subscription_list_is_not_no_subscriber():
+    """A denied list_subscriptions must not assert that nobody is subscribed.
+
+    subs_by_topic stayed {} and every topic reported
+    TOPIC-NO-ACTIVE-SUBSCRIPTION with PATH-BROKEN-NO-ACTIVE-SUBSCRIBER, whose
+    detail text asserts "a PENDING subscription is never delivered to" -- a
+    statement about state that was never read. That is CA-7's headline finding
+    manufactured from a 403.
+    """
+    state = FakeState()
+    state.fail_method = "list_subscriptions"
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, _, _, _ = _run(_base_args(tmp), state=state)
+        topics = _read_csv(_find(tmp, "_notification_topics.csv"))
+        active = [r for r in topics if r["lifecycle_state"].upper() == "ACTIVE"]
+        assert active, "expected active topics"
+        for row in active:
+            assert row["topic_finding"] == "TOPIC-SUBSCRIBERS-NOT-READ", row
+            assert row["subscriptions_active"] == "UNKNOWN", row
+        paths = _read_csv(_find(tmp, "_delivery_paths.csv"))
+        assert not [p for p in paths
+                    if p["path_status"] == "PATH-BROKEN-NO-ACTIVE-SUBSCRIBER"], \
+            "no subscriber verdict may survive a denied subscription read"
+        assert [p for p in paths
+                if p["path_status"] == "PATH-UNKNOWN-SUBSCRIBERS-NOT-READ"]
+        assert rc == 3
+
+
+def test_denied_rule_detail_does_not_claim_no_destination():
+    """The rules CSV says RULE-ACTIONS-NOT-READ; the delivery-path CSV used to
+    say "source has no destination" for the same rules. Two output files
+    contradicting each other, with the CA-7 verdict in the wrong one."""
+    state = FakeState()
+    state.fail_method = "get_rule"
+    with tempfile.TemporaryDirectory() as tmp:
+        _run(_base_args(tmp), state=state)
+        rules = {r["rule_id"] for r in _read_csv(_find(tmp, "_events_rules.csv"))
+                 if r["rule_finding"] == "RULE-ACTIONS-NOT-READ"}
+        assert rules, "expected unread rules"
+        paths = {p["source_id"]: p for p in _read_csv(_find(tmp, "_delivery_paths.csv"))
+                 if p["source_kind"] == "EVENTS-RULE"}
+        for rule_id in rules:
+            assert paths[rule_id]["path_status"] == "PATH-UNKNOWN-ACTIONS-NOT-READ", \
+                paths[rule_id]
+
+
 if __name__ == "__main__":
     import traceback
     tests = [
@@ -919,6 +966,8 @@ if __name__ == "__main__":
         test_monthly_review_rejects_wrong_counts,
         test_read_named_ons_mutations_are_not_in_the_allowlist,
         test_no_client_method_outside_the_allowlist_is_reachable,
+        test_denied_subscription_list_is_not_no_subscriber,
+        test_denied_rule_detail_does_not_claim_no_destination,
     ]
     passed = failed = 0
     for t in tests:

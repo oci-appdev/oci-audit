@@ -488,6 +488,7 @@ def collect(
                     if cid in seen_connector_ids:
                         continue
                     seen_connector_ids.add(cid)
+                    detail_read = True
                     try:
                         full_resp = sdk_get(
                             oci, sch_client, "get_service_connector", SDK_READ_METHODS, cid,
@@ -500,8 +501,21 @@ def collect(
                             "compartment_ocid": target.ocid,
                             "operation": f"get_service_connector/{cid}", **detail,
                         })
+                        # Falling back to the summary is the documented trap:
+                        # ServiceConnectorSummary declares no source, target or
+                        # tasks, so connector_row would write empty strings and
+                        # every log this connector feeds would flip to
+                        # NOT-COVERED -- a coverage gap fabricated from a 403.
                         full = summary
+                        detail_read = False
                     row = connector_row(full, target.name, args.region, destinations)
+                    if not detail_read:
+                        row["source_kind"] = "NOT-READ"
+                        row["target_kind"] = "NOT-READ"
+                        row["tasks_present"] = "NOT-READ"
+                        row["siem_forwarding"] = "UNKNOWN"
+                        row["siem_attribution"] = "CONNECTOR-DETAIL-NOT-READ"
+                        row["crowdstrike_target"] = "UNKNOWN"
                     new_connectors.append(row)
                     coverage_list.extend(coverage_rows_for_connector(row, args.region))
                 connectors.extend(new_connectors)
@@ -580,6 +594,11 @@ def collect(
         if cr.get("log_id"):
             cr["log_name"] = log_name_by_id.get(cr["log_id"], "")
 
+    # If any connector's detail read failed, its source list is unknown, so a
+    # log's absence from the forwarding map cannot be read as NOT-COVERED.
+    unread_connectors = any(
+        c.get("siem_attribution") == "CONNECTOR-DETAIL-NOT-READ" for c in connectors)
+
     # Annotate log sources with forwarding info
     for ls in log_sources:
         gid = ls["log_group_id"]
@@ -593,7 +612,14 @@ def collect(
                     and cr.get("connector_lifecycle_state", "").upper() == "ACTIVE":
                 forwarding_ids.add(cr["connector_id"])
         ls["forwarded_by_connector_ids"] = "|".join(sorted(forwarding_ids))
-        ls["forwarding_coverage"] = "COVERED" if forwarding_ids else "NOT-COVERED"
+        if forwarding_ids:
+            ls["forwarding_coverage"] = "COVERED"
+        elif unread_connectors:
+            # At least one connector's source list could not be read, so this
+            # log's absence from the forwarding map establishes nothing.
+            ls["forwarding_coverage"] = "UNKNOWN-CONNECTOR-DETAIL-NOT-READ"
+        else:
+            ls["forwarding_coverage"] = "NOT-COVERED"
 
     return connectors, log_sources, coverage_list, coll_coverage, errors
 

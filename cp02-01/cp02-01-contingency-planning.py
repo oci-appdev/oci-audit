@@ -204,6 +204,7 @@ def group_rows(
     plans: Sequence[Mapping[str, Any]],
     target: ScopeItem,
     region: str,
+    plans_read: bool = True,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """One protection group plus its member rows.
 
@@ -243,6 +244,10 @@ def group_rows(
         finding = "GROUP-HAS-NO-MEMBERS"
     elif not peer:
         finding = "GROUP-HAS-NO-PEER"
+    elif not plans_read:
+        # The plan list was denied. "This group has no plan" is a claim about
+        # configuration we did not read.
+        finding = "GROUP-PLANS-NOT-READ"
     elif not plans:
         finding = "GROUP-HAS-NO-PLAN"
     elif not has_drill:
@@ -269,9 +274,9 @@ def group_rows(
         "member_count": len(members) if detail is not None else "UNKNOWN",
         "member_types": " ".join(sorted({r["member_type"] for r in member_rows
                                          if r["member_type"]})),
-        "plan_count": len(plans),
+        "plan_count": len(plans) if plans_read else "UNKNOWN",
         "plan_types": " ".join(plan_types),
-        "has_drill_plan": "YES" if has_drill else "NO",
+        "has_drill_plan": ("YES" if has_drill else "NO") if plans_read else "UNKNOWN",
         "group_finding": finding,
         "time_created": iso(getattr(group, "time_created", None)),
         "region": region,
@@ -336,6 +341,10 @@ def reconcile_register(
         if member_id:
             by_ocid[member_id] = row
     group_names = {str(g.get("group_id", "")): str(g.get("display_name", "")) for g in groups}
+    # If any group's detail read failed, the membership map is incomplete and
+    # "not a member" cannot be asserted for anything.
+    members_incomplete = any(
+        str(g.get("group_finding", "")) == "GROUP-DETAIL-NOT-READ" for g in groups)
 
     results: List[Dict[str, Any]] = []
     blocking: List[str] = []
@@ -348,6 +357,14 @@ def reconcile_register(
         if not ocid:
             status = "REGISTER-INCOMPLETE"
             detail = "resource_ocid is empty; coverage cannot be established by name"
+        elif member is None and members_incomplete:
+            # At least one group's member list was not read, so absence from
+            # the membership map does not establish that the system is
+            # unprotected. The group row already says GROUP-DETAIL-NOT-READ;
+            # this verdict must not contradict it.
+            status = "COVERAGE-UNKNOWN-MEMBERS-NOT-READ"
+            detail = ("a DR protection group's member list could not be read, so "
+                      "membership cannot be established for this system")
         elif member is None:
             status = "NOT-IN-DR-PROTECTION-GROUP"
             detail = ("the approved system is not a member of any DR protection group "
@@ -485,6 +502,7 @@ def collect(oci: Any, args: argparse.Namespace, context: Any,
 
             # Plans hang off the protection group, not the compartment.
             plans_for_group: List[Dict[str, Any]] = []
+            plans_read = True
             try:
                 plans, plan_response = sdk_list(oci, dr, "list_dr_plans",
                                                 SDK_READ_METHODS, group_id)
@@ -505,8 +523,10 @@ def collect(oci: Any, args: argparse.Namespace, context: Any,
                         target, region))
             except Exception as exc:  # noqa: BLE001
                 failed(target, f"disaster_recovery.list_dr_plans[{group_id}]", exc)
+                plans_read = False
 
-            row, members = group_rows(group, detail, plans_for_group, target, region)
+            row, members = group_rows(group, detail, plans_for_group, target,
+                                      region, plans_read)
             group_list.append(row)
             member_list.extend(members)
             plan_list.extend(plans_for_group)

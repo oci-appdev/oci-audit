@@ -494,6 +494,9 @@ def delivery_paths(
             detail = "destination topic was not discovered in the selected scope"
         elif topic_state.upper() != "ACTIVE":
             status, detail = "PATH-BROKEN-TOPIC-INACTIVE", f"topic lifecycle_state={topic_state}"
+        elif active == "UNKNOWN":
+            status = "PATH-UNKNOWN-SUBSCRIBERS-NOT-READ"
+            detail = "the subscription list could not be read; delivery is unknown"
         elif active == 0:
             status = "PATH-BROKEN-NO-ACTIVE-SUBSCRIBER"
             detail = "topic has no ACTIVE subscription; a PENDING subscription is never delivered to"
@@ -524,6 +527,22 @@ def delivery_paths(
     for rule in rules:
         destinations = [d for d in str(rule.get("action_target_ocids", "")).split(" ") if d]
         enabled = "NO" if rule.get("is_enabled") == "NO" else "YES"
+        if rule.get("rule_finding") == "RULE-ACTIONS-NOT-READ":
+            # get_rule failed, so the action list is unread -- not empty. The
+            # rules CSV already says so; this file must not contradict it.
+            rows.append({
+                "path_key": stable_hash(["EVENTS-RULE", rule.get("rule_id", ""), region]),
+                "source_kind": "EVENTS-RULE", "source_id": str(rule.get("rule_id", "")),
+                "source_name": str(rule.get("display_name", "")),
+                "source_enabled": enabled,
+                "compartment_name": str(rule.get("compartment_name", "")),
+                "destination_ocid": "", "destination_kind": "UNKNOWN",
+                "topic_name": "", "topic_lifecycle_state": "",
+                "active_subscribers": "", "path_status": "PATH-UNKNOWN-ACTIONS-NOT-READ",
+                "path_detail": "the rule's actions could not be read",
+                "region": region,
+            })
+            continue
         if not destinations:
             emit("EVENTS-RULE", str(rule.get("rule_id", "")), str(rule.get("display_name", "")),
                  enabled, str(rule.get("compartment_name", "")), "", "NONE")
@@ -681,6 +700,7 @@ def collect(
         # Subscriptions first, so each topic can be reported with its real
         # ACTIVE subscriber count rather than a total that counts PENDING.
         subs_by_topic: Dict[str, List[Any]] = {}
+        subs_read = True
         try:
             items, response = sdk_list(oci, ons_dp, "list_subscriptions", SDK_READ_METHODS,
                                        target.ocid)
@@ -713,16 +733,21 @@ def collect(
             ok(target, "ons.list_subscriptions", len(items), response)
         except Exception as exc:  # noqa: BLE001
             failed(target, "ons.list_subscriptions", exc)
+            # Without the subscription list, "this topic has no ACTIVE
+            # subscriber" is a statement about state we never read.
+            subs_read = False
 
         try:
             items, response = sdk_list(oci, ons_cp, "list_topics", SDK_READ_METHODS, target.ocid)
             for item in items:
                 topic_id = _text(item, "topic_id")
                 subs = subs_by_topic.get(topic_id, [])
-                active = sum(1 for s in subs
-                             if _text(s, "lifecycle_state").upper() == "ACTIVE")
-                pending = sum(1 for s in subs
-                              if _text(s, "lifecycle_state").upper() == "PENDING")
+                active: Any = sum(1 for s in subs
+                                  if _text(s, "lifecycle_state").upper() == "ACTIVE")
+                pending: Any = sum(1 for s in subs
+                                   if _text(s, "lifecycle_state").upper() == "PENDING")
+                if not subs_read:
+                    active = pending = "UNKNOWN"
                 state = _text(item, "lifecycle_state")
                 topic_name = _text(item, "name")
                 for row in subscription_rows:
@@ -735,13 +760,14 @@ def collect(
                     "compartment_id": _text(item, "compartment_id"),
                     "compartment_name": target.name,
                     "lifecycle_state": state,
-                    "subscriptions_total": len(subs),
+                    "subscriptions_total": len(subs) if subs_read else "UNKNOWN",
                     "subscriptions_active": active,
                     "subscriptions_pending": pending,
                     "protocols": " ".join(sorted({_text(s, "protocol") for s in subs if
                                                   _text(s, "protocol")})),
                     "topic_finding": (
                         "TOPIC-NOT-ACTIVE" if state.upper() != "ACTIVE"
+                        else "TOPIC-SUBSCRIBERS-NOT-READ" if not subs_read
                         else "TOPIC-NO-ACTIVE-SUBSCRIPTION" if active == 0 else "OK"),
                     "time_created": iso(getattr(item, "time_created", None)),
                     "region": region,

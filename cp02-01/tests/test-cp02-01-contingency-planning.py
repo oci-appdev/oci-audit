@@ -510,6 +510,40 @@ def test_no_mutating_dr_operation_is_declared():
         assert forbidden not in MODULE.SDK_READ_METHODS
 
 
+
+def test_denied_member_read_does_not_say_not_protected():
+    """The group row says GROUP-DETAIL-NOT-READ; the reconciliation -- which
+    carries the CP-2 verdict -- used to say NOT-IN-DR-PROTECTION-GROUP for the
+    same run, asserting a system is unprotected from a denied read."""
+    state = FakeState()
+    state.fail_method = "get_dr_protection_group"
+    with tempfile.TemporaryDirectory() as tmp:
+        register = str(Path(tmp) / "iscp.csv")
+        _write_register(register, [_register_row(system_name="Prod DB",
+                                                 resource_ocid=PROTECTED_DB)])
+        rc, _, _, _ = _run(_base_args(tmp) + ["--iscp-register", register], state=state)
+        rows = _read_csv(_find(tmp, "_iscp_reconciliation.csv"))
+        assert rows and all(
+            r["coverage_status"] == "COVERAGE-UNKNOWN-MEMBERS-NOT-READ" for r in rows), rows
+        assert rc == 3
+
+
+def test_denied_plan_list_is_not_no_plan():
+    """A denied list_dr_plans made the group GROUP-HAS-NO-PLAN with
+    has_drill_plan=NO -- which also blocks Task 18 on a fabricated basis."""
+    state = FakeState()
+    state.fail_method = "list_dr_plans"
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, _, _, _ = _run(_base_args(tmp), state=state)
+        rows = _read_csv(_find(tmp, "_dr_protection_groups.csv"))
+        assert rows
+        for row in rows:
+            assert row["group_finding"] != "GROUP-HAS-NO-PLAN", row
+            assert row["plan_count"] == "UNKNOWN", row
+            assert row["has_drill_plan"] == "UNKNOWN", row
+        assert rc == 3
+
+
 if __name__ == "__main__":
     import traceback
     tests = [
@@ -529,6 +563,8 @@ if __name__ == "__main__":
         test_denied_call_is_coverage_not_a_finding,
         test_secret_redacted_in_errors, test_private_outputs,
         test_plan_names_the_dr_boundary, test_no_mutating_dr_operation_is_declared,
+        test_denied_member_read_does_not_say_not_protected,
+        test_denied_plan_list_is_not_no_plan,
     ]
     passed = failed = 0
     for t in tests:

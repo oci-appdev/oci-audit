@@ -822,6 +822,34 @@ def test_audit_system_log_group_discovered():
     assert audit_system[0]["log_group_id"] == "_Audit"
 
 
+
+def test_denied_connector_detail_is_not_a_coverage_gap():
+    """A failed get_service_connector must not fabricate NOT-COVERED logs.
+
+    On exception the code fell back to the summary -- and
+    ServiceConnectorSummary declares no source, target or tasks, which is the
+    documented trap this collector was built around. Every log the connector
+    fed flipped to NOT-COVERED, so logs_not_forwarded and coverage_gaps in the
+    monthly-review template were manufactured from a 403.
+    """
+    state = FakeState()
+    state.fail_method = "get_service_connector"
+    with tempfile.TemporaryDirectory() as d:
+        rc, _, _, _ = _run(_base_args(d), state=state)
+        logs = _read_csv(str(list(Path(d).glob("si04-01_*_log_source_inventory.csv"))[0]))
+        assert logs, "expected log rows"
+        assert not [r for r in logs if r["forwarding_coverage"] == "NOT-COVERED"], \
+            "a denied connector read must not produce a NOT-COVERED verdict"
+        assert all(r["forwarding_coverage"] == "UNKNOWN-CONNECTOR-DETAIL-NOT-READ"
+                   for r in logs), logs
+        connectors = _read_csv(
+            str(list(Path(d).glob("si04-01_*_connector_inventory.csv"))[0]))
+        for row in connectors:
+            assert row["siem_attribution"] == "CONNECTOR-DETAIL-NOT-READ", row
+            assert row["source_kind"] == "NOT-READ", row
+        assert rc == 3
+
+
 if __name__ == "__main__":
     import traceback
     tests = [
@@ -853,6 +881,7 @@ if __name__ == "__main__":
     test_unusable_destination_map_fails_before_scanning,
         test_inactive_connector_does_not_provide_coverage,
         test_audit_system_log_group_discovered,
+        test_denied_connector_detail_is_not_a_coverage_gap,
     ]
     passed = failed = 0
     for t in tests:
