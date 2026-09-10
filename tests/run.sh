@@ -62,6 +62,21 @@ python3 ra05-01-vulnerability-tracking.py --selfcheck
 python3 cm03-01-configuration-change-tracking.py --selfcheck
 python3 ac02-01-account-management.py --selfcheck
 python3 ia02-01-federation-configuration.py --selfcheck
+
+# Every SDK collector must import and self-check, not merely parse.  These nine
+# live in task folders and import lib/oci_audit_sdk.py and lib/oci_audit_inventory.py;
+# a lib copied here without them parses fine and fails at import, which is how all
+# nine shipped broken.  ast.parse cannot see that.  Running --selfcheck can.
+python3 cp09-01/cp09-01-backup-configuration.py --selfcheck
+python3 cp09-02/cp09-02-backup-access.py --selfcheck
+python3 cp09-03/cp09-03-backup-replication.py --selfcheck
+python3 sc08-02/sc08-02-in-transit-encryption.py --selfcheck
+python3 sc28/sc28-oci-encryption-at-rest.py --selfcheck
+python3 cm02-01/cm02-01-configuration-baseline.py --selfcheck
+python3 cm07-01/cm07-01-open-ports.py --selfcheck
+python3 cm08-01/cm08-01-component-inventory.py --selfcheck
+python3 cm11-01/cm11-01-software-installation-control.py --selfcheck
+python3 si04-01-siem-crowdstrike-forwarding.py --selfcheck
 bash tests/test-cp09-03.sh
 bash tests/test-sc8-safety.sh
 bash tests/test-sc08-02-in-transit-encryption.sh
