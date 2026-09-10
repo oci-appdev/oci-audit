@@ -411,17 +411,36 @@ class Ledger:
         self.coverage: List[Dict[str, Any]] = []
         self.errors: List[Dict[str, Any]] = []
         self.incomplete = False
+        # (compartment, service) pairs where at least one read failed. A
+        # collector typically records per-item failures and then closes the
+        # service with a single ok(); without this the ledger carried a DENIED
+        # row and an "OK, 0" row for the same service, and the repository's own
+        # reading rule -- "an empty CSV proves absence only when the coverage
+        # ledger says OK" -- then returned the wrong answer. sc28 stated the
+        # rule in a comment and violated it seven lines later.
+        self._degraded: Set[Tuple[str, str]] = set()
 
     def ok(self, target: ScopeItem, service: str, count: int) -> None:
+        """Close a service as read. Downgrades itself if a read already failed.
+
+        The count is kept because it is real -- that many assets were
+        characterised -- but the status can no longer be OK, because the
+        service was not read completely.
+        """
+        degraded = (target.ocid, service) in self._degraded
         self.coverage.append({
             "compartment_ocid": target.ocid, "compartment_name": target.name,
             "service": service, "assets_found": count,
-            "collection_status": "OK", "collection_error": "",
+            "collection_status": "PARTIAL" if degraded else "OK",
+            "collection_error": (
+                "one or more reads for this service failed; see the error ledger"
+                if degraded else ""),
         })
 
     def failed(self, target: ScopeItem, service: str, exc: Exception) -> Dict[str, Any]:
         record = error_record(exc)
         self.incomplete = True
+        self._degraded.add((target.ocid, service))
         self.coverage.append({
             "compartment_ocid": target.ocid, "compartment_name": target.name,
             "service": service, "assets_found": "UNKNOWN",

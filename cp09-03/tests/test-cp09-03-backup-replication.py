@@ -60,6 +60,7 @@ class ServiceError(Exception):
 
 class Denials:
     replication_policies = False
+    fss_detail = False
 
 
 class BaseClient:
@@ -117,20 +118,47 @@ class ObjectStorageClient(BaseClient):
         return Response([policy] if policy else [])
 
 
+# ReplicationSummary (what list_replications returns) declares NO delta_status,
+# source_id or replication_target_id. The full Replication from get_replication
+# does. The mock used to put those fields on the summary, which is what let the
+# collector's summary-only read pass its own test while the real API would have
+# reported every replication UNKNOWN.
+REPLICATION_DETAIL = {
+    "ocid1.replication.oc1..r1": dict(
+        display_name="fs-replication",
+        source_id="ocid1.filesystem.oc1..fs1",
+        replication_target_id="ocid1.replicationtarget.oc1..t1",
+        delta_status="IDLE", recovery_point_time="2026-09-04T12:00:00Z",
+        replication_interval=60, lifecycle_state="ACTIVE"),
+    "ocid1.replication.oc1..r2": dict(
+        display_name="broken-replication",
+        source_id="ocid1.filesystem.oc1..fs2",
+        replication_target_id="ocid1.replicationtarget.oc1..t2",
+        delta_status="FAILED", recovery_point_time=None,
+        replication_interval=None, lifecycle_state="ACTIVE"),
+}
+
+
 class FileStorageClient(BaseClient):
     def list_replications(self, **kw):
+        # Summary shape only.
         return Response([
             Obj(id="ocid1.replication.oc1..r1", display_name="fs-replication",
-                source_id="ocid1.filesystem.oc1..fs1",
-                replication_target_id="ocid1.replicationtarget.oc1..t1",
-                lifecycle_state="ACTIVE", delta_status="IDLE",
-                recovery_point_time="2026-09-04T12:00:00Z",
-                replication_interval=60),
+                lifecycle_state="ACTIVE", availability_domain="AD-1",
+                compartment_id="c", replication_interval=60,
+                recovery_point_time="2026-09-04T12:00:00Z"),
             Obj(id="ocid1.replication.oc1..r2", display_name="broken-replication",
-                source_id="ocid1.filesystem.oc1..fs2",
-                replication_target_id="ocid1.replicationtarget.oc1..t2",
-                lifecycle_state="ACTIVE", delta_status="FAILED"),
+                lifecycle_state="ACTIVE", availability_domain="AD-1",
+                compartment_id="c", replication_interval=None,
+                recovery_point_time=None),
         ])
+
+    def get_replication(self, replication_id, **kw):
+        if Denials.fss_detail:
+            raise ServiceError(403, "NotAuthorizedOrNotFound",
+                               "get replication was denied")
+        detail = REPLICATION_DETAIL[replication_id]
+        return Response(Obj(id=replication_id, **detail))
 
 
 class BlockstorageClient(BaseClient):
@@ -341,6 +369,52 @@ def test_readonly_allowlist_is_the_complete_cloud_surface():
     for name in MODULE.SDK_READ_METHODS:
         assert name.startswith(("list_", "get_")), name
     assert MODULE.source_selfcheck()
+
+
+
+@check
+def test_fss_health_comes_from_the_full_replication_not_the_summary():
+    """ReplicationSummary declares no delta_status, so a FAILED replication
+    could never match FSS_UNHEALTHY and was emitted as MANUAL-VERIFY."""
+    with tempfile.TemporaryDirectory() as tmp:
+        run(["-c", SHARED, "-s", "fss"], tmp)
+        rows = [r for r in read_csv(tmp, "replication")
+                if r["service"] == "FSSReplication"]
+        by_name = {r["source_resource"]: r for r in rows}
+        broken = by_name["broken-replication"]
+        assert broken["finding"] == "REPLICATION-UNHEALTHY-FAILED", broken
+        assert "delta=FAILED" in broken["replication_state"], broken
+        healthy = by_name["fs-replication"]
+        assert healthy["finding"] == "MANUAL-VERIFY-REPLICATION-TARGET-REGION", healthy
+        # source_id lives only on the full model; a blank column would mean the
+        # collector never read it.
+        assert healthy["source_ocid"] == "ocid1.filesystem.oc1..fs1", healthy
+
+
+@check
+def test_denied_replication_detail_is_unknown_not_healthy():
+    """A denied get_replication must not leave the replication looking fine."""
+    Denials.fss_detail = True
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, _ = run(["-c", SHARED, "-s", "fss"], tmp)
+            rows = [r for r in read_csv(tmp, "replication")
+                    if r["service"] == "FSSReplication"]
+            assert rows, "expected replication rows"
+            for row in rows:
+                # No health verdict may be emitted from a denied detail read.
+                assert row["finding"] == "COLLECTION-FAILED", row
+                assert row["collection_status"] == "DENIED", row
+                assert "UNHEALTHY" not in row["finding"], row
+            assert rc == 3, f"a denied detail read must not exit 0 (got {rc})"
+    finally:
+        Denials.fss_detail = False
+
+
+@check
+def test_unhealthy_delta_set_matches_the_sdk_enum():
+    """Two members were invented and two real error states were missing."""
+    assert MODULE.FSS_UNHEALTHY == {"FAILED", "SERVICE_ERROR", "USER_ERROR"}
 
 
 def main() -> int:

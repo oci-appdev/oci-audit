@@ -185,7 +185,12 @@ class DisasterRecoveryClient(BaseClient):
             execution_duration_in_sec=base.execution_duration_in_sec,
             # Only the full model carries these two.
             is_automatic=dr_plan_execution_id in AUTOMATIC,
-            step_status_counts={"SUCCEEDED": 4, "FAILED": 0},
+            # Mirrors DrPlanExecutionStepStatusCounts: an object, not a dict.
+            # failed_steps is itself an object carrying total_failed.
+            step_status_counts=SimpleNamespace(
+                total_steps=4, remaining_steps=0, skipped_steps=0,
+                successful_steps=4, warning_steps=0,
+                failed_steps=SimpleNamespace(total_failed=0, failed=0, timed_out=0)),
             group_executions=[], execution_options=None,
             automatic_execution_details=None,
         ))
@@ -373,6 +378,7 @@ def test_get_execution_is_called_because_summary_has_no_is_automatic():
         assert executions[GOOD_DRILL]["execution_finding"] == "OK"
         # step_status_counts is also only on the full model.
         assert executions[GOOD_DRILL]["steps_total"] == "4"
+        assert executions[GOOD_DRILL]["steps_failed"] == "0"
 
 
 def test_no_dr_plans_is_reported_honestly():
@@ -502,6 +508,76 @@ def test_collector_cannot_start_an_execution():
     assert "create_dr_plan_execution(" not in source
 
 
+
+def test_denied_execution_list_is_not_never_executed():
+    """A denied list_dr_plan_executions must not assert testing history.
+
+    group_executions stayed [] and every plan came out PLAN-NEVER-EXECUTED
+    with executions_total=0 -- a 403 asserting "this plan has never been run".
+    The original denied-call test only opened _dr_plan_executions.csv and the
+    coverage ledger, never the file carrying the adjudication, so it passed.
+    """
+    state = FakeState()
+    state.fail_method = "list_dr_plan_executions"
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, _, _, _ = _run(_base_args(tmp), state=state)
+        rows = _read_csv(_find(tmp, "_plan_test_status.csv"))
+        assert rows, "expected plan rows"
+        for row in rows:
+            assert row["test_status"] == "PLAN-EXECUTIONS-NOT-READ", row
+            assert row["executions_total"] == "UNKNOWN", row
+        assert rc == 3
+
+
+def test_window_is_judged_on_successful_drills_only():
+    """A recent failover must not satisfy the drill-testing window.
+
+    latest was taken over DRILL and REAL-MOVE, successful or failed, so a plan
+    whose last successful drill was 500 days ago reported OK with the detail
+    "a successful drill was recorded within the window" -- a sentence the data
+    contradicted.
+    """
+    original = list(EXECUTIONS)
+    try:
+        EXECUTIONS[:] = [
+            _execution("ocid1.drplanexecution.oc1..olddrill", TESTED_PLAN,
+                       "START_DRILL", "SUCCEEDED", STALE),
+            _execution("ocid1.drplanexecution.oc1..newmove", TESTED_PLAN,
+                       "FAILOVER", "SUCCEEDED", RECENT),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            _run(_base_args(tmp), state=FakeState())
+            row = {r["plan_id"]: r
+                   for r in _read_csv(_find(tmp, "_plan_test_status.csv"))}[TESTED_PLAN]
+            assert row["test_status"] == "PLAN-NO-EXERCISE-IN-WINDOW", row
+            assert "successful drill" in row["test_detail"]
+
+        # A recent FAILED drill must not satisfy the window either.
+        EXECUTIONS[:] = [
+            _execution("ocid1.drplanexecution.oc1..olddrill", TESTED_PLAN,
+                       "START_DRILL", "SUCCEEDED", STALE),
+            _execution("ocid1.drplanexecution.oc1..faildrill", TESTED_PLAN,
+                       "START_DRILL", "FAILED", RECENT),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            _run(_base_args(tmp), state=FakeState())
+            row = {r["plan_id"]: r
+                   for r in _read_csv(_find(tmp, "_plan_test_status.csv"))}[TESTED_PLAN]
+            assert row["test_status"] == "PLAN-NO-EXERCISE-IN-WINDOW", row
+    finally:
+        EXECUTIONS[:] = original
+
+
+def test_unread_is_automatic_is_not_credited_as_a_test():
+    """get_dr_plan_execution exists to read is_automatic. If it failed, the
+    execution cannot be credited OK -- that is the distinction it was called for."""
+    row = MODULE.execution_row(
+        EXECUTIONS[0], None, {}, GROUP, "prod-dr",
+        MODULE.ScopeItem(SHARED, "Shared", "COMPARTMENT"), "us-ashburn-1", NOW)
+    assert row["is_automatic"] == "NOT-READ"
+    assert row["execution_finding"] == "EXERCISE-OUTCOME-UNCONFIRMED", row
+
+
 if __name__ == "__main__":
     import traceback
     tests = [
@@ -519,6 +595,9 @@ if __name__ == "__main__":
         test_denied_call_is_coverage_not_a_finding, test_secret_redacted_in_errors,
         test_private_outputs_and_plan_boundary,
         test_collector_cannot_start_an_execution,
+        test_denied_execution_list_is_not_never_executed,
+        test_window_is_judged_on_successful_drills_only,
+        test_unread_is_automatic_is_not_credited_as_a_test,
     ]
     passed = failed = 0
     for t in tests:

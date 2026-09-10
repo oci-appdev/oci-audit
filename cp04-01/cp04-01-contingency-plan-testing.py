@@ -210,17 +210,20 @@ def execution_row(execution: Any, detail: Any, plan_names: Mapping[str, str],
     else:
         outcome = "UNKNOWN"
 
+    # DrPlanExecution.step_status_counts is a DrPlanExecutionStepStatusCounts
+    # object -- not a mapping and not iterable. Treating it as either raised
+    # TypeError into a bare except, so both columns silently shipped empty.
+    # failed_steps is itself an object carrying total_failed.
     counts = getattr(detail, "step_status_counts", None) if detail is not None else None
     steps_total = ""
     steps_failed = ""
     if counts is not None:
-        try:
-            as_dict = dict(counts) if isinstance(counts, Mapping) else {
-                _text(c, "type"): getattr(c, "count", "") for c in counts}
-            steps_total = sum(int(v) for v in as_dict.values() if str(v).isdigit())
-            steps_failed = as_dict.get("FAILED", as_dict.get("failed", ""))
-        except (TypeError, ValueError):
-            steps_total = ""
+        total = getattr(counts, "total_steps", None)
+        steps_total = "" if total is None else total
+        failed = getattr(counts, "failed_steps", None)
+        if failed is not None:
+            total_failed = getattr(failed, "total_failed", None)
+            steps_failed = "" if total_failed is None else total_failed
 
     if detail is None:
         automatic = "NOT-READ"
@@ -234,6 +237,11 @@ def execution_row(execution: Any, detail: Any, plan_names: Mapping[str, str],
         finding = "PRECHECK-NOT-AN-EXERCISE"
     elif outcome in FAILURE_STATES:
         finding = "EXERCISE-FAILED"
+    elif automatic == "NOT-READ":
+        # is_automatic is the whole reason get_dr_plan_execution is called: it
+        # separates a deliberate exercise from one the service started. If it
+        # could not be read, the execution cannot be credited as a test.
+        finding = "EXERCISE-OUTCOME-UNCONFIRMED"
     elif automatic == "YES":
         finding = "AUTOMATIC-EXECUTION-NOT-A-SCHEDULED-TEST"
     elif klass == "REAL-MOVE":
@@ -272,7 +280,8 @@ def execution_row(execution: Any, detail: Any, plan_names: Mapping[str, str],
 
 def plan_test_row(plan: Any, executions: Sequence[Mapping[str, Any]],
                   group_id: str, group_name: str, target: ScopeItem,
-                  region: str, window_days: int) -> Dict[str, Any]:
+                  region: str, window_days: int,
+                  executions_read: bool = True) -> Dict[str, Any]:
     """Whether this plan has actually been tested, and how recently."""
     plan_id = _text(plan, "id")
     mine = [e for e in executions if e.get("plan_id") == plan_id]
@@ -281,12 +290,24 @@ def plan_test_row(plan: Any, executions: Sequence[Mapping[str, Any]],
     real_moves = [e for e in mine if e.get("exercise_class") == "REAL-MOVE"]
     good_drills = [e for e in drills if e.get("outcome") == "SUCCEEDED"]
 
-    # Only a real exercise counts toward recency; a precheck never does.
+    # Only a real exercise counts toward recency; a precheck never does. The
+    # *_exercise columns report the most recent exercise of any kind, but the
+    # testing-window verdict is judged on successful DRILLS only: a recent
+    # failover, or a recent FAILED drill, must not make a plan whose last
+    # successful drill was years ago report OK.
     exercises = [e for e in mine if e.get("exercise_class") in {"DRILL", "REAL-MOVE"}]
     dated = [e for e in exercises if str(e.get("age_days", "")) != ""]
     latest = min(dated, key=lambda e: int(e["age_days"])) if dated else None
+    dated_good = [e for e in good_drills if str(e.get("age_days", "")) != ""]
+    latest_good = (min(dated_good, key=lambda e: int(e["age_days"]))
+                   if dated_good else None)
 
-    if not mine:
+    if not executions_read:
+        # The execution list was denied or errored. "Never executed" is a
+        # statement about history we did not read.
+        status = "PLAN-EXECUTIONS-NOT-READ"
+        detail = "the execution list could not be read; testing state is unknown"
+    elif not mine:
         status, detail = "PLAN-NEVER-EXECUTED", "no execution of any kind was recorded"
     elif not exercises:
         status = "PLAN-PRECHECK-ONLY"
@@ -298,9 +319,10 @@ def plan_test_row(plan: Any, executions: Sequence[Mapping[str, Any]],
     elif not good_drills:
         status = "PLAN-NO-SUCCESSFUL-DRILL"
         detail = f"{len(drills)} drill(s) recorded, none of which succeeded"
-    elif latest is not None and int(latest["age_days"]) > window_days:
+    elif latest_good is None or int(latest_good["age_days"]) > window_days:
         status = "PLAN-NO-EXERCISE-IN-WINDOW"
-        detail = (f"most recent exercise was {latest['age_days']} days ago, "
+        age = latest_good["age_days"] if latest_good else "never"
+        detail = (f"most recent successful drill was {age} days ago, "
                   f"outside the {window_days}-day window")
     else:
         status, detail = "OK", "a successful drill was recorded within the window"
@@ -313,7 +335,7 @@ def plan_test_row(plan: Any, executions: Sequence[Mapping[str, Any]],
         "group_name": group_name,
         "compartment_name": target.name,
         "plan_type": _text(plan, "type"),
-        "executions_total": len(mine),
+        "executions_total": len(mine) if executions_read else "UNKNOWN",
         "drills_total": len(drills),
         "prechecks_total": len(prechecks),
         "real_moves_total": len(real_moves),
@@ -445,6 +467,7 @@ def collect(oci: Any, args: argparse.Namespace, context: Any,
             plan_names = {_text(p, "id"): _text(p, "display_name") for p in plans}
 
             group_executions: List[Dict[str, Any]] = []
+            executions_read = True
             try:
                 items, exec_response = sdk_list(oci, dr, "list_dr_plan_executions",
                                                 SDK_READ_METHODS, group_id)
@@ -467,12 +490,13 @@ def collect(oci: Any, args: argparse.Namespace, context: Any,
                         target, region, now))
             except Exception as exc:  # noqa: BLE001
                 failed(target, f"disaster_recovery.list_dr_plan_executions[{group_id}]", exc)
+                executions_read = False
 
             executions.extend(group_executions)
             for plan in plans:
                 plan_tests.append(plan_test_row(
                     plan, group_executions, group_id, group_name, target,
-                    region, args.test_window_days))
+                    region, args.test_window_days, executions_read))
 
     return executions, plan_tests, coverage, errors
 

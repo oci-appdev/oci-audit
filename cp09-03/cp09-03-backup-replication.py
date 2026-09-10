@@ -80,6 +80,9 @@ SDK_READ_METHODS: Set[str] = {
     "list_buckets",
     "list_replication_policies",
     "list_replications",
+    # Required, not enrichment: ReplicationSummary carries no delta_status,
+    # source_id or replication_target_id.
+    "get_replication",
     "list_volume_backup_policies",
     "list_db_systems",
     "get_db_system",
@@ -107,7 +110,12 @@ ALL_SERVICES = ["object", "fss", "volumepolicy", "mysql", "postgres", "adb"]
 # Object Storage replication statuses that mean the copy is not current.
 OS_UNHEALTHY = {"CLIENT_ERROR", "PAUSED"}
 # FSS delta statuses that mean the target is not tracking the source.
-FSS_UNHEALTHY = {"FAILED", "TRANSFERRING_ERROR", "IDLE_ERROR"}
+# Replication.DELTA_STATUS_* in oci==2.185.1 is exactly:
+#   IDLE, CAPTURING, APPLYING, SERVICE_ERROR, USER_ERROR, FAILED, TRANSFERRING
+# This set previously named TRANSFERRING_ERROR and IDLE_ERROR, which do not
+# exist, and omitted SERVICE_ERROR and USER_ERROR, which do -- so an erroring
+# replication was classified healthy.
+FSS_UNHEALTHY = {"FAILED", "SERVICE_ERROR", "USER_ERROR"}
 
 
 def text(item: Any, name: str, default: str = "") -> str:
@@ -240,6 +248,29 @@ class Collector:
                 continue
             for replication in replications:
                 count += 1
+                # list_replications returns ReplicationSummary, which declares
+                # no delta_status, source_id or replication_target_id. Reading
+                # them off the summary made delta permanently "UNKNOWN", so a
+                # FAILED replication could never match FSS_UNHEALTHY and was
+                # emitted as MANUAL-VERIFY with an OK coverage row. The health
+                # of an FSS replication only exists on the full model.
+                detail = replication
+                replication_id = text(replication, "id")
+                if replication_id:
+                    try:
+                        detail = sdk_get(self.oci, client, "get_replication",
+                                         SDK_READ_METHODS,
+                                         replication_id=replication_id).data
+                    except Exception as exc:  # noqa: BLE001
+                        self.failed(target, "FSSReplication",
+                                    text(replication, "display_name", "replication"), exc)
+                        detail = None
+                if detail is None:
+                    # self.failed already emitted a COLLECTION-FAILED row and a
+                    # DENIED coverage row. Emitting a health verdict as well
+                    # would assert state we did not observe.
+                    continue
+                replication = detail
                 delta = text(replication, "delta_status", "UNKNOWN")
                 state = text(replication, "lifecycle_state", "UNKNOWN")
                 recovery = iso(getattr(replication, "recovery_point_time", None))
