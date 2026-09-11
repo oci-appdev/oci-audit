@@ -365,7 +365,7 @@ inventory CSV while the fabricated verdict lived in a *different* output file:
 | cp02-01 | `get_dr_protection_group` | `NOT-IN-DR-PROTECTION-GROUP` |
 | cp02-01 | `list_dr_plans` | `GROUP-HAS-NO-PLAN`, `has_drill_plan=NO` |
 | si04-01 | `get_service_connector` | every log `NOT-COVERED` |
-| ra05-01 | `list_host_scan_targets` | `target_configured=NO` *(Codex's; reported, not fixed)* |
+| ra05-01 | `list_host_scan_targets`, `list_container_scan_targets` | `target_configured=NO` — **fixed 2026-09-11**: a denied enumeration is now `SCAN-TARGETS-NOT-READ`, and `NO` requires that the reads succeeded and the scope was the tenancy |
 
 **When you add or review a collector, trace every `except` to the row it
 produces.** Two questions, and the second is the one that gets missed:
@@ -531,7 +531,7 @@ making it.
 
 | Area | Owner | Status |
 |---|---|---|
-| Task 10 — vulnerability tracking (RA-5/SI-2) | **Codex** | Delivered to `main` (`030af450`). `ra05-01/ra05-01-vulnerability-tracking.py`, `lib/oci_audit_sdk.py`, `ra05-01/tests/test-ra05-01-vulnerability-tracking.py`, `ra05-01/TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`. Claude did not review it. |
+| Task 10 — vulnerability tracking (RA-5/SI-2) | **Codex** | Delivered to `main` (`030af450`). `ra05-01/ra05-01-vulnerability-tracking.py`, `lib/oci_audit_sdk.py`, `ra05-01/tests/test-ra05-01-vulnerability-tracking.py`, `ra05-01/TASK10-VULNERABILITY-TRACKING-EVIDENCE-GUIDE.md`. **Reviewed 2026-09-11**: the denied-read trap above was fixed, and `source_selfcheck` now calls the shared `selfcheck_allowlist` — ra05-01 had been exempt from the secret-blocklist screen every other collector passes. Its ten declared methods are clean; nothing was unblocked. |
 | Task 11 — configuration change tracking | **Codex** | **Published to `main` (`915cc12`)** as `cm03-01-configuration-change-tracking.py`. Reviewed by Claude 2026-09-08 — see `CODEX-TASKS-11-13-REVIEW.md`. No defects in its own logic; handles the OCI Audit 365-day retention boundary correctly. Still Codex's. |
 | Task 12 — account management | **Codex** | **Published to `main` (`915cc12`)** as `ac02-01-account-management.py`. Reviewed 2026-09-08. Writes no secret field, but declares five reads the repo blocklist names, so **it cannot merge until that collision is decided** — see `CODEX-TASKS-11-13-REVIEW.md` Finding 1. Still Codex's. |
 | Task 13 — OKTA/DOJLogin federation (IA-2) | **Codex** | **Published to `main` (`915cc12`)** as `ia02-01-federation-configuration.py`. Reviewed 2026-09-08. Correctly avoids `App.client_secret` with an explicit `attributes=` allowlist. One defect: exits `2` on an incomplete collection where rule 3 says `3`. Still Codex's. |
