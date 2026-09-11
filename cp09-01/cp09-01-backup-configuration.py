@@ -60,6 +60,7 @@ from __future__ import annotations
 import argparse
 import ast
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Set
 
@@ -138,6 +139,33 @@ SECONDS_PER_DAY = 86400
 def text(item: Any, name: str, default: str = "") -> str:
     value = getattr(item, name, None)
     return default if value is None else str(value)
+
+
+def retention_lock_state(rule: Any) -> str:
+    """LOCKED, PENDING or UNLOCKED for one Object Storage retention rule.
+
+    time_rule_locked is the moment the rule *becomes* locked, not proof that it
+    is. Object Storage deliberately leaves a grace period after a lock is
+    scheduled, and during it the rule can still be shortened or deleted. Reading
+    "the field is set" as WORM therefore asserts immutability the bucket does
+    not have yet -- a false pass on CP-9, and the direction that survives into a
+    signed package unchallenged.
+    """
+
+    locked_at = getattr(rule, "time_rule_locked", None)
+    if locked_at is None:
+        return "UNLOCKED"
+    if isinstance(locked_at, str):
+        try:
+            locked_at = datetime.fromisoformat(locked_at.replace("Z", "+00:00"))
+        except ValueError:
+            # An unparseable timestamp is not evidence of a lock.
+            return "PENDING"
+    if not isinstance(locked_at, datetime):
+        return "PENDING"
+    if locked_at.tzinfo is None:
+        locked_at = locked_at.replace(tzinfo=timezone.utc)
+    return "LOCKED" if locked_at <= utc_now() else "PENDING"
 
 
 def describe_retention_seconds(seconds: Any) -> str:
@@ -423,7 +451,9 @@ class Collector:
             return
 
         versioning = text(bucket, "versioning", "UNKNOWN")
-        locked = [r for r in rules if getattr(r, "time_rule_locked", None) is not None]
+        states = [retention_lock_state(r) for r in rules]
+        locked = [r for r, state in zip(rules, states) if state == "LOCKED"]
+        pending = [r for r, state in zip(rules, states) if state == "PENDING"]
         if rules:
             retention = ";".join(
                 f"{text(r, 'display_name', 'rule')}="
@@ -435,6 +465,10 @@ class Collector:
 
         if versioning == "Enabled" and locked:
             finding = "OK-VERSIONED-WORM"
+        elif versioning == "Enabled" and pending:
+            # Scheduled is not enforced. Naming it distinctly keeps the reviewer
+            # from reading a grace-period rule as WORM.
+            finding = "REVIEW-RETENTION-LOCK-PENDING"
         elif versioning == "Enabled":
             finding = "OK-VERSIONED-NO-LOCK"
         elif versioning == "UNKNOWN":
@@ -447,7 +481,8 @@ class Collector:
                  backup_type="OBJECT-VERSIONING",
                  frequency=f"versioning={versioning}",
                  retention=retention,
-                 retention_lock=("YES" if locked else "NO" if rules else "not-exposed"))
+                 retention_lock=("YES" if locked else "PENDING" if pending
+                                 else "NO" if rules else "not-exposed"))
 
     # -- databases ---------------------------------------------------------
 

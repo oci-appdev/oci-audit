@@ -105,6 +105,7 @@ python3 tests/verify-sdk-surface.py
 # Proves the secret-read blocklist matches the SDK models in both directions:
 # nothing blocked that has no secret to leak, nothing missed that does.
 python3 tests/verify-secret-blocklist.py
+python3 tests/test-region-handling.py
 bash tests/test-scope-selection.sh
 bash tests/test-task1-3-automation-contract.sh
 

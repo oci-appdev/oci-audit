@@ -66,7 +66,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "lib"))
 from oci_audit_sdk import (  # noqa: E402
     Ledger, ScanRefused, ScopeItem,
     add_standard_arguments, build_auth_context, build_client,
-    confirm_targets_interactively, discover_scope, load_oci,
+    confirm_targets_interactively, discover_scope, iso, load_oci,
     print_scan_plan, require_final_approval, resolve_scope, sdk_get,
     sdk_list_items, selfcheck_allowlist, utc_now,
     validate_argument_combination, write_csv,
@@ -249,7 +249,11 @@ class Collector:
                 "resource_ocid": text(instance, "id"),
                 "lifecycle_state": text(instance, "lifecycle_state", "UNKNOWN"),
                 "availability_domain": text(instance, "availability_domain", "UNKNOWN"),
-                "time_created": text(instance, "time_created", "not-exposed"),
+                # iso(), not text(): str(datetime) renders "2026-09-10 12:00:00+00:00",
+                # which is not the ISO-8601 every other collector writes. One
+                # inventory carrying two timestamp formats is a diffing hazard
+                # for the month-over-month comparison this evidence feeds.
+                "time_created": iso(getattr(instance, "time_created", None)) or "not-exposed",
                 "tag_keys": "see-resource-search-row",
             }
             agent = getattr(instance, "agent_config", None)

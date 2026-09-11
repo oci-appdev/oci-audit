@@ -432,6 +432,36 @@ def test_readonly_allowlist_is_the_complete_cloud_surface():
     assert MODULE.source_selfcheck()
 
 
+@check
+def test_a_scheduled_retention_lock_is_not_yet_worm():
+    """time_rule_locked in the future means the rule can still be deleted.
+
+    Object Storage leaves a grace period after a lock is scheduled. Treating the
+    field's presence as proof of immutability reports WORM for a bucket whose
+    retention rule is still mutable -- a false pass on CP-9, and the direction
+    nobody challenges in review.
+    """
+
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    state = MODULE.retention_lock_state
+    now = datetime.now(timezone.utc)
+
+    assert state(SimpleNamespace(time_rule_locked=None)) == "UNLOCKED"
+    assert state(SimpleNamespace(
+        time_rule_locked=now - timedelta(hours=1))) == "LOCKED"
+    assert state(SimpleNamespace(
+        time_rule_locked=now + timedelta(days=14))) == "PENDING"
+    # A tz-naive timestamp is UTC, not a reason to guess.
+    assert state(SimpleNamespace(
+        time_rule_locked=(now - timedelta(days=1)).replace(tzinfo=None))) == "LOCKED"
+    assert state(SimpleNamespace(time_rule_locked="2020-01-01T00:00:00Z")) == "LOCKED"
+    assert state(SimpleNamespace(time_rule_locked="2099-01-01T00:00:00Z")) == "PENDING"
+    # An unparseable timestamp is not evidence of a lock.
+    assert state(SimpleNamespace(time_rule_locked="soon")) == "PENDING"
+
+
 def main() -> int:
     failures = 0
     for fn in CHECKS:
