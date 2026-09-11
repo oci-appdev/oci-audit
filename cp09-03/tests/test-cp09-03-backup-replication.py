@@ -88,7 +88,9 @@ class ObjectStorageClient(BaseClient):
     def list_buckets(self, **kw):
         return Response([Obj(name="offsite-bucket"), Obj(name="sameregion-bucket"),
                          Obj(name="paused-bucket"), Obj(name="never-synced-bucket"),
-                         Obj(name="unreplicated-bucket")])
+                         Obj(name="unreplicated-bucket"),
+                         Obj(name="mixedcase-sameregion-bucket"),
+                         Obj(name="unknown-destination-bucket")])
 
     def list_replication_policies(self, namespace_name, bucket_name, **kw):
         if Denials.replication_policies:
@@ -113,6 +115,21 @@ class ObjectStorageClient(BaseClient):
                                        destination_bucket_name="dr-bucket",
                                        destination_region_name=REMOTE,
                                        status="ACTIVE"),
+            # Same region as the scan, spelled differently. Nothing in the API
+            # contract guarantees the destination comes back in the same form
+            # the operator typed for -r, and a raw string comparison resolves
+            # that mismatch as "different region" -- i.e. off_site=YES, a false
+            # CP-9(1) pass. The fixture exists to pin the failure direction.
+            "mixedcase-sameregion-bucket": Obj(
+                id="rp5", name="to-local-mixedcase",
+                destination_bucket_name="local-copy",
+                destination_region_name=HOME.upper(), status="ACTIVE",
+                time_last_sync="2026-09-04T00:00:00Z"),
+            # Replicating somewhere the API did not name. Unknown is not a pass.
+            "unknown-destination-bucket": Obj(
+                id="rp6", name="to-nowhere-named",
+                destination_bucket_name="dr-bucket", status="ACTIVE",
+                time_last_sync="2026-09-04T00:00:00Z"),
         }
         policy = table.get(bucket_name)
         return Response([policy] if policy else [])
@@ -169,17 +186,30 @@ class BlockstorageClient(BaseClient):
             Obj(id="ocid1.volumebackuppolicy.oc1..p2", display_name="local-policy",
                 destination_region=HOME),
             Obj(id="ocid1.volumebackuppolicy.oc1..p3", display_name="no-copy-policy"),
+            # Same region as the scan, different spelling.
+            Obj(id="ocid1.volumebackuppolicy.oc1..p4",
+                display_name="mixedcase-local-policy",
+                destination_region=HOME.upper()),
         ])
 
 
 class MysqlDbSystemClient(BaseClient):
     def list_db_systems(self, **kw):
         return Response([Obj(id="ocid1.mysqldbsystem.oc1..m1"),
-                         Obj(id="ocid1.mysqldbsystem.oc1..m2")])
+                         Obj(id="ocid1.mysqldbsystem.oc1..m2"),
+                         Obj(id="ocid1.mysqldbsystem.oc1..m3")])
 
     def get_db_system(self, db_system_id, **kw):
         if db_system_id.endswith("m2"):
             return Response(Obj(id=db_system_id, display_name="mysql-silent"))
+        if db_system_id.endswith("m3"):
+            # A copy policy that exists but names no usable region. It
+            # establishes that copying is configured and nothing about where
+            # the copy lands, which is UNKNOWN -- not an off-site pass.
+            return Response(Obj(
+                id=db_system_id, display_name="mysql-blank-region",
+                backup_policy=Obj(is_enabled=True, copy_policies=[
+                    Obj(copy_to_region="   ", backup_copy_retention_in_days=30)])))
         return Response(Obj(
             id=db_system_id, display_name="mysql-dr",
             backup_policy=Obj(is_enabled=True, copy_policies=[
@@ -409,6 +439,108 @@ def test_denied_replication_detail_is_unknown_not_healthy():
             assert rc == 3, f"a denied detail read must not exit 0 (got {rc})"
     finally:
         Denials.fss_detail = False
+
+
+def verdict_for(home_region):
+    """A Collector built straight from a region string.
+
+    Deliberately NOT routed through validate_argument_combination. That is where
+    the lib normalizes args.region, and a check that went through it would be
+    asserting the lib's behaviour while leaving offsite_verdict free to compare
+    raw strings again. The collector has to be correct about a region it was
+    handed, not only about one the validator happened to clean up first.
+    """
+    return MODULE.Collector(None, None, types.SimpleNamespace(region=home_region))
+
+
+@check
+def test_offsite_verdict_does_not_depend_on_region_spelling():
+    """Two spellings of one region are one region.
+
+    The failure this pins is directional: comparing the strings raw makes a
+    SAME-region replica read as off_site=YES, which asserts CP-9(1) alternate
+    storage on evidence that does not support it.
+    """
+    upper = verdict_for("US-LANGLEY-1")
+    for destination in ("us-langley-1", " us-langley-1 ", "Us-Langley-1"):
+        got = upper.offsite_verdict(destination)
+        assert got == "NO", (f"scanned US-LANGLEY-1, destination {destination!r}: "
+                             f"same region reported off_site={got}")
+
+    lower = verdict_for(HOME)
+    for destination in (HOME.upper(), f"  {HOME}  "):
+        got = lower.offsite_verdict(destination)
+        assert got == "NO", (f"scanned {HOME}, destination {destination!r}: "
+                             f"same region reported off_site={got}")
+
+    # A genuinely different region is still off-site, in either spelling.
+    for home, destination in ((lower, REMOTE), (lower, REMOTE.upper()),
+                              (upper, REMOTE)):
+        got = home.offsite_verdict(destination)
+        assert got == "YES", (f"scanned {home.home_region}, destination "
+                              f"{destination!r}: expected YES, got {got}")
+
+
+@check
+def test_unknown_region_on_either_side_is_never_offsite():
+    """YES has to come from a known destination AND a known scanned region."""
+    known = verdict_for(HOME)
+    for missing in ("", "   ", None):
+        got = known.offsite_verdict(missing or "")
+        assert got == "UNKNOWN", (f"destination {missing!r} established no "
+                                  f"region, but off_site={got}")
+
+    # Nothing to be "elsewhere" from: an unknown scanned region cannot produce
+    # a pass either.
+    for blank_home in ("", "   "):
+        unknown_home = verdict_for(blank_home)
+        for destination in (REMOTE, HOME):
+            got = unknown_home.offsite_verdict(destination)
+            assert got == "UNKNOWN", (f"scanned region {blank_home!r} is unknown, "
+                                      f"destination {destination}: off_site={got}")
+
+
+@check
+def test_region_spelling_never_turns_a_same_region_copy_into_a_pass():
+    """The same property, end to end, on every service that names a region."""
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, out = run([], tmp)
+        assert rc == 0, (rc, out)
+        rows = read_csv(tmp, "backup_replication_2")
+
+        same = one(rows, "mixedcase-sameregion-bucket")
+        assert same["off_site"] == "NO", same
+        assert same["finding"] == "REPLICATION-SAME-REGION", same
+        # Written normalized, so whoever adjudicates the CSV is not left
+        # repeating the comparison that was just fixed.
+        assert same["destination_region"] == HOME, same
+
+        volume = one(rows, "mixedcase-local-policy")
+        assert volume["off_site"] == "NO", volume
+        assert volume["finding"] == "REPLICATION-SAME-REGION", volume
+        assert volume["destination_region"] == HOME, volume
+
+        # A named destination the API did not give: UNKNOWN, never YES.
+        unnamed = one(rows, "unknown-destination-bucket")
+        assert unnamed["off_site"] == "UNKNOWN", unnamed
+        assert unnamed["finding"] == "UNKNOWN-REPLICATION-DESTINATION", unnamed
+
+        # The copy-region path shares offsite_verdict and needs the same
+        # UNKNOWN branch; it used to fall through to an off-site pass.
+        blank = one(rows, "mysql-blank-region")
+        assert blank["off_site"] == "UNKNOWN", blank
+        assert blank["finding"] == "UNKNOWN-REPLICATION-DESTINATION", blank
+
+        # And the genuine off-site copies are untouched.
+        for source in ("offsite-bucket", "dr-policy", "mysql-dr", "pgsql-dr"):
+            row = one(rows, source)
+            assert row["off_site"] == "YES", row
+            assert row["finding"] == "OK-OFFSITE-REPLICATION", row
+
+        # No row anywhere claims off-site without naming where.
+        for row in rows:
+            if row["off_site"] == "YES":
+                assert row["destination_region"] not in ("", "not-exposed"), row
 
 
 @check

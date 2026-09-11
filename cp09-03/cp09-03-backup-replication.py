@@ -64,8 +64,8 @@ from oci_audit_sdk import (  # noqa: E402
     Ledger, ScanRefused, ScopeItem,
     add_standard_arguments, build_auth_context, build_client,
     confirm_targets_interactively, discover_scope, iso, load_oci,
-    print_scan_plan, require_final_approval, resolve_scope, sdk_get,
-    sdk_list_items, selfcheck_allowlist, utc_now,
+    normalize_region, print_scan_plan, require_final_approval, resolve_scope,
+    same_region, sdk_get, sdk_list_items, selfcheck_allowlist, utc_now,
     validate_argument_combination, write_csv,
 )
 
@@ -128,6 +128,9 @@ class Collector:
         self.oci = oci
         self.context = context
         self.args = args
+        # Kept as typed. Every comparison against it goes through same_region(),
+        # which normalizes both sides, so the verdict never depends on the
+        # spelling that reached this attribute.
         self.home_region = str(args.region)
         self.rows: List[Dict[str, Any]] = []
         self.ledger = Ledger()
@@ -164,10 +167,26 @@ class Collector:
                  error=record.get("message", ""))
 
     def offsite_verdict(self, destination_region: str) -> str:
-        """A destination in the same region is not alternate storage."""
-        if not destination_region:
+        """A destination in the same region is not alternate storage.
+
+        The two sides come from different places: the scanned region is whatever
+        the operator typed for -r, the destination is whatever the service
+        reported. Comparing them as raw strings makes the verdict depend on
+        spelling, and it fails in the wrong direction -- a same-region
+        destination spelled differently reads as off_site=YES, asserting
+        CP-9(1) alternate-site storage on evidence that does not support it.
+        same_region() normalizes both sides, so only a genuinely different
+        region produces YES.
+
+        Neither side may be unknown. An empty destination is UNKNOWN, as before;
+        an unknown scanned region is too, because "elsewhere" is not a claim
+        that can be made relative to nothing.
+        """
+        if not normalize_region(destination_region):
             return "UNKNOWN"
-        return "NO" if destination_region == self.home_region else "YES"
+        if not normalize_region(self.home_region):
+            return "UNKNOWN"
+        return "NO" if same_region(destination_region, self.home_region) else "YES"
 
     # -- object storage ----------------------------------------------------
 
@@ -199,7 +218,10 @@ class Collector:
                          "NO-REPLICATION-CONFIGURED", off_site="NO")
                 continue
             for policy in policies:
-                region = text(policy, "destination_region_name")
+                # Normalized once, here: the same spelling then feeds the
+                # verdict and the destination_region column, so whoever
+                # adjudicates this CSV is not left comparing raw strings again.
+                region = normalize_region(text(policy, "destination_region_name"))
                 status = text(policy, "status", "UNKNOWN")
                 last_sync = iso(getattr(policy, "time_last_sync", None))
                 off_site = self.offsite_verdict(region)
@@ -309,13 +331,16 @@ class Collector:
             return
         for policy in policies:
             name = text(policy, "display_name", "policy")
-            region = text(policy, "destination_region")
+            region = normalize_region(text(policy, "destination_region"))
             if not region:
                 self.row(target, "VolumeBackupPolicy", name, text(policy, "id"),
                          "NO", "NO-REPLICATION-CONFIGURED", off_site="NO")
                 continue
             off_site = self.offsite_verdict(region)
+            # UNKNOWN needs its own branch. Without it an off_site the collector
+            # could not determine fell through to OK-OFFSITE-REPLICATION.
             finding = ("REPLICATION-SAME-REGION" if off_site == "NO"
+                       else "UNKNOWN-REPLICATION-DESTINATION" if off_site == "UNKNOWN"
                        else "OK-OFFSITE-REPLICATION")
             self.row(target, "VolumeBackupPolicy", name, text(policy, "id"), "YES",
                      finding, destination=f"region:{region}",
@@ -332,11 +357,18 @@ class Collector:
                      "NO-REPLICATION-CONFIGURED", off_site="NO", state=detail)
             return
         for region in regions:
-            off_site = self.offsite_verdict(str(region))
+            # Normalized before both the verdict and the evidence columns, for
+            # the reason given on offsite_verdict().
+            region = normalize_region(str(region))
+            off_site = self.offsite_verdict(region)
+            # A copy region that establishes nothing is UNKNOWN. It previously
+            # fell through to OK-OFFSITE-REPLICATION, which is a pass.
             finding = ("REPLICATION-SAME-REGION" if off_site == "NO"
+                       else "UNKNOWN-REPLICATION-DESTINATION" if off_site == "UNKNOWN"
                        else "OK-OFFSITE-REPLICATION")
             self.row(target, service, name, ocid, "YES", finding,
-                     destination=f"region:{region}", destination_region=str(region),
+                     destination=f"region:{region or 'not-exposed'}",
+                     destination_region=region or "not-exposed",
                      off_site=off_site, state=detail)
 
     def check_mysql(self, target: ScopeItem) -> None:
@@ -366,7 +398,7 @@ class Collector:
             regions = [text(c, "copy_to_region") for c in copies
                        if text(c, "copy_to_region")]
             retention = ";".join(
-                f"{text(c, 'copy_to_region', '?')}="
+                f"{normalize_region(text(c, 'copy_to_region')) or '?'}="
                 f"{text(c, 'backup_copy_retention_in_days', '?')}d" for c in copies)
             self.emit_copy_regions(target, "MySQLBackupCopy", name, system_id,
                                    regions, retention or "no-copy-policies")
@@ -436,9 +468,15 @@ class Collector:
                 self.row(target, "AutonomousDBStandby", name, ocid, "YES",
                          "OK-OFFSITE-REPLICATION",
                          destination=f"peers={len(regions)}",
-                         destination_region=standby_region or "not-exposed",
+                         # disaster_recovery_region_type is an enum -- PRIMARY or
+                         # REMOTE -- not a region identifier. Every other service
+                         # writes a real region into this column, so putting an
+                         # enum here leaves an adjudicator comparing two kinds of
+                         # value. The DR role belongs with the other state facts.
+                         destination_region="not-exposed-by-api",
                          off_site="YES",
-                         state=f"REMOTE-DATA-GUARD;{local_note}")
+                         state=f"REMOTE-DATA-GUARD;dr-region-type="
+                               f"{standby_region or 'not-exposed'};{local_note}")
             elif remote is False:
                 self.row(target, "AutonomousDBStandby", name, ocid, "NO",
                          ("LOCAL-DATA-GUARD-ONLY" if local
