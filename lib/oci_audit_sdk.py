@@ -474,12 +474,50 @@ def add_standard_arguments(parser: Any) -> Any:
 VALID_REGION_CHARS = set(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-")
 
+# A full OCI region identifier: realm prefix, one or more locality words, index.
+# Covers us-ashburn-1, ap-sydney-1, uk-gov-london-1 and us-gov-ashburn-1.
+REGION_IDENTIFIER = re.compile(r"^[a-z]{2}-[a-z]+(?:-[a-z]+)*-[0-9]+$")
+
+
+def normalize_region(region: str) -> str:
+    """Case-fold and trim a region so two spellings of one region compare equal."""
+    return str(region or "").strip().lower()
+
+
+def same_region(left: str, right: str) -> bool:
+    """Compare two region identifiers.
+
+    Collectors decide whether a replica is off-site by comparing the scanned
+    region to a destination region reported by the service. Comparing the raw
+    strings makes that verdict depend on how the operator typed -r: a same-region
+    destination reads as off-site, which passes CP-9(1) on evidence that does not
+    support it. Both sides are normalized here, and an empty side never matches.
+    """
+    left_n, right_n = normalize_region(left), normalize_region(right)
+    return bool(left_n) and left_n == right_n
+
 
 def validate_argument_combination(args: Any) -> None:
-    """-c/-n select a scope; they are not evidence that a scan was approved."""
+    """-c/-n select a scope; they are not evidence that a scan was approved.
+
+    The region is normalized onto args in place, so everything downstream --
+    the client config, the scan plan and any region comparison -- sees one
+    spelling rather than whatever was typed.
+    """
     region = getattr(args, "region", "") or ""
     if not region or any(char not in VALID_REGION_CHARS for char in region):
         raise ValueError("one explicit OCI region is required (-r/--region)")
+    region = normalize_region(region)
+    # A short code such as "iad" is accepted by the OCI config yet is not what
+    # any service reports back, so every region comparison against it silently
+    # fails. Require the full identifier instead of guessing the expansion.
+    if not REGION_IDENTIFIER.match(region):
+        raise ValueError(
+            f"-r/--region must be a full OCI region identifier such as "
+            f"us-ashburn-1, not {region!r}. Short codes like 'iad' are not "
+            f"what the service reports and cannot be compared against it."
+        )
+    args.region = region
     if not args.non_interactive and (args.confirm_scope_ocid or args.approve_scan):
         raise ValueError("--confirm-scope-ocid and --approve-scan require --non-interactive")
     if args.non_interactive and not (args.compartment_id or args.compartment_names):
