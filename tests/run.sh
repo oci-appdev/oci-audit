@@ -48,6 +48,9 @@ python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-ia02-01-fede
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("si04-01-siem-crowdstrike-forwarding.py").read_text(encoding="utf-8"))'
 python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-si04-01-siem-crowdstrike-forwarding.py").read_text(encoding="utf-8"))'
 python3 tests/verify-sdk-surface.py
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("python-sdk/environment-gap-analysis/gap_common.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("python-sdk/environment-gap-analysis/oci-network-gap-analysis.py").read_text(encoding="utf-8"))'
+python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("tests/test-oci-network-gap-analysis.py").read_text(encoding="utf-8"))'
 
 bash cp09-01-backup-type-config-frequency.sh --selfcheck
 bash cp09-02-backup-access-files-check.sh --selfcheck
@@ -77,6 +80,7 @@ python3 cm07-01/cm07-01-open-ports.py --selfcheck
 python3 cm08-01/cm08-01-component-inventory.py --selfcheck
 python3 cm11-01/cm11-01-software-installation-control.py --selfcheck
 python3 si04-01-siem-crowdstrike-forwarding.py --selfcheck
+python3 python-sdk/environment-gap-analysis/oci-network-gap-analysis.py --selfcheck
 bash tests/test-cp09-03.sh
 bash tests/test-sc8-safety.sh
 bash tests/test-sc08-02-in-transit-encryption.sh
@@ -90,5 +94,6 @@ python3 tests/test-ra05-01-vulnerability-tracking.py
 python3 tests/test-cm03-01-configuration-change-tracking.py
 python3 tests/test-ac02-01-account-management.py
 python3 tests/test-ia02-01-federation-configuration.py
+python3 tests/test-oci-network-gap-analysis.py
 
-echo "PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3, AC-2 and IA-2 static, read-only and mock test suite"
+echo "PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3, AC-2, IA-2, SI-4 and environment gap-analysis static, read-only and mock test suite"

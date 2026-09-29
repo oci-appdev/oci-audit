@@ -1,6 +1,6 @@
 # OCI Audit Collector Design Standard
 
-**Effective:** 2026-08-27; OCI Python SDK requirement added 2026-09-02
+**Effective:** 2026-08-27; OCI Python SDK requirement added 2026-09-02; environment gap workflow added 2026-09-29
 
 This standard applies to every new or materially redesigned collector in this
 repository. Existing scripts should adopt it when they are next hardened.
@@ -123,6 +123,11 @@ The shared double-OCID implementation and regression examples are:
 - `cp09-01-backup-type-config-frequency.sh`
 - `cp09-02-backup-access-files-check.sh`
 - `cp09-03-backup-replication-check.sh`
+- `cp09-01/cp09-01-backup-configuration.py`
+- `cp09-02/cp09-02-backup-access.py`
+- `cp09-03/cp09-03-backup-replication.py`
+- `python-sdk/environment-gap-analysis/gap_common.py`
+- `python-sdk/environment-gap-analysis/oci-network-gap-analysis.py`
 - `sc08-02-in-transit-encryption.sh`
 - `sc28-oci-encryption-at-rest.sh`
 - `cm07-01-open-ports-protocols-services.sh`
@@ -142,6 +147,7 @@ The shared double-OCID implementation and regression examples are:
 - `tests/test-cm03-01-configuration-change-tracking.py`
 - `tests/test-ac02-01-account-management.py`
 - `tests/test-ia02-01-federation-configuration.py`
+- `tests/test-oci-network-gap-analysis.py`
 
 All nine canonical Task 1–3 and Task 6–9 collectors default no-scope manual runs to
 the shared interactive workflow and implement the pre-scan summary plus

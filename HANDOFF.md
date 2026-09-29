@@ -1,14 +1,14 @@
 # Implementation Handoff
 
-**Updated:** 2026-09-04
+**Updated:** 2026-09-29
 
-**Working branch:** `main`
+**Working branch:** `codex/network-gap-analysis`
 
-**Published base:** `915cc12` (`main`)
+**Published base before gap-analysis publication:** `d112e38` (`main`)
 
 **Current milestone:** Tasks 1–3, 7, 9–14 collector implementations complete; Tasks 6 and 8 partial; live/manual/approval evidence pending
 
-**Delivery:** SI04-01 focused and full repository mock gate passed locally (23/23)
+**Delivery:** Gap analysis rebased onto current SI04-01 `main`; focused and full repository mock gates pass locally
 
 ## Latest milestone — Task 14 SIEM integration / CrowdStrike forwarding
 
@@ -46,6 +46,62 @@ Task 14 is not audit-complete. Scope confirmation, test events, SIEM receipt
 proof, CrowdStrike configuration screenshots, owner approval and the monthly
 review are still required.
 
+## Supplemental milestone — old/new environment gap analysis
+
+`python-sdk/environment-gap-analysis/oci-network-gap-analysis.py` is a new
+read-only OCI Python SDK workflow for pre-decommission gap analysis. Defaults
+match the requested boundary: resources created before `2026-01-01`, old CIDR
+`172.16.0.0/16`, and new CIDR `10.0.0.0/8`; each value is explicit and
+overrideable so the retained scan plan records the exact comparison.
+Optional repeatable old landing-zone root compartment OCIDs are validated
+against discovery and confirmed twice. Every discovered descendant must be a
+scan target. Automation uses a separate exact
+`--confirm-old-landing-zone-compartment-ocid` set.
+
+The collector inventories VCN/subnet/VLAN, DRG attachments and associated network objects,
+Compute instances/VNICs/private IPs and attached Block/Boot Volume groups,
+classic and network load balancers,
+Base/Autonomous/MySQL/PostgreSQL databases and VM clusters, plus OKE, API
+Gateway, Bastion, FSS mount targets and Functions applications. It builds
+resource dependency edges, propagates old/new network identity, and separates
+`KEEP-CANDIDATE`, `KEEP-SHARED`, `REVIEW-DESTROY-CANDIDATE`, dependency-ordered
+review, old-landing-zone review and fail-closed `HOLD-*` results. A dedicated
+CSV lists every inventoried resource under a confirmed old landing-zone root
+or discovered descendant.
+
+No result is deletion authorization. Only an all-phase, error-free,
+tenancy-wide scan with no unresolved reference can emit a destroy-review
+candidate. Compartment scans, omitted phases, denied/malformed SDK calls,
+unknown dates and unresolved cross-compartment references hold the disposition.
+The decision template still requires business/technical ownership, migration,
+dependency, backup/export, retention/legal-hold, security and change-control
+approval.
+
+Normal/manual execution discovers the tenancy and compartments, requires the
+selected OCID twice, prints cutoff/CIDRs/targets/methods/outputs and requires
+exact uppercase `YES`. Automation requires every exact resolved target OCID
+and `--approve-scan YES`. Evidence is private, formula-safe, timestamped and
+manifested. The script has no update/delete/terminate operation and uses only
+generated Oracle SDK list/get methods.
+
+Second review on 2026-09-29 closed collection-order and fail-closed gaps:
+cross-compartment Block/Boot Volume attachments now reconcile after all target
+compartments, missing DRG/FSS/volume/VNIC relationships become explicit
+unresolved evidence, and any unresolved relationship anywhere closes the
+global destroy-review gate. The exact phase plan no longer advertises
+`get_vnic` for a core-network-only run. Shared-helper lint findings were also
+corrected without changing behavior.
+
+Validation on 2026-09-29: all 17 focused regressions pass; the three CP-9 SDK
+collectors' 15 regressions remain green; SDK 2.185.1 exposes every referenced
+client/method; exact generated signatures were checked, including keyword-only
+NSG/private-IP calls and FSS's required availability-domain argument. No OCI
+credentials were available, so a live tenancy run remains required. Repeat in
+every region containing candidate resources and manually cover service-specific
+private endpoints outside the documented inventory, DNS/external consumers,
+guest/application dependencies, Terraform state and authoritative owner/change
+records.
+
 ## Next implementation target
 
 Tasks 15 is N/A. Task 16 is contingency planning: RTO/RPO, BIA, communications
@@ -54,6 +110,8 @@ an OCI collector component; evidence is entirely organizational documentation.
 Confirm whether any OCI configuration facts (backup policies, replication
 settings, region subscriptions) should be captured by a lightweight collector
 before proceeding to the documentation scaffolding.
+
+## Prior milestone — Task 13 Okta/DOJLogin federation
 
 `ia02-01-federation-configuration.py` is the canonical applicability-first
 Task 13 workflow. It uses only Oracle's generated Identity and Identity Domains
@@ -606,12 +664,12 @@ Volume replica call and verifies all of the following:
 - the failed-call ledger is retained;
 - `NO-VOLUME-REPLICA` is not fabricated.
 
-Latest full-suite result:
+Latest full-suite result on 2026-09-24:
 
 ```text
 PASS: CM03-01 SDK Audit collection, scope safety, CRQ approvals, samples and monthly review
 PASS: AC02-01 SDK accounts, domains, groups, privileges, inactivity and approvals
-PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3 and AC-2 static, read-only and mock test suite
+PASS: CP-9, SC-8, SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3, AC-2, IA-2 and environment gap-analysis static, read-only and mock test suite
 ```
 
 Run with:

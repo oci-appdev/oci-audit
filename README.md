@@ -18,6 +18,44 @@ See [MASTER-TASK-LIST.md](MASTER-TASK-LIST.md) for the control-by-control status
 and [HANDOFF.md](HANDOFF.md) for the latest implementation handoff. All future
 collector work must follow [SCRIPT-DESIGN-STANDARD.md](SCRIPT-DESIGN-STANDARD.md).
 
+## Old/new environment decommission gap analysis
+
+Use
+`python-sdk/environment-gap-analysis/oci-network-gap-analysis.py` to build a
+read-only dependency-aware comparison of resources created before a cutoff and
+resources linked to old versus new network CIDRs. Defaults are:
+
+- cutoff: `2026-01-01`;
+- old network: `172.16.0.0/16`; and
+- new network: `10.0.0.0/8`.
+
+Optional `--old-landing-zone-compartment-id` values mark each confirmed old
+landing-zone root and every discovered descendant. Manual runs require those
+OCIDs twice; automation requires matching
+`--confirm-old-landing-zone-compartment-ocid` values.
+
+The collector uses only the repository-pinned Oracle OCI Python SDK and
+generated list/get clients. It requires exact tenancy or compartment OCID
+confirmation twice, displays the complete plan, and requires exact uppercase
+`YES` before workload calls or evidence creation. It never deletes or changes
+an OCI resource.
+
+Run it interactively:
+
+```bash
+python3 python-sdk/environment-gap-analysis/oci-network-gap-analysis.py \
+  --region us-langley-1 \
+  --output-dir /restricted/evidence/network-gap
+```
+
+Only an all-phase, error-free tenancy scan can emit a
+`REVIEW-DESTROY-CANDIDATE`; even then the result is a review queue, not delete
+authorization. New-network and mixed old/new resources are protected as keep
+candidates. Missing calls, partial scope, unknown creation dates and unresolved
+dependencies produce explicit holds. See
+[`python-sdk/environment-gap-analysis/README.md`](python-sdk/environment-gap-analysis/README.md)
+for custom CIDRs, automation and evidence interpretation.
+
 ## Canonical Task 1 workflow
 
 Use these three scripts together. Legacy `backup-storage.sh` and
@@ -663,7 +701,8 @@ bash tests/run.sh
 ```
 
 The suite performs Bash/Python syntax and read-only checks for CP-9, SC-8,
-SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3, AC-2 and IA-2. It
+SC-28, CM-7, CM-11, CM-2, CM-8, RA-5, CM-3, AC-2, IA-2, SI-4 and the
+environment gap analysis. It
 exercises all seven `cp09-03` service paths and every Task 2 service path
 against mock OCI CLIs. The SC-8 safety gate independently parses all 27 OCI
 wrapper call sites, injects prohibited mutation/PSK calls, proves default
@@ -718,6 +757,11 @@ settings; tenancy expansion; stable configuration hashes; provider/app/policy/
 rule/MFA inventory; secret and formula-safety boundaries; refusal before
 directory collection; denied reads; immutable evidence; exact per-provider
 applicability reconciliation; and all five applicable-provider test types.
+The environment gap-analysis regressions cover old/new/mixed CIDR
+classification, the strict pre-2026 cutoff, exact per-phase SDK plans,
+keyword-only NSG and availability-domain-bound FSS calls, dependency
+propagation, fail-closed destroy suggestions and refusal before workload
+clients or evidence creation.
 
 ## Evidence handling
 

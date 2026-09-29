@@ -1,8 +1,8 @@
 # OCI Audit Implementation Review
 
-**Last updated:** 2026-09-04
+**Last updated:** 2026-09-29
 
-**Current branch:** `main`
+**Current branch:** `codex/network-gap-analysis`
 
 **Master tracker:** `MASTER-TASK-LIST.md`
 
@@ -45,6 +45,44 @@ The remaining worksheet position is tracked in `MASTER-TASK-LIST.md`. Continue
 in worksheet order. After Tasks 1–3 operational evidence, Task 4 is N/A and
 Task 5 remains the earliest unimplemented worksheet item. Tasks 7–9 were
 implemented next at the user's direction.
+
+## 2026-09-24 — Supplemental old/new environment gap analysis
+
+`python-sdk/environment-gap-analysis/oci-network-gap-analysis.py` provides a
+read-only, dependency-aware decommission review for the requested old/new
+environment boundary. Its defaults are cutoff `2026-01-01`, old network
+`172.16.0.0/16` and new network `10.0.0.0/8`; the approved scan plan records
+all overrides. Optional old landing-zone root compartment OCIDs are discovered,
+confirmed twice and expanded to every discovered descendant; incomplete target
+coverage fails before workload collection.
+
+The workflow classifies facts, not deletion authority. New-only resources are
+keep candidates; resources linked to both environments are shared keep
+candidates. A resource becomes `REVIEW-DESTROY-CANDIDATE` only when it predates
+the cutoff, is linked exclusively to the old CIDR, has no unresolved reference,
+and the run is tenancy-wide, all-phase and error-free. Inventoried dependents
+produce an ordered dependency-review result. Partial scope, any failed call,
+omitted collection phase, unknown creation time or unresolved dependency
+produces a hold/review instead of a destroy conclusion.
+
+Generated SDK coverage includes core VCN/DRG objects, Compute/VNIC/private IP
+and attached Block/Boot Volume groups,
+load balancers, common database services, OKE, API Gateway, Bastion, FSS mount
+targets and Functions applications. Service-specific private endpoints not in
+that list, other regions, guest/application dependencies, DNS/external
+consumers, IaC state and organization-owned records remain manual evidence
+boundaries. A signed decision requires ownership, migration, dependency,
+backup/export, retention/legal-hold, security and change-control evidence.
+
+The focused gate is `tests/test-oci-network-gap-analysis.py`. All 17 tests pass,
+including old/new/mixed CIDRs, strict cutoff behavior, landing-zone hierarchy
+and confirmation, full-scope/error gates,
+dependency propagation, exact phase-to-method plans, OCI 2.185.1 NSG/FSS call
+shapes, cross-compartment volume reconciliation, global unresolved-reference
+gating and refusal before workload clients or evidence creation. Missing
+DRG/FSS/volume/VNIC references are retained as unresolved evidence rather than
+silently omitted. Every literal client and method was also checked against
+installed SDK 2.185.1. Live OCI collection and review are still pending.
 
 ### Task 6 corrective status
 

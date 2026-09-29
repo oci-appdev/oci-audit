@@ -38,6 +38,21 @@
 | 17 | ISCP training | Not started | None | Conduct training; retain materials, attendance, results and lessons learned |
 | 18 | ISCP testing | Not started | None | Execute test, publish report, track corrective actions and finalize ISCP/BIA |
 
+## Supplemental decommission workflow
+
+The worksheet tasks are supplemented by
+`python-sdk/environment-gap-analysis/oci-network-gap-analysis.py`, a read-only
+OCI SDK comparison for pre-2026 resources and the old `172.16.0.0/16` versus
+new `10.0.0.0/8` networks. It inventories common network-attached services,
+builds dependency edges and emits conservative keep, shared,
+destroy-after-dependencies, destroy-review and hold queues. It never deletes
+resources and never converts technical facts into an approved destruction
+decision. Confirmed old landing-zone root compartment OCIDs expand to all
+discovered descendants and produce a dedicated resource inventory. Run
+tenancy-wide in every relevant region, resolve all coverage and
+dependency gaps, then complete owner, migration, backup/export,
+retention/legal-hold, security and change-control review.
+
 ## Completion snapshot
 
 Excluding the two N/A items, ten of sixteen actionable worksheet tasks have
