@@ -4,7 +4,7 @@
 
 **Last reviewed:** 2026-10-01
 
-**Repository integration:** This checklist is designed to be used with \`python-sdk/environment-gap-analysis/oci-network-gap-analysis.py\`.
+**Repository integration:** This checklist is designed to be used with `python-sdk/environment-gap-analysis/oci-network-gap-analysis.py`.
 
 > **Critical distinction:** Moving a resource to another compartment changes governance/ownership scope. It does **not** necessarily migrate that resource to the new landing-zone network. A VCN compartment move keeps its CIDR/routing, and a Compute instance compartment move does not move its boot volume or VNIC. Any workload that must leave the legacy 172.16 network and operate on the new 10.x network must have a separate network migration/cutover plan.
 
@@ -68,10 +68,10 @@ Create one row for every resource found by the gap-analysis collector or manual 
 
 ## 0.1 Run the Existing Gap Analysis
 
-- [ ] Run \`python-sdk/environment-gap-analysis/oci-network-gap-analysis.py\` against the tenancy or approved old landing-zone root compartments.
+- [ ] Run `python-sdk/environment-gap-analysis/oci-network-gap-analysis.py` against the tenancy or approved old landing-zone root compartments.
 - [ ] Use the default old-resource cutoff unless the migration authority approves another date.
-- [ ] Confirm old CIDR boundary includes \`172.16.0.0/16\`.
-- [ ] Confirm new landing-zone CIDR boundary includes the approved \`10.0.0.0/8\` ranges.
+- [ ] Confirm old CIDR boundary includes `172.16.0.0/16`.
+- [ ] Confirm new landing-zone CIDR boundary includes the approved `10.0.0.0/8` ranges.
 - [ ] Repeat the inventory in every OCI region containing candidate resources.
 - [ ] Resolve all SDK collection errors before authorizing any decommission decision.
 - [ ] Resolve all unknown-compartment and cross-compartment references.
@@ -262,14 +262,14 @@ Compute-resource moves do not automatically move boot volumes or VNICs.
 - [ ] Inventory mount targets.
 - [ ] Inventory export sets/exports.
 - [ ] Inventory mount IPs used by application hosts.
-- [ ] Inventory \`/etc/fstab\` and application configuration references.
+- [ ] Inventory `/etc/fstab` and application configuration references.
 - [ ] If only changing compartment, move file system/mount target as supported.
 - [ ] If moving to the new 10.x subnet, create a new mount target in the target subnet.
 - [ ] Recreate the export using the same export path.
 - [ ] Stop application writes for cutover.
 - [ ] Unmount old target.
 - [ ] Mount through the new 10.x mount target.
-- [ ] Update \`/etc/fstab\` / automount / application configuration.
+- [ ] Update `/etc/fstab` / automount / application configuration.
 - [ ] Validate read/write and permissions.
 - [ ] Remove old mount target only after validation.
 
@@ -559,14 +559,14 @@ This phase is mandatory before or immediately after resource moves. Otherwise Ia
 - [ ] Identify every migrated resource managed by Terraform/CD3.
 - [ ] Back up Terraform state.
 - [ ] Confirm the active state backend.
-- [ ] Confirm no concurrent \`terraform apply\`.
+- [ ] Confirm no concurrent `terraform apply`.
 - [ ] Freeze automated pipelines during the controlled move.
 - [ ] Update compartment OCIDs in variables.
 - [ ] Update VCN/subnet/NSG OCIDs.
 - [ ] Update resource references.
 - [ ] Import recreated resources where required.
 - [ ] Use Terraform moved/import/state operations only under reviewed change control.
-- [ ] Run \`terraform plan\`.
+- [ ] Run `terraform plan`.
 - [ ] Require the plan to show only intended changes.
 - [ ] Resolve any proposed destruction of retained resources.
 - [ ] Re-enable pipeline only after clean plan.
