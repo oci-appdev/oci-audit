@@ -12,13 +12,13 @@
 
 ## Supplemental milestone — old-to-new landing-zone migration checklist
 
-\`LANDING-ZONE-MIGRATION-CHECKLIST.md\` is the execution checklist for moving legacy OCI resources from old landing-zone compartments into the new landing-zone structure, with special handling for the old \`172.16.0.0/16\` network and the new \`10.0.0.0/8\` network boundary.
+`LANDING-ZONE-MIGRATION-CHECKLIST.md` is the execution checklist for moving legacy OCI resources from old landing-zone compartments into the new landing-zone structure, with special handling for the old `172.16.0.0/16` network and the new `10.0.0.0/8` network boundary.
 
-The checklist deliberately separates a **compartment move** from a **network/workload migration**. Moving a VCN preserves the old VCN/CIDR, and moving a Compute instance does not move its boot volume or VNIC. Workloads that must leave \`172.16\` therefore use service-specific rebuild, restore, reattachment, replication or cutover procedures into the new \`10.x\` subnets rather than being marked complete after a compartment change.
+The checklist deliberately separates a **compartment move** from a **network/workload migration**. Moving a VCN preserves the old VCN/CIDR, and moving a Compute instance does not move its boot volume or VNIC. Workloads that must leave `172.16` therefore use service-specific rebuild, restore, reattachment, replication or cutover procedures into the new `10.x` subnets rather than being marked complete after a compartment change.
 
 Execution is ordered by dependency: discovery/freeze; target compartment/IAM/security readiness; new VCN/DRG/FastConnect/DNS; shared storage; databases; Compute; OKE/containers/Functions/API; load balancers; monitoring/logging/SIEM; Terraform/CD3 state reconciliation; application cutover; post-migration dependency rescan; and separately approved decommissioning. No gap-analysis result is deletion authorization.
 
-The checklist uses \`python-sdk/environment-gap-analysis/oci-network-gap-analysis.py\` as the pre- and post-migration inventory source. Final acceptance requires a repeat scan showing no unapproved \`172.16\` dependency, clean owner/security/change approvals, working backups/monitoring/logging, and reconciled Terraform/CD3 state before old resources are removed.
+The checklist uses `python-sdk/environment-gap-analysis/oci-network-gap-analysis.py` as the pre- and post-migration inventory source. Final acceptance requires a repeat scan showing no unapproved `172.16` dependency, clean owner/security/change approvals, working backups/monitoring/logging, and reconciled Terraform/CD3 state before old resources are removed.
 
 
 ## Latest milestone — Task 14 SIEM integration / CrowdStrike forwarding
