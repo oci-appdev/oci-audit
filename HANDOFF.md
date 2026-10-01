@@ -20,6 +20,8 @@ Execution is ordered by dependency: discovery/freeze; target compartment/IAM/sec
 
 The checklist uses `python-sdk/environment-gap-analysis/oci-network-gap-analysis.py` as the pre- and post-migration inventory source. Final acceptance requires a repeat scan showing no unapproved `172.16` dependency, clean owner/security/change approvals, working backups/monitoring/logging, and reconciled Terraform/CD3 state before old resources are removed.
 
+The migration checklist was simplified on 2026-10-01 into a concise 14-step execution list while retaining the critical rule that a compartment move is not the same as a `172.16` to `10.x` network migration.
+
 
 ## Latest milestone — Task 14 SIEM integration / CrowdStrike forwarding
 
